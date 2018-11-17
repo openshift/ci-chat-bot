@@ -2,10 +2,11 @@ package prow
 
 import (
 	"bytes"
+	"fmt"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/dynamic"
 
 	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 )
@@ -17,32 +18,18 @@ type ProwConfigLoader interface {
 func JobForConfig(prowConfigLoader ProwConfigLoader, jobName string) (*prowapiv1.ProwJob, error) {
 	config := prowConfigLoader.Config()
 	if config == nil {
-		return fmt.Errorf("the prow job %s is not valid: no prow jobs have been defined", jobName)
+		return nil, fmt.Errorf("the prow job %s is not valid: no prow jobs have been defined", jobName)
 	}
-	periodicConfig, ok := hasProwJob(config, jobName)
+	periodicConfig, ok := prowapiv1.HasProwJob(config, jobName)
 	if !ok {
-		return fmt.Errorf("the prow job %s is not valid: no job with that name", jobName)
+		return nil, fmt.Errorf("the prow job %s is not valid: no job with that name", jobName)
 	}
 
-	spec := prowSpecForPeriodicConfig(periodicConfig, config.Plank.DefaultDecorationConfig)
+	spec := prowapiv1.ProwSpecForPeriodicConfig(periodicConfig, config.Plank.DefaultDecorationConfig)
 
 	pj := &prowapiv1.ProwJob{
 		TypeMeta: metav1.TypeMeta{APIVersion: "prow.k8s.io/v1", Kind: "ProwJob"},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: prowJobName,
-			Annotations: map[string]string{
-				releaseAnnotationSource: fmt.Sprintf("%s/%s", release.Source.Namespace, release.Source.Name),
-
-				"prow.k8s.io/job": spec.Job,
-			},
-			Labels: map[string]string{
-				"release.openshift.io/verify": "true",
-
-				"prow.k8s.io/type": string(spec.Type),
-				"prow.k8s.io/job":  spec.Job,
-			},
-		},
-		Spec: *spec,
+		Spec:     *spec,
 		Status: prowapiv1.ProwJobStatus{
 			State: prowapiv1.PendingState,
 		},
@@ -62,18 +49,20 @@ func ObjectToUnstructured(obj runtime.Object) *unstructured.Unstructured {
 	return u
 }
 
-func OverrideJobEnvironment(spec *prowapiv1.ProwJobSpec, image string) error {
-	if spec.PodSpec == nil {
-		return nil
-	}
+func UnstructuredToObject(in runtime.Unstructured, out runtime.Object) error {
+	return runtime.DefaultUnstructuredConverter.FromUnstructured(in.UnstructuredContent(), out)
+}
+
+func OverrideJobEnvironment(spec *prowapiv1.ProwJobSpec, image, namespace string) {
 	for i := range spec.PodSpec.Containers {
 		c := &spec.PodSpec.Containers[i]
 		for j := range c.Env {
 			switch name := c.Env[j].Name; {
 			case name == "RELEASE_IMAGE_LATEST":
 				c.Env[j].Value = image
+			case name == "NAMESPACE":
+				c.Env[j].Value = namespace
 			}
 		}
 	}
-	return nil
 }

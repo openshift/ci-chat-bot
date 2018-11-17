@@ -1,8 +1,6 @@
 package apiv1
 
-
-
-func ProwSpecForPeriodicConfig(config *PeriodicConfig, decorationConfig *DecorationConfig) *prowapiv1.ProwJobSpec {
+func ProwSpecForPeriodicConfig(config *PeriodicConfig, decorationConfig *DecorationConfig) *ProwJobSpec {
 	spec := &ProwJobSpec{
 		Type:  PeriodicJob,
 		Job:   config.Name,
@@ -22,7 +20,6 @@ func ProwSpecForPeriodicConfig(config *PeriodicConfig, decorationConfig *Decorat
 
 	return spec
 }
-
 
 func HasProwJob(config *Config, name string) (*PeriodicConfig, bool) {
 	for i := range config.Periodics {
