@@ -265,7 +265,7 @@ func (m *clusterManager) ListClusters() string {
 		for _, cluster := range clusters {
 			switch {
 			case len(cluster.Credentials) > 0:
-				fmt.Fprintf(buf, "* `%s` %d minutes ago by <@%s> - available and will be torn down in %d minutes\n", cluster.Name, int(now.Sub(cluster.RequestedAt)/time.Minute), cluster.RequestedBy, int(now.Sub(cluster.ExpiresAt)/time.Minute))
+				fmt.Fprintf(buf, "* `%s` %d minutes ago by <@%s> - available and will be torn down in %d minutes\n", cluster.Name, int(now.Sub(cluster.RequestedAt)/time.Minute), cluster.RequestedBy, int(cluster.ExpiresAt.Sub(now)/time.Minute))
 			case len(cluster.Failure) > 0:
 				fmt.Fprintf(buf, "* `%s` %d minutes ago by <@%s> - failure: %s\n", cluster.Name, int(now.Sub(cluster.RequestedAt)/time.Minute), cluster.RequestedBy, cluster.Failure)
 			default:
