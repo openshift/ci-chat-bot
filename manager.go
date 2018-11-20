@@ -349,7 +349,7 @@ func (m *clusterManager) LaunchClusterForUser(req *ClusterRequest) (string, erro
 	log.Printf("user %q requests cluster %q", user, newCluster.Name)
 	go m.handleClusterStartup(*newCluster)
 
-	return "", fmt.Errorf("a cluster is being created - I'll send you the credentials in about ~%d minutes", m.estimateCompletion(req.RequestedAt))
+	return "", fmt.Errorf("a cluster is being created - I'll send you the credentials in about ~%d minutes", m.estimateCompletion(req.RequestedAt)/time.Minute)
 }
 
 func (m *clusterManager) handleClusterStartup(cluster Cluster) {
