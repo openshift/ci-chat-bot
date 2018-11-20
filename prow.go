@@ -63,7 +63,7 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 	log.Printf("prow job %s launched to target namespace %s", job.Name, namespace)
 
 	seen := false
-	err = wait.PollImmediate(5*time.Second, 10*time.Minute, func() (bool, error) {
+	err = wait.PollImmediate(5*time.Second, 15*time.Minute, func() (bool, error) {
 		pod, err := m.coreClient.Core().Pods(m.prowNamespace).Get(cluster.Name, metav1.GetOptions{})
 		if err != nil {
 			if !errors.IsNotFound(err) {
@@ -87,11 +87,13 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 	log.Printf("waiting for pod %s/%s to exist", namespace, targetPodName)
 
 	seen = false
-	err = wait.PollImmediate(5*time.Second, 10*time.Minute, func() (bool, error) {
+	var lastErr error
+	err = wait.PollImmediate(5*time.Second, 15*time.Minute, func() (bool, error) {
 		pod, err := m.coreClient.Core().Pods(namespace).Get(targetPodName, metav1.GetOptions{})
 		if err != nil {
 			// pod could not be created or we may not have permission yet
 			if !errors.IsNotFound(err) && !errors.IsForbidden(err) {
+				lastErr = err
 				return false, err
 			}
 			if seen {
@@ -106,7 +108,10 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 		return true, nil
 	})
 	if err != nil {
-		return fmt.Errorf("pod does not exist: %v", err)
+		if lastErr != nil && err == wait.ErrWaitTimeout {
+			err = lastErr
+		}
+		return fmt.Errorf("pod never became available: %v", err)
 	}
 
 	log.Printf("trying to grab the kubeconfig from launched pod")
