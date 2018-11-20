@@ -365,7 +365,9 @@ func (m *clusterManager) finishedCluster(cluster Cluster) {
 	defer m.lock.Unlock()
 
 	now := time.Now()
-	m.lastEstimate = now.Sub(cluster.RequestedAt)
+	if len(cluster.Credentials) > 0 {
+		m.lastEstimate = now.Sub(cluster.RequestedAt)
+	}
 
 	log.Printf("completed cluster request for %s and notifying participants (%s)", cluster.Name, cluster.RequestedBy)
 

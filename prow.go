@@ -90,7 +90,8 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 	err = wait.PollImmediate(5*time.Second, 10*time.Minute, func() (bool, error) {
 		pod, err := m.coreClient.Core().Pods(namespace).Get(targetPodName, metav1.GetOptions{})
 		if err != nil {
-			if !errors.IsNotFound(err) {
+			// pod could not be created or we may not have permission yet
+			if !errors.IsNotFound(err) && !errors.IsForbidden(err) {
 				return false, err
 			}
 			if seen {
