@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"time"
 
 	"golang.org/x/net/websocket"
 )
@@ -141,16 +143,51 @@ func (b *Bot) sendHelp(msg Message) {
 }
 
 // Listen for message on socket
-func (b *Bot) Listen() {
+func (b *Bot) Listen() error {
 	var msg Message
+	pong := make(chan struct{})
+
+	go func() {
+		time.Sleep(5 * time.Second)
+		count := uint64(100)
+		for {
+			count++
+			if err := websocket.JSON.Send(b.Socket, &Message{ID: count, Type: "ping"}); err != nil {
+				log.Printf("Unable to send a ping to the Slack API: %v")
+				if err := b.Socket.Close(); err != nil {
+					log.Printf("Unable to close websocket: %v")
+				}
+			}
+			select {
+			case <-pong:
+				time.Sleep(time.Minute)
+			case <-time.After(time.Minute):
+				log.Printf("Waited more than a minute for a pong, exiting")
+				if err := b.Socket.Close(); err != nil {
+					log.Printf("Unable to close websocket: %v")
+				}
+				return
+			}
+		}
+	}()
 
 	for {
-		if websocket.JSON.Receive(b.Socket, &msg) == nil {
-			go b.process(msg)
-
-			// Clean up message after processign it
-			msg = Message{}
+		if err := websocket.JSON.Receive(b.Socket, &msg); err != nil {
+			return err
 		}
+
+		switch msg.Type {
+		case "pong":
+			select {
+			case pong <- struct{}{}:
+			default:
+			}
+		default:
+			go b.process(msg)
+		}
+
+		// Clean up message after processign it
+		msg = Message{}
 	}
 }
 
