@@ -336,7 +336,7 @@ func (m *clusterManager) LaunchClusterForUser(req *ClusterRequest) (string, erro
 	}
 
 	newCluster := &Cluster{
-		Name:             fmt.Sprintf("%s%s", m.clusterPrefix, req.RequestedAt.UTC().Format("2006-01-02-030405.9999")),
+		Name:             fmt.Sprintf("%s%s", m.clusterPrefix, req.RequestedAt.UTC().Format("2006-01-02-150405.9999")),
 		RequestedBy:      user,
 		RequestedChannel: req.Channel,
 		RequestedAt:      req.RequestedAt,
