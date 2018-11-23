@@ -126,7 +126,7 @@ func (b *Bot) notifyCluster(conv hanu.ConversationInterface, cluster *Cluster) {
 	case len(cluster.Credentials) == 0:
 		conv.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago)", time.Now().Sub(cluster.RequestedAt)/time.Minute))
 	default:
-		b.sendKubeconfig(conv, cluster.Credentials, cluster.RequestedAt.Format("2006-01-02-030405"), cluster.ExpiresAt)
+		b.sendKubeconfig(conv, cluster.Credentials, cluster.RequestedAt.Format("2006-01-02-150405"), cluster.ExpiresAt)
 	}
 }
 
