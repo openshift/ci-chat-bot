@@ -157,8 +157,11 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 
 	// once the cluster is reachable, we're ok to send credentials
 	// TODO: better criteria?
+	var waitErr error
 	if err := waitForClusterReachable(kubeconfig); err != nil {
 		log.Printf("error: unable to wait for the cluster to start: %v", err)
+		cluster.Credentials = ""
+		waitErr = fmt.Errorf("cluster did not become reachable: %v", err)
 	}
 
 	// clear the channel notification in case we crash so we don't attempt to redeliver
@@ -167,7 +170,7 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 		log.Printf("error: unable to clear channel annotation from prow job: %v", err)
 	}
 
-	return nil
+	return waitErr
 }
 
 // waitForClusterReachable performs a slow poll, waiting for the cluster to come alive.
@@ -182,34 +185,6 @@ func waitForClusterReachable(kubeconfig string) error {
 	if err != nil {
 		return err
 	}
-
-	// dynamicClient, err := dynamic.NewForConfig(cfg)
-	// if err != nil {
-	// 	return fmt.Errorf("unable to create prow client: %v", err)
-	// }
-	// opClient := dynamicClient.Resource(schema.GroupVersionResource{Group: "config.openshift.io", Version: "v1", Resource: "clusteroperators"})
-
-	// err = wait.PollImmediate(15*time.Second, 15*time.Minute, func() (bool, error) {
-	// 	all, err := opClient.List(metav1.ListOptions{})
-	// 	if err != nil {
-	// 		log.Printf("cluster is not reachable %s: %v", cfg.Host, err)
-	// 		return false, nil
-	// 	}
-	// 	for _, item := range all.Items {
-	// 		if item.GetName() != "openshift-cluster-openshift-apiserver-operator" {
-	// 			continue
-	// 		}
-	// 		objStatus, ok := item.UnstructuredContent()["status"]
-	// 		if !ok || objStatus == nil {
-	// 			continue
-	// 		}
-	// 		objStatus.()
-	// 	}
-	// 	return false, nil
-	// })
-	// if err != nil {
-	// 	return err
-	// }
 
 	return wait.PollImmediate(15*time.Second, 15*time.Minute, func() (bool, error) {
 		_, err := client.Core().Namespaces().Get("openshift-apiserver", metav1.GetOptions{})
