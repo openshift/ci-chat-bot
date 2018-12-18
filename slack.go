@@ -31,32 +31,44 @@ func (b *Bot) Start(manager ClusterManager) error {
 
 	manager.SetNotifier(b.clusterResponder(slack))
 
+	launch := func(conv hanu.ConversationInterface) {
+		if !conv.Message().IsDirectMessage() {
+			conv.Reply("this command is only accepted via direct message")
+			return
+		}
+
+		image := "registry.svc.ci.openshift.org/openshift/origin-release:v4.0"
+		if v, err := conv.String("image"); err == nil {
+			image = v
+		}
+
+		user := conv.Message().User()
+		channel := conv.Message().(hanu.Message).Channel
+
+		msg, err := manager.LaunchClusterForUser(&ClusterRequest{
+			User:         user,
+			ReleaseImage: image,
+			Channel:      channel,
+		})
+		if err != nil {
+			conv.Reply(err.Error())
+			return
+		}
+		conv.Reply(msg)
+	}
+
 	slack.Commands = append(slack.Commands,
 
 		hanu.NewCommand(
 			"launch",
 			"Launch an OpenShift 4.0 cluster on AWS. You will receive a response when the cluster is up for the credentials of the KUBECONFIG file. You must send this as a direct message.",
-			func(conv hanu.ConversationInterface) {
-				if !conv.Message().IsDirectMessage() {
-					conv.Reply("this command is only accepted via direct message")
-					return
-				}
+			launch,
+		),
 
-				image := "registry.svc.ci.openshift.org/openshift/origin-release:v4.0"
-				user := conv.Message().User()
-				channel := conv.Message().(hanu.Message).Channel
-
-				msg, err := manager.LaunchClusterForUser(&ClusterRequest{
-					User:         user,
-					ReleaseImage: image,
-					Channel:      channel,
-				})
-				if err != nil {
-					conv.Reply(err.Error())
-					return
-				}
-				conv.Reply(msg)
-			},
+		hanu.NewCommand(
+			"launch <image>",
+			"Launch an OpenShift 4.0 cluster on AWS and specify the release image. Will still use the latest installer.",
+			launch,
 		),
 
 		hanu.NewCommand(
