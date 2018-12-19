@@ -71,7 +71,8 @@ func (b *Bot) Start(manager ClusterManager) error {
 			launch,
 		),
 
-		hanu.NewCommand(
+		hanu.NewComm
+		and(
 			"list",
 			"See who is hogging all the clusters.",
 			func(conv hanu.ConversationInterface) {
