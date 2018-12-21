@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/spf13/pflag"
 
@@ -63,5 +64,10 @@ func run() error {
 	}
 
 	bot := NewBot(botToken)
-	return bot.Start(manager)
+	for {
+		if err := bot.Start(manager); err != nil {
+			return err
+		}
+		time.Sleep(5 * time.Second)
+	}
 }
