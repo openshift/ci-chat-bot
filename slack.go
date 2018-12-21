@@ -80,6 +80,23 @@ func (b *Bot) Start(manager ClusterManager) error {
 		),
 
 		hanu.NewCommand(
+			"refresh",
+			"If the cluster is currently marked as failed, retry fetching its credentials in case of an error.",
+			func(conv hanu.ConversationInterface) {
+				if !conv.Message().IsDirectMessage() {
+					conv.Reply("you must direct message me this request")
+					return
+				}
+				msg, err := manager.SyncClusterForUser(conv.Message().User())
+				if err != nil {
+					conv.Reply(err.Error())
+					return
+				}
+				conv.Reply(msg)
+			},
+		),
+
+		hanu.NewCommand(
 			"auth",
 			"Send the credentials for the cluster you most recently requested",
 			func(conv hanu.ConversationInterface) {

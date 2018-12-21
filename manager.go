@@ -37,6 +37,7 @@ type ClusterManager interface {
 	SetNotifier(ClusterCallbackFunc)
 
 	LaunchClusterForUser(req *ClusterRequest) (string, error)
+	SyncClusterForUser(user string) (string, error)
 	GetCluster(user string) (*Cluster, error)
 	ListClusters() string
 }
@@ -350,6 +351,38 @@ func (m *clusterManager) LaunchClusterForUser(req *ClusterRequest) (string, erro
 	go m.handleClusterStartup(*newCluster)
 
 	return "", fmt.Errorf("a cluster is being created - I'll send you the credentials in about ~%d minutes", m.estimateCompletion(req.RequestedAt)/time.Minute)
+}
+
+func (m *clusterManager) SyncClusterForUser(user string) (string, error) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	if len(user) == 0 {
+		return "", fmt.Errorf("must specify the name of the user who requested this cluster")
+	}
+
+	existing, ok := m.requests[user]
+	if !ok || len(existing.Cluster) == 0 {
+		return "", fmt.Errorf("no cluster has been requested by you")
+	}
+	cluster, ok := m.clusters[existing.Cluster]
+	if !ok {
+		return "", fmt.Errorf("cluster hasn't been initialized yet, cannot refresh")
+	}
+	if len(cluster.Failure) == 0 {
+		if len(cluster.Credentials) > 0 {
+			return "cluster was successfully created, please use 'auth' to fetch your credentials", nil
+		}
+		return "cluster is still being loaded, please be patient", nil
+	}
+
+	copied := *cluster
+	msg := fmt.Sprintf("cluster had previously been marked as failed, checking again: %s", copied.Failure)
+	copied.Failure = ""
+	log.Printf("user %q requests cluster %q to be refreshed", user, copied.Name)
+	go m.handleClusterStartup(copied)
+
+	return msg, nil
 }
 
 func (m *clusterManager) handleClusterStartup(cluster Cluster) {
