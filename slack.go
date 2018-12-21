@@ -123,8 +123,7 @@ func (b *Bot) Start(manager ClusterManager) error {
 	)
 
 	log.Printf("ci-chat-bot up and listening to slack")
-	slack.Listen()
-	return nil
+	return slack.Listen()
 }
 
 func (b *Bot) clusterResponder(slack *hanu.Bot) func(Cluster) {
