@@ -65,7 +65,7 @@ func run() error {
 
 	bot := NewBot(botToken)
 	for {
-		if err := bot.Start(manager); err != nil {
+		if err := bot.Start(manager); err != nil && !isRetriable(err) {
 			return err
 		}
 		time.Sleep(5 * time.Second)

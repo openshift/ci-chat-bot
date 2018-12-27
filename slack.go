@@ -207,3 +207,11 @@ type slackResponse struct {
 	Ok    bool
 	Error string
 }
+
+func isRetriable(err error) bool {
+	if err == nil {
+		return true
+	}
+	// if we timeout and close the connection
+	return strings.Contains(err.Error(), "use of closed network connection")
+}
