@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -209,9 +210,13 @@ type slackResponse struct {
 }
 
 func isRetriable(err error) bool {
-	if err == nil {
+	// there are several conditions that result from closing the connection on our side
+	switch {
+	case err == nil,
+		err == io.EOF,
+		strings.Contains(err.Error(), "use of closed network connection"):
 		return true
+	default:
+		return false
 	}
-	// if we timeout and close the connection
-	return strings.Contains(err.Error(), "use of closed network connection")
 }
