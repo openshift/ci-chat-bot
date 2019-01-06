@@ -323,8 +323,14 @@ func (m *clusterManager) LaunchClusterForUser(req *ClusterRequest) (string, erro
 				log.Printf("user %q cluster is already up", user)
 				return "your cluster is already running, see your credentials again with the 'auth' command", nil
 			}
-			log.Printf("user %q cluster has no credentials yet", user)
-			return "", fmt.Errorf("you have already requested a cluster and it should be ready in ~ %d minutes", m.estimateCompletion(existing.RequestedAt)/time.Minute)
+			if len(cluster.Failure) == 0 {
+				log.Printf("user %q cluster has no credentials yet", user)
+				return "", fmt.Errorf("you have already requested a cluster and it should be ready in ~ %d minutes", m.estimateCompletion(existing.RequestedAt)/time.Minute)
+			}
+
+			log.Printf("user %q cluster failed, allowing them to request another", user)
+			delete(m.clusters, existing.Cluster)
+			delete(m.requests, user)
 		}
 	}
 	req.RequestedAt = time.Now()
