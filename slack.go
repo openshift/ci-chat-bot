@@ -216,6 +216,10 @@ func isRetriable(err error) bool {
 		err == io.EOF,
 		strings.Contains(err.Error(), "use of closed network connection"):
 		return true
+	case strings.Contains(err.Error(), "cannot unmarshal object into Go struct field Message.user of type string"):
+		// this could be a legitimate error, so log it to ensure we can debug
+		log.Printf("warning: Ignoring serialization error and continuing: %v", err)
+		return true
 	default:
 		return false
 	}
