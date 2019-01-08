@@ -375,15 +375,18 @@ func (m *clusterManager) SyncClusterForUser(user string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("cluster hasn't been initialized yet, cannot refresh")
 	}
-	if len(cluster.Failure) == 0 {
-		if len(cluster.Credentials) > 0 {
-			return "cluster was successfully created, please use 'auth' to fetch your credentials", nil
-		}
+
+	var msg string
+	switch {
+	case len(cluster.Failure) == 0 && len(cluster.Credentials) == 0:
 		return "cluster is still being loaded, please be patient", nil
+	case len(cluster.Failure) > 0:
+		msg = fmt.Sprintf("cluster had previously been marked as failed, checking again: %s", cluster.Failure)
+	case len(cluster.Credentials) > 0:
+		msg = fmt.Sprintf("cluster had previously been marked as successful, checking again")
 	}
 
 	copied := *cluster
-	msg := fmt.Sprintf("cluster had previously been marked as failed, checking again: %s", copied.Failure)
 	copied.Failure = ""
 	log.Printf("user %q requests cluster %q to be refreshed", user, copied.Name)
 	go m.handleClusterStartup(copied)
