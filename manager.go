@@ -54,8 +54,9 @@ type Cluster struct {
 
 	ReleaseImage string
 
-	Credentials string
-	Failure     string
+	Credentials     string
+	PasswordSnippet string
+	Failure         string
 
 	RequestedBy      string
 	RequestedChannel string

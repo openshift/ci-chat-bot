@@ -155,11 +155,11 @@ func (b *Bot) notifyCluster(conv hanu.ConversationInterface, cluster *Cluster) {
 	case len(cluster.Credentials) == 0:
 		conv.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago)", time.Now().Sub(cluster.RequestedAt)/time.Minute))
 	default:
-		b.sendKubeconfig(conv, cluster.Credentials, cluster.RequestedAt.Format("2006-01-02-150405"), cluster.ExpiresAt)
+		b.sendKubeconfig(conv, cluster.Credentials, cluster.PasswordSnippet, cluster.RequestedAt.Format("2006-01-02-150405"), cluster.ExpiresAt)
 	}
 }
 
-func (b *Bot) sendKubeconfig(conv hanu.ConversationInterface, contents, identifier string, expires time.Time) {
+func (b *Bot) sendKubeconfig(conv hanu.ConversationInterface, contents, passwordSnippet, identifier string, expires time.Time) {
 	msg := conv.Message().(hanu.Message)
 	if len(msg.Channel) == 0 {
 		log.Printf("error: no channel in response: %#v", msg)
@@ -171,10 +171,14 @@ func (b *Bot) sendKubeconfig(conv hanu.ConversationInterface, contents, identifi
 	v.Set("channels", msg.Channel)
 	v.Set("filename", fmt.Sprintf("cluster-bot-%s.kubeconfig", identifier))
 	v.Set("filetype", "text")
-	v.Set("initial_comment", fmt.Sprintf(
-		"Cluster is now available and your credentials are attached.\nThe cluster will be shut down automatically in ~%d minutes",
+	comment := fmt.Sprintf(
+		"Your cluster is ready, it will be shut down automatically in ~%d minutes.",
 		expires.Sub(time.Now())/time.Minute,
-	))
+	)
+	if len(passwordSnippet) > 0 {
+		comment += "\n" + passwordSnippet
+	}
+	v.Set("initial_comment", comment)
 	req, err := http.NewRequest("POST", "https://slack.com/api/files.upload", strings.NewReader(v.Encode()))
 	if err != nil {
 		log.Printf("error: unable to send attachment with message: %v", err)
