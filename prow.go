@@ -85,7 +85,7 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 		return fmt.Errorf("unable to check launch status: %v", err)
 	}
 
-	log.Printf("waiting for pod %s/%s to exist", namespace, targetPodName)
+	log.Printf("waiting for setup container in pod %s/%s to complete", namespace, targetPodName)
 
 	seen = false
 	var lastErr error
@@ -106,7 +106,11 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 		if pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed" {
 			return false, fmt.Errorf("pod has already exited")
 		}
-		return true, nil
+		ok, err := containerSuccessful(pod, "setup")
+		if err != nil {
+			return false, err
+		}
+		return ok, nil
 	})
 	if err != nil {
 		if lastErr != nil && err == wait.ErrWaitTimeout {
@@ -117,29 +121,15 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 
 	log.Printf("trying to grab the kubeconfig from launched pod")
 
-	// switch between the two containers as necessary
-	commandIndex := 0
-	commandSet := []struct {
-		Container string
-		Command   []string
-	}{
-		{"test", []string{"cat", "/tmp/admin.kubeconfig"}},
-		{"setup", []string{"cat", "/tmp/artifacts/installer/auth/kubeconfig"}},
-	}
-
 	var kubeconfig string
 	err = wait.PollImmediate(30*time.Second, 10*time.Minute, func() (bool, error) {
-		cmd := commandSet[commandIndex%len(commandSet)]
-		contents, err := commandContents(m.coreClient.Core(), m.coreConfig, namespace, targetPodName, cmd.Container, cmd.Command)
+		contents, err := commandContents(m.coreClient.Core(), m.coreConfig, namespace, targetPodName, "test", []string{"cat", "/tmp/admin.kubeconfig"})
 		if err != nil {
-			commandIndex++
 			if strings.Contains(err.Error(), "container not found") {
 				// periodically check whether the still exists and is not succeeded or failed
-				if commandIndex%4 == 3 {
-					pod, err := m.coreClient.Core().Pods(namespace).Get(targetPodName, metav1.GetOptions{})
-					if errors.IsNotFound(err) || (pod != nil && (pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed")) {
-						return false, fmt.Errorf("pod cannot be found or has been deleted, assume cluster won't come up")
-					}
+				pod, err := m.coreClient.Core().Pods(namespace).Get(targetPodName, metav1.GetOptions{})
+				if errors.IsNotFound(err) || (pod != nil && (pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed")) {
+					return false, fmt.Errorf("pod cannot be found or has been deleted, assume cluster won't come up")
 				}
 
 				return false, nil
@@ -280,4 +270,17 @@ func namespaceSafeHash(values ...string) string {
 	// but we can tolerate it as our input space is
 	// tiny.
 	return oneWayNameEncoding.EncodeToString(hash.Sum(nil)[:4])
+}
+
+func containerSuccessful(pod *corev1.Pod, containerName string) (bool, error) {
+	for _, container := range pod.Status.ContainerStatuses {
+		if container.Name != containerName {
+			continue
+		}
+		if container.State.Terminated == nil {
+			return false, nil
+		}
+		return container.State.Terminated.ExitCode == 0, nil
+	}
+	return false, nil
 }
