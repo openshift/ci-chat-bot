@@ -6,6 +6,7 @@ import (
 	"encoding/base32"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -164,6 +165,13 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 		waitErr = fmt.Errorf("cluster did not become reachable: %v", err)
 	}
 
+	lines := int64(2)
+	logs, err := m.coreClient.Core().Pods(namespace).GetLogs(targetPodName, &corev1.PodLogOptions{Container: "setup", TailLines: &lines}).DoRaw()
+	if err != nil {
+		log.Printf("error: unable to get setup logs")
+	}
+	cluster.PasswordSnippet = reFixLines.ReplaceAllString(string(logs), "$1")
+
 	// clear the channel notification in case we crash so we don't attempt to redeliver
 	patch := []byte(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":""}}}`)
 	if _, err := m.prowClient.Namespace(m.prowNamespace).Patch(job.Name, types.MergePatchType, patch, metav1.UpdateOptions{}); err != nil {
@@ -172,6 +180,8 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 
 	return waitErr
 }
+
+var reFixLines = regexp.MustCompile(`(?m)^level=info msg=\"(.*)\"$`)
 
 // waitForClusterReachable performs a slow poll, waiting for the cluster to come alive.
 // It returns an error if the cluster doesn't respond within the time limit.
@@ -186,7 +196,7 @@ func waitForClusterReachable(kubeconfig string) error {
 		return err
 	}
 
-	return wait.PollImmediate(15*time.Second, 15*time.Minute, func() (bool, error) {
+	return wait.PollImmediate(15*time.Second, 20*time.Minute, func() (bool, error) {
 		_, err := client.Core().Namespaces().Get("openshift-apiserver", metav1.GetOptions{})
 		if err == nil {
 			return true, nil
