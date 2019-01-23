@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -69,7 +70,6 @@ type clusterManager struct {
 	lock         sync.Mutex
 	requests     map[string]*ClusterRequest
 	clusters     map[string]*Cluster
-	waitList     []string
 	lastEstimate time.Duration
 	started      time.Time
 
@@ -96,7 +96,7 @@ func NewClusterManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynami
 		requests:      make(map[string]*ClusterRequest),
 		clusters:      make(map[string]*Cluster),
 		clusterPrefix: "chat-bot-",
-		maxClusters:   5,
+		maxClusters:   7,
 		maxAge:        2 * time.Hour,
 		lastEstimate:  10 * time.Minute,
 
@@ -214,14 +214,6 @@ func (m *clusterManager) expireClusters() {
 			delete(m.requests, req.User)
 		}
 	}
-	remaining := make([]string, 0, len(m.waitList))
-	for _, user := range m.waitList {
-		if _, ok := m.requests[user]; !ok {
-			continue
-		}
-		remaining = append(remaining, user)
-	}
-	m.waitList = remaining
 }
 
 func (m *clusterManager) SetNotifier(fn ClusterCallbackFunc) {
@@ -275,9 +267,6 @@ func (m *clusterManager) ListClusters() string {
 			}
 		}
 		fmt.Fprintf(buf, "\n")
-	}
-	if len(m.waitList) > 0 {
-		fmt.Fprintf(buf, "%d people on the waitlist\n", len(m.waitList))
 	}
 	fmt.Fprintf(buf, "\nbot uptime is %.1f minutes", now.Sub(m.started).Seconds()/60)
 	return buf.String()
@@ -338,9 +327,21 @@ func (m *clusterManager) LaunchClusterForUser(req *ClusterRequest) (string, erro
 	m.requests[user] = req
 
 	if len(m.clusters) >= m.maxClusters {
-		log.Printf("user %q is waitlisted", user)
-		m.waitList = append(m.waitList, user)
-		return "", fmt.Errorf("no clusters are currently available, I'll msg you when one frees up")
+		log.Printf("user %q is will have to wait", user)
+		var waitUntil time.Time
+		for _, c := range m.clusters {
+			if c == nil {
+				continue
+			}
+			if waitUntil.Before(c.ExpiresAt) {
+				waitUntil = c.ExpiresAt
+			}
+		}
+		minutes := waitUntil.Sub(time.Now()).Minutes()
+		if minutes < 1 {
+			return "", fmt.Errorf("no clusters are currently available, unable to estimate when next cluster will be free")
+		}
+		return "", fmt.Errorf("no clusters are currently available, next slot available in %d minutes", int(math.Ceil(minutes)))
 	}
 
 	newCluster := &Cluster{
