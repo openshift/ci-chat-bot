@@ -31,7 +31,8 @@ func JobForConfig(prowConfigLoader ProwConfigLoader, jobName string) (*prowapiv1
 		TypeMeta: metav1.TypeMeta{APIVersion: "prow.k8s.io/v1", Kind: "ProwJob"},
 		Spec:     *spec,
 		Status: prowapiv1.ProwJobStatus{
-			State: prowapiv1.PendingState,
+			StartTime: metav1.Now(),
+			State:     prowapiv1.TriggeredState,
 		},
 	}
 	return pj, nil
