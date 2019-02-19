@@ -96,7 +96,7 @@ func NewClusterManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynami
 		requests:      make(map[string]*ClusterRequest),
 		clusters:      make(map[string]*Cluster),
 		clusterPrefix: "chat-bot-",
-		maxClusters:   7,
+		maxClusters:   10,
 		maxAge:        2 * time.Hour,
 		lastEstimate:  10 * time.Minute,
 
