@@ -28,7 +28,7 @@ import (
 // launchCluster creates a ProwJob and watches its status as it goes.
 // This is a long running function but should also be reentrant.
 func (m *clusterManager) launchCluster(cluster *Cluster) error {
-	targetPodName := "release-launch-aws"
+	targetPodName := "launch-aws"
 	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(cluster.Name))
 	// launch a prow job, tied back to this cluster user
 	job, err := prow.JobForConfig(m.prowConfigLoader, m.prowJobName)
