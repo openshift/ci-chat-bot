@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 	"github.com/sbstjn/hanu"
 )
 
@@ -24,13 +25,13 @@ func NewBot(token string) *Bot {
 	}
 }
 
-func (b *Bot) Start(manager ClusterManager) error {
+func (b *Bot) Start(manager JobManager) error {
 	slack, err := hanu.New(b.token)
 	if err != nil {
 		return err
 	}
 
-	manager.SetNotifier(b.clusterResponder(slack))
+	manager.SetNotifier(b.jobResponder(slack))
 
 	launch := func(conv hanu.ConversationInterface) {
 		if !conv.Message().IsDirectMessage() {
@@ -46,10 +47,41 @@ func (b *Bot) Start(manager ClusterManager) error {
 		user := conv.Message().User()
 		channel := conv.Message().(hanu.Message).Channel
 
-		msg, err := manager.LaunchClusterForUser(&ClusterRequest{
-			User:         user,
-			ReleaseImage: image,
-			Channel:      channel,
+		msg, err := manager.LaunchJobForUser(&JobRequest{
+			User:                user,
+			InstallImageVersion: image,
+			Channel:             channel,
+		})
+		if err != nil {
+			conv.Reply(err.Error())
+			return
+		}
+		conv.Reply(msg)
+	}
+
+	testUpgrade := func(conv hanu.ConversationInterface) {
+		if !conv.Message().IsDirectMessage() {
+			conv.Reply("this command is only accepted via direct message")
+			return
+		}
+
+		var from string
+		if v, err := conv.String("from"); err == nil {
+			from = v
+		}
+		var to string
+		if v, err := conv.String("to"); err == nil {
+			to = v
+		}
+
+		user := conv.Message().User()
+		channel := conv.Message().(hanu.Message).Channel
+
+		msg, err := manager.LaunchJobForUser(&JobRequest{
+			User:                user,
+			InstallImageVersion: from,
+			UpgradeImageVersion: to,
+			Channel:             channel,
 		})
 		if err != nil {
 			conv.Reply(err.Error())
@@ -67,16 +99,22 @@ func (b *Bot) Start(manager ClusterManager) error {
 		),
 
 		hanu.NewCommand(
-			"launch <image>",
-			"Launch an OpenShift 4.0 cluster on AWS and specify the release image. Will still use the latest installer.",
+			"launch <image_or_version>",
+			"Launch an OpenShift cluster using the provided release image or semantic version from https://openshift-release.svc.ci.openshift.org.",
 			launch,
+		),
+
+		hanu.NewCommand(
+			"test upgrade <from> <to>",
+			"Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://openshift-release.svc.ci.openshift.org",
+			testUpgrade,
 		),
 
 		hanu.NewCommand(
 			"list",
 			"See who is hogging all the clusters.",
 			func(conv hanu.ConversationInterface) {
-				conv.Reply(manager.ListClusters())
+				conv.Reply(manager.ListJobs(conv.Message().User()))
 			},
 		),
 
@@ -88,7 +126,7 @@ func (b *Bot) Start(manager ClusterManager) error {
 					conv.Reply("you must direct message me this request")
 					return
 				}
-				msg, err := manager.SyncClusterForUser(conv.Message().User())
+				msg, err := manager.SyncJobForUser(conv.Message().User())
 				if err != nil {
 					conv.Reply(err.Error())
 					return
@@ -105,12 +143,12 @@ func (b *Bot) Start(manager ClusterManager) error {
 					conv.Reply("you must direct message me this request")
 					return
 				}
-				cluster, err := manager.GetCluster(conv.Message().User())
+				job, err := manager.GetLaunchJob(conv.Message().User())
 				if err != nil {
 					conv.Reply(err.Error())
 					return
 				}
-				b.notifyCluster(conv, cluster)
+				b.notifyJob(conv, job)
 			},
 		),
 
@@ -127,39 +165,89 @@ func (b *Bot) Start(manager ClusterManager) error {
 	return slack.Listen()
 }
 
-func (b *Bot) clusterResponder(slack *hanu.Bot) func(Cluster) {
-	return func(cluster Cluster) {
-		if len(cluster.RequestedChannel) == 0 || len(cluster.RequestedBy) == 0 {
+func (b *Bot) jobResponder(slack *hanu.Bot) func(Job) {
+	return func(job Job) {
+		if len(job.RequestedChannel) == 0 || len(job.RequestedBy) == 0 {
 			log.Printf("no requested channel or user, can't notify")
 			return
 		}
-		if len(cluster.Credentials) == 0 && len(cluster.Failure) == 0 {
+		if len(job.Credentials) == 0 && len(job.Failure) == 0 {
 			log.Printf("no credentials or failure, still pending")
 			return
 		}
 		msg := hanu.Message{
 			Type:    "text",
-			Channel: cluster.RequestedChannel,
+			Channel: job.RequestedChannel,
 			ID:      1,
-			UserID:  cluster.RequestedBy,
+			UserID:  job.RequestedBy,
 		}
 		conv := hanu.NewConversation(nil, msg, slack.Socket)
-		b.notifyCluster(conv, &cluster)
+		b.notifyJob(conv, &job)
 	}
 }
 
-func (b *Bot) notifyCluster(conv hanu.ConversationInterface, cluster *Cluster) {
+func (b *Bot) notifyJob(conv hanu.ConversationInterface, job *Job) {
+	if job.Mode == "launch" {
+		switch {
+		case len(job.Failure) > 0 && len(job.URL) > 0:
+			conv.Reply("your cluster failed to launch: %s (see %s for details)", job.Failure, job.URL)
+		case len(job.Failure) > 0:
+			conv.Reply("your cluster failed to launch: %s", job.Failure)
+		case len(job.Credentials) == 0 && len(job.URL) > 0:
+			conv.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago), see %s for details", time.Now().Sub(job.RequestedAt)/time.Minute), job.URL)
+		case len(job.Credentials) == 0:
+			conv.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago)", time.Now().Sub(job.RequestedAt)/time.Minute))
+		default:
+			comment := fmt.Sprintf(
+				"Your cluster is ready, it will be shut down automatically in ~%d minutes.",
+				job.ExpiresAt.Sub(time.Now())/time.Minute,
+			)
+			if len(job.PasswordSnippet) > 0 {
+				comment += "\n" + job.PasswordSnippet
+			}
+			b.sendKubeconfig(conv, job.Credentials, comment, job.RequestedAt.Format("2006-01-02-150405"))
+		}
+		return
+	}
+
+	if len(job.URL) > 0 {
+		switch job.State {
+		case prowapiv1.FailureState:
+			conv.Reply("your job failed, see %s for details", job.URL)
+			return
+		case prowapiv1.SuccessState:
+			conv.Reply("your job succeeded, see %s for details", job.URL)
+			return
+		}
+	} else {
+		switch job.State {
+		case prowapiv1.FailureState:
+			conv.Reply("your job failed, no details could be retrieved")
+			return
+		case prowapiv1.SuccessState:
+			conv.Reply("your job succeded, but no details could be retrieved")
+			return
+		}
+	}
+
 	switch {
-	case len(cluster.Failure) > 0:
-		conv.Reply("your cluster failed to launch: %s", cluster.Failure)
-	case len(cluster.Credentials) == 0:
-		conv.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago)", time.Now().Sub(cluster.RequestedAt)/time.Minute))
+	case len(job.Credentials) == 0 && len(job.URL) > 0:
+		conv.Reply(fmt.Sprintf("job is still running (launched %d minutes ago), see %s for details", time.Now().Sub(job.RequestedAt)/time.Minute, job.URL))
+	case len(job.Credentials) == 0:
+		conv.Reply(fmt.Sprintf("job is still running (launched %d minutes ago)", time.Now().Sub(job.RequestedAt)/time.Minute))
 	default:
-		b.sendKubeconfig(conv, cluster.Credentials, cluster.PasswordSnippet, cluster.RequestedAt.Format("2006-01-02-150405"), cluster.ExpiresAt)
+		comment := fmt.Sprintf("Your job has started a cluster, it will be shut down when the test ends.")
+		if len(job.URL) > 0 {
+			comment += fmt.Sprintf(" See %s for details.", job.URL)
+		}
+		if len(job.PasswordSnippet) > 0 {
+			comment += "\n" + job.PasswordSnippet
+		}
+		b.sendKubeconfig(conv, job.Credentials, comment, job.RequestedAt.Format("2006-01-02-150405"))
 	}
 }
 
-func (b *Bot) sendKubeconfig(conv hanu.ConversationInterface, contents, passwordSnippet, identifier string, expires time.Time) {
+func (b *Bot) sendKubeconfig(conv hanu.ConversationInterface, contents, comment, identifier string) {
 	msg := conv.Message().(hanu.Message)
 	if len(msg.Channel) == 0 {
 		log.Printf("error: no channel in response: %#v", msg)
@@ -171,13 +259,6 @@ func (b *Bot) sendKubeconfig(conv hanu.ConversationInterface, contents, password
 	v.Set("channels", msg.Channel)
 	v.Set("filename", fmt.Sprintf("cluster-bot-%s.kubeconfig", identifier))
 	v.Set("filetype", "text")
-	comment := fmt.Sprintf(
-		"Your cluster is ready, it will be shut down automatically in ~%d minutes.",
-		expires.Sub(time.Now())/time.Minute,
-	)
-	if len(passwordSnippet) > 0 {
-		comment += "\n" + passwordSnippet
-	}
 	v.Set("initial_comment", comment)
 	req, err := http.NewRequest("POST", "https://slack.com/api/files.upload", strings.NewReader(v.Encode()))
 	if err != nil {
