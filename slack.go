@@ -39,8 +39,8 @@ func (b *Bot) Start(manager JobManager) error {
 			return
 		}
 
-		image := "registry.svc.ci.openshift.org/openshift/origin-release:v4.0"
-		if v, err := conv.String("image"); err == nil {
+		var image string
+		if v, err := conv.String("image_or_version"); err == nil {
 			image = v
 		}
 
@@ -52,6 +52,20 @@ func (b *Bot) Start(manager JobManager) error {
 			InstallImageVersion: image,
 			Channel:             channel,
 		})
+		if err != nil {
+			conv.Reply(err.Error())
+			return
+		}
+		conv.Reply(msg)
+	}
+
+	lookup := func(conv hanu.ConversationInterface) {
+		var image string
+		if v, err := conv.String("image_or_version"); err == nil {
+			image = v
+		}
+
+		msg, err := manager.LookupImageOrVersion(image)
 		if err != nil {
 			conv.Reply(err.Error())
 			return
@@ -99,15 +113,14 @@ func (b *Bot) Start(manager JobManager) error {
 		),
 
 		hanu.NewCommand(
-			"launch <image_or_version>",
-			"Launch an OpenShift cluster using the provided release image or semantic version from https://openshift-release.svc.ci.openshift.org.",
+			"launch <image_or_version>", "Launch an OpenShift cluster using a known image or version\n\n* nightly: the latest OCP build\n* ci: the latest CI build\n* <version>: a version listed on https://openshift-release.svc.ci.openshift.org\n* <stream>: the newest accepted version from a release stream (4.0.0-0.ci, 4.0.0-0.nightly, etc)\n* <image>: a release image\n\n",
 			launch,
 		),
 
 		hanu.NewCommand(
-			"test upgrade <from> <to>",
-			"Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://openshift-release.svc.ci.openshift.org",
-			testUpgrade,
+			"lookup <image_or_version>",
+			"Get info about a version.",
+			lookup,
 		),
 
 		hanu.NewCommand(
@@ -153,6 +166,12 @@ func (b *Bot) Start(manager JobManager) error {
 		),
 
 		hanu.NewCommand(
+			"test upgrade <from> <to>",
+			"Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://openshift-release.svc.ci.openshift.org",
+			testUpgrade,
+		),
+
+		hanu.NewCommand(
 			"version",
 			"Report the version of the bot",
 			func(conv hanu.ConversationInterface) {
@@ -194,7 +213,7 @@ func (b *Bot) notifyJob(conv hanu.ConversationInterface, job *Job) {
 		case len(job.Failure) > 0:
 			conv.Reply("your cluster failed to launch: %s", job.Failure)
 		case len(job.Credentials) == 0 && len(job.URL) > 0:
-			conv.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago), see %s for details", time.Now().Sub(job.RequestedAt)/time.Minute), job.URL)
+			conv.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago), see %s for details", time.Now().Sub(job.RequestedAt)/time.Minute, job.URL))
 		case len(job.Credentials) == 0:
 			conv.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago)", time.Now().Sub(job.RequestedAt)/time.Minute))
 		default:

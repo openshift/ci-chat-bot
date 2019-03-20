@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	imagev1 "github.com/openshift/api/image/v1"
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
@@ -49,6 +51,7 @@ type JobManager interface {
 	LaunchJobForUser(req *JobRequest) (string, error)
 	SyncJobForUser(user string) (string, error)
 	GetLaunchJob(user string) (*Job, error)
+	LookupImageOrVersion(imageOrVersion string) (string, error)
 	ListJobs(users ...string) string
 }
 
@@ -103,6 +106,11 @@ type jobManager struct {
 	coreConfig       *rest.Config
 	prowNamespace    string
 
+	muJob struct {
+		lock    sync.Mutex
+		running map[string]struct{}
+	}
+
 	notifierFn JobCallbackFunc
 }
 
@@ -111,7 +119,7 @@ type jobManager struct {
 // by querying prow, but does not guarantee that some notifications to users may not be sent or may be
 // sent twice.
 func NewJobManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynamic.NamespaceableResourceInterface, coreClient clientset.Interface, imageClient imageclientset.Interface, config *rest.Config) *jobManager {
-	return &jobManager{
+	m := &jobManager{
 		requests:      make(map[string]*JobRequest),
 		jobs:          make(map[string]*Job),
 		clusterPrefix: "chat-bot-",
@@ -126,6 +134,8 @@ func NewJobManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynamic.Na
 		imageClient:      imageClient,
 		prowNamespace:    "ci",
 	}
+	m.muJob.running = make(map[string]struct{})
+	return m
 }
 
 func (m *jobManager) Start() error {
@@ -378,26 +388,93 @@ func (m *jobManager) GetLaunchJob(user string) (*Job, error) {
 	return &copied, nil
 }
 
-func (m *jobManager) resolveImageOrVersion(imageOrVersion string) (string, string, error) {
+var reMajorMinorVersion = regexp.MustCompile(`^(\d)\.(\d)$`)
+
+func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion string) (string, string, error) {
 	if len(strings.TrimSpace(imageOrVersion)) == 0 {
-		return "", "", nil
+		if len(defaultImageOrVersion) == 0 {
+			return "", "", nil
+		}
+		imageOrVersion = defaultImageOrVersion
 	}
 	if strings.Contains(imageOrVersion, "/") {
 		return imageOrVersion, "", nil
 	}
-	tag, err := m.imageClient.ImageV1().ImageStreamTags("ocp").Get(fmt.Sprintf("release:%s", imageOrVersion), metav1.GetOptions{})
-	if err != nil {
-		return "", "", fmt.Errorf("unable to find release %q on https://openshift-release.svc.ci.openshift.org", imageOrVersion)
+
+	if m := reMajorMinorVersion.FindStringSubmatch(imageOrVersion); m != nil {
+		//imageOrVersion = fmt.Sprintf("%s", m[0])
+	} else if imageOrVersion == "nightly" {
+		imageOrVersion = "4.0.0-0.nightly"
+	} else if imageOrVersion == "ci" {
+		imageOrVersion = "4.0.0-0.ci"
+	} else if imageOrVersion == "prerelease" {
+		imageOrVersion = "4.0.0-0.ci"
 	}
-	return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release@%s", tag.Image.Name), imageOrVersion, nil
+
+	is, err := m.imageClient.ImageV1().ImageStreams("ocp").Get("release", metav1.GetOptions{})
+	if err != nil {
+		return "", "", fmt.Errorf("unable to find release image stream: %v", err)
+	}
+
+	if tag := findImageStatusTag(is, imageOrVersion); tag != nil {
+		log.Printf("Resolved %s to %s", imageOrVersion, tag.Image)
+		return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release@%s", tag.Image), imageOrVersion, nil
+	}
+
+	if tag := findNewestImageSpecTagWithStream(is, imageOrVersion); tag != nil {
+		log.Printf("Resolved %s to %s", imageOrVersion, tag.Name)
+		return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
+	}
+
+	return "", "", fmt.Errorf("unable to find a release matching %q on https://openshift-release.svc.ci.openshift.org", imageOrVersion)
 }
 
-func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
-	installImage, installVersion, err := m.resolveImageOrVersion(req.InstallImageVersion)
+func findNewestImageSpecTagWithStream(is *imagev1.ImageStream, name string) *imagev1.TagReference {
+	var newest *imagev1.TagReference
+	for i := range is.Spec.Tags {
+		tag := &is.Spec.Tags[i]
+		if tag.Annotations["release.openshift.io/phase"] != "Accepted" {
+			continue
+		}
+		if tag.Annotations["release.openshift.io/name"] != name {
+			continue
+		}
+		if newest == nil || newest.Annotations["release.openshift.io/creationTimestamp"] < tag.Annotations["release.openshift.io/creationTimestamp"] {
+			newest = tag
+		}
+	}
+	return newest
+}
+
+func findImageStatusTag(is *imagev1.ImageStream, name string) *imagev1.TagEvent {
+	for _, tag := range is.Status.Tags {
+		if tag.Tag == name {
+			if len(tag.Items) == 0 {
+				return nil
+			}
+			return &tag.Items[0]
+		}
+	}
+	return nil
+}
+
+func (m *jobManager) LookupImageOrVersion(imageOrVersion string) (string, error) {
+	installImage, installVersion, err := m.resolveImageOrVersion(imageOrVersion, "4.0.0-0.ci")
 	if err != nil {
 		return "", err
 	}
-	upgradeImage, upgradeVersion, err := m.resolveImageOrVersion(req.UpgradeImageVersion)
+	if len(installVersion) == 0 {
+		return fmt.Sprintf("Will launch directly from the image `%s`", installImage), nil
+	}
+	return fmt.Sprintf("`%s` launches version <https://openshift-release.svc.ci.openshift.org/releasetag/%s|%s>", imageOrVersion, installVersion, installVersion), nil
+}
+
+func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
+	installImage, installVersion, err := m.resolveImageOrVersion(req.InstallImageVersion, "4.0.0-0.ci")
+	if err != nil {
+		return "", err
+	}
+	upgradeImage, upgradeVersion, err := m.resolveImageOrVersion(req.UpgradeImageVersion, "")
 	if err != nil {
 		return "", err
 	}
@@ -560,6 +637,12 @@ func (m *jobManager) SyncJobForUser(user string) (string, error) {
 }
 
 func (m *jobManager) handleJobStartup(job Job) {
+	if !m.tryJob(job.Name) {
+		log.Printf("another worker is already running for %s", job.Name)
+		return
+	}
+	defer m.finishJob(job.Name)
+
 	if err := m.launchJob(&job); err != nil {
 		log.Printf("failed to launch job: %v", err)
 		job.Failure = err.Error()
@@ -589,4 +672,23 @@ func (m *jobManager) finishedJob(job Job) {
 			}
 		}
 	}
+}
+
+func (m *jobManager) tryJob(name string) bool {
+	m.muJob.lock.Lock()
+	defer m.muJob.lock.Unlock()
+
+	_, ok := m.muJob.running[name]
+	if ok {
+		return false
+	}
+	m.muJob.running[name] = struct{}{}
+	return true
+}
+
+func (m *jobManager) finishJob(name string) {
+	m.muJob.lock.Lock()
+	defer m.muJob.lock.Unlock()
+
+	delete(m.muJob.running, name)
 }
