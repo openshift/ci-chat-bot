@@ -103,6 +103,11 @@ type jobManager struct {
 	coreConfig       *rest.Config
 	prowNamespace    string
 
+	muJob struct {
+		lock    sync.Mutex
+		running map[string]struct{}
+	}
+
 	notifierFn JobCallbackFunc
 }
 
@@ -111,7 +116,7 @@ type jobManager struct {
 // by querying prow, but does not guarantee that some notifications to users may not be sent or may be
 // sent twice.
 func NewJobManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynamic.NamespaceableResourceInterface, coreClient clientset.Interface, imageClient imageclientset.Interface, config *rest.Config) *jobManager {
-	return &jobManager{
+	m := &jobManager{
 		requests:      make(map[string]*JobRequest),
 		jobs:          make(map[string]*Job),
 		clusterPrefix: "chat-bot-",
@@ -126,6 +131,8 @@ func NewJobManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynamic.Na
 		imageClient:      imageClient,
 		prowNamespace:    "ci",
 	}
+	m.muJob.running = make(map[string]struct{})
+	return m
 }
 
 func (m *jobManager) Start() error {
@@ -560,6 +567,12 @@ func (m *jobManager) SyncJobForUser(user string) (string, error) {
 }
 
 func (m *jobManager) handleJobStartup(job Job) {
+	if !m.tryJob(job.Name) {
+		log.Printf("another worker is already running for %s", job.Name)
+		return
+	}
+	defer m.finishJob(job.Name)
+
 	if err := m.launchJob(&job); err != nil {
 		log.Printf("failed to launch job: %v", err)
 		job.Failure = err.Error()
@@ -589,4 +602,23 @@ func (m *jobManager) finishedJob(job Job) {
 			}
 		}
 	}
+}
+
+func (m *jobManager) tryJob(name string) bool {
+	m.muJob.lock.Lock()
+	defer m.muJob.lock.Unlock()
+
+	_, ok := m.muJob.running[name]
+	if ok {
+		return false
+	}
+	m.muJob.running[name] = struct{}{}
+	return true
+}
+
+func (m *jobManager) finishJob(name string) {
+	m.muJob.lock.Lock()
+	defer m.muJob.lock.Unlock()
+
+	delete(m.muJob.running, name)
 }

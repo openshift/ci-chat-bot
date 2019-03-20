@@ -105,12 +105,6 @@ func (b *Bot) Start(manager JobManager) error {
 		),
 
 		hanu.NewCommand(
-			"test upgrade <from> <to>",
-			"Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://openshift-release.svc.ci.openshift.org",
-			testUpgrade,
-		),
-
-		hanu.NewCommand(
 			"list",
 			"See who is hogging all the clusters.",
 			func(conv hanu.ConversationInterface) {
@@ -150,6 +144,12 @@ func (b *Bot) Start(manager JobManager) error {
 				}
 				b.notifyJob(conv, job)
 			},
+		),
+
+		hanu.NewCommand(
+			"test upgrade <from> <to>",
+			"Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://openshift-release.svc.ci.openshift.org",
+			testUpgrade,
 		),
 
 		hanu.NewCommand(
@@ -194,7 +194,7 @@ func (b *Bot) notifyJob(conv hanu.ConversationInterface, job *Job) {
 		case len(job.Failure) > 0:
 			conv.Reply("your cluster failed to launch: %s", job.Failure)
 		case len(job.Credentials) == 0 && len(job.URL) > 0:
-			conv.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago), see %s for details", time.Now().Sub(job.RequestedAt)/time.Minute), job.URL)
+			conv.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago), see %s for details", time.Now().Sub(job.RequestedAt)/time.Minute, job.URL))
 		case len(job.Credentials) == 0:
 			conv.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago)", time.Now().Sub(job.RequestedAt)/time.Minute))
 		default:
