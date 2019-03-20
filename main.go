@@ -13,6 +13,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 
 	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
+	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 )
 
 const Version = "0.0.1"
@@ -52,13 +53,17 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("unable to create client: %v", err)
 	}
+	imageClient, err := imageclientset.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("unable to create client: %v", err)
+	}
 
 	configAgent := &prowapiv1.Agent{}
 	if err := configAgent.Start(opt.ProwConfigPath, opt.JobConfigPath); err != nil {
 		return err
 	}
 
-	manager := NewClusterManager(configAgent, prowClient, client, config)
+	manager := NewJobManager(configAgent, prowClient, client, imageClient, config)
 	if err := manager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %v", err)
 	}

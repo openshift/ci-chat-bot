@@ -23,38 +23,85 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 
 	"github.com/openshift/ci-chat-bot/pkg/prow"
+	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 )
 
-// launchCluster creates a ProwJob and watches its status as it goes.
+func findTargetName(spec *corev1.PodSpec) (string, error) {
+	if spec == nil {
+		return "", fmt.Errorf("prow job has no pod spec, cannot find target pod name")
+	}
+	for _, container := range spec.Containers {
+		if container.Name != "" {
+			continue
+		}
+		for _, arg := range container.Args {
+			if strings.HasPrefix(arg, "--target=") {
+				name := strings.TrimPrefix(arg, "--target=")
+				if len(name) > 0 {
+					return name, nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("could not find argument --target=X in prow job pod spec to identify target pod name")
+}
+
+// launchJob creates a ProwJob and watches its status as it goes.
 // This is a long running function but should also be reentrant.
-func (m *clusterManager) launchCluster(cluster *Cluster) error {
-	targetPodName := "launch-aws"
-	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(cluster.Name))
+func (m *jobManager) launchJob(job *Job) error {
+	if len(job.Credentials) > 0 && len(job.PasswordSnippet) > 0 {
+		return nil
+	}
+
+	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(job.Name))
 	// launch a prow job, tied back to this cluster user
-	job, err := prow.JobForConfig(m.prowConfigLoader, m.prowJobName)
+	pj, err := prow.JobForConfig(m.prowConfigLoader, job.JobName)
 	if err != nil {
 		return err
 	}
-	job.ObjectMeta = metav1.ObjectMeta{
-		Name:      cluster.Name,
+
+	targetPodName, err := findTargetName(pj.Spec.PodSpec)
+	if err != nil {
+		return err
+	}
+
+	pj.ObjectMeta = metav1.ObjectMeta{
+		Name:      job.Name,
 		Namespace: m.prowNamespace,
 		Annotations: map[string]string{
-			"ci-chat-bot.openshift.io/user":         cluster.RequestedBy,
-			"ci-chat-bot.openshift.io/channel":      cluster.RequestedChannel,
+			"ci-chat-bot.openshift.io/mode":         job.Mode,
+			"ci-chat-bot.openshift.io/user":         job.RequestedBy,
+			"ci-chat-bot.openshift.io/channel":      job.RequestedChannel,
 			"ci-chat-bot.openshift.io/ns":           namespace,
-			"ci-chat-bot.openshift.io/releaseImage": cluster.ReleaseImage,
+			"ci-chat-bot.openshift.io/releaseImage": job.InstallImage,
+			"ci-chat-bot.openshift.io/upgradeImage": job.UpgradeImage,
 
-			"prow.k8s.io/job": job.Spec.Job,
+			"prow.k8s.io/job": pj.Spec.Job,
 		},
 		Labels: map[string]string{
 			"ci-chat-bot.openshift.io/launch": "true",
 
-			"prow.k8s.io/type": string(job.Spec.Type),
-			"prow.k8s.io/job":  job.Spec.Job,
+			"prow.k8s.io/type": string(pj.Spec.Type),
+			"prow.k8s.io/job":  pj.Spec.Job,
 		},
 	}
-	prow.OverrideJobEnvironment(&job.Spec, cluster.ReleaseImage, namespace)
-	_, err = m.prowClient.Namespace(m.prowNamespace).Create(prow.ObjectToUnstructured(job), metav1.CreateOptions{})
+
+	// register annotations the release controller can use to assess the success
+	// of this job if it is upgrading between two edges
+	if len(job.InstallVersion) > 0 && len(job.UpgradeVersion) > 0 {
+		pj.Labels["release.openshift.io/verify"] = "true"
+		pj.Annotations["release.openshift.io/from-tag"] = job.InstallVersion
+		pj.Annotations["release.openshift.io/tag"] = job.UpgradeVersion
+	}
+
+	image := job.InstallImage
+	var initialImage string
+	if len(job.UpgradeImage) > 0 {
+		initialImage = image
+		image = job.UpgradeImage
+	}
+	prow.OverrideJobEnvironment(&pj.Spec, image, initialImage, namespace)
+	_, err = m.prowClient.Namespace(m.prowNamespace).Create(prow.ObjectToUnstructured(pj), metav1.CreateOptions{})
 	if err != nil {
 		if !errors.IsAlreadyExists(err) {
 			return err
@@ -62,10 +109,32 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 	}
 
 	log.Printf("prow job %s launched to target namespace %s", job.Name, namespace)
+	err = wait.PollImmediate(10*time.Second, 15*time.Minute, func() (bool, error) {
+		uns, err := m.prowClient.Namespace(m.prowNamespace).Get(job.Name, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		var pj prowapiv1.ProwJob
+		if err := prow.UnstructuredToObject(uns, &pj); err != nil {
+			return false, err
+		}
+		if len(pj.Status.URL) > 0 {
+			job.URL = pj.Status.URL
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		return fmt.Errorf("did not retrieve job url due to an error: %v", err)
+	}
+
+	if job.Mode != "launch" {
+		return nil
+	}
 
 	seen := false
 	err = wait.PollImmediate(5*time.Second, 15*time.Minute, func() (bool, error) {
-		pod, err := m.coreClient.Core().Pods(m.prowNamespace).Get(cluster.Name, metav1.GetOptions{})
+		pod, err := m.coreClient.Core().Pods(m.prowNamespace).Get(job.Name, metav1.GetOptions{})
 		if err != nil {
 			if !errors.IsNotFound(err) {
 				return false, err
@@ -144,14 +213,14 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 		return fmt.Errorf("could not retrieve kubeconfig from pod: %v", err)
 	}
 
-	cluster.Credentials = kubeconfig
+	job.Credentials = kubeconfig
 
 	// once the cluster is reachable, we're ok to send credentials
 	// TODO: better criteria?
 	var waitErr error
 	if err := waitForClusterReachable(kubeconfig); err != nil {
 		log.Printf("error: unable to wait for the cluster to start: %v", err)
-		cluster.Credentials = ""
+		job.Credentials = ""
 		waitErr = fmt.Errorf("cluster did not become reachable: %v", err)
 	}
 
@@ -160,7 +229,7 @@ func (m *clusterManager) launchCluster(cluster *Cluster) error {
 	if err != nil {
 		log.Printf("error: unable to get setup logs")
 	}
-	cluster.PasswordSnippet = reFixLines.ReplaceAllString(string(logs), "$1")
+	job.PasswordSnippet = reFixLines.ReplaceAllString(string(logs), "$1")
 
 	// clear the channel notification in case we crash so we don't attempt to redeliver
 	patch := []byte(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":""}}}`)

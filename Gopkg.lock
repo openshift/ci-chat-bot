@@ -2,6 +2,14 @@
 
 
 [[projects]]
+  digest = "1:705c40022f5c03bf96ffeb6477858d88565064485a513abcd0f11a0911546cb6"
+  name = "github.com/blang/semver"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "2ee87856327ba09384cabd113bc6b5d174e9ec0f"
+  version = "v3.5.1"
+
+[[projects]]
   branch = "master"
   digest = "1:ecdc8e0fe3bc7d549af1c9c36acf3820523b707d6c071b6d0c3860882c6f7b42"
   name = "github.com/docker/spdystream"
@@ -123,6 +131,30 @@
   pruneopts = "UT"
   revision = "4b7aa43c6742a2c18fdef89dd197aaae7dac7ccd"
   version = "1.0.1"
+
+[[projects]]
+  digest = "1:b1c2790de3fd6ccc3b466ab9ea889f6b96b0aeb2c52936ca7d91515d9028e408"
+  name = "github.com/openshift/api"
+  packages = [
+    "image/docker10",
+    "image/dockerpre012",
+    "image/v1",
+  ]
+  pruneopts = "UT"
+  revision = "0d921e363e951d89f583292c60d013c318df64dc"
+  version = "v3.9.0"
+
+[[projects]]
+  digest = "1:4e5c60cfccd549dc2351f66d7746a94145c49271cac1d92148d74db56688726f"
+  name = "github.com/openshift/client-go"
+  packages = [
+    "image/clientset/versioned",
+    "image/clientset/versioned/scheme",
+    "image/clientset/versioned/typed/image/v1",
+  ]
+  pruneopts = "UT"
+  revision = "1fa528d3be060e4c7178eb69e76d37cf7e699e3c"
+  version = "v3.9.0"
 
 [[projects]]
   branch = "master"
@@ -449,16 +481,20 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/blang/semver",
     "github.com/ghodss/yaml",
     "github.com/golang/glog",
+    "github.com/openshift/client-go/image/clientset/versioned",
     "github.com/sbstjn/hanu",
     "github.com/spf13/pflag",
     "k8s.io/api/core/v1",
     "k8s.io/apimachinery/pkg/api/errors",
     "k8s.io/apimachinery/pkg/apis/meta/v1",
     "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured",
+    "k8s.io/apimachinery/pkg/labels",
     "k8s.io/apimachinery/pkg/runtime",
     "k8s.io/apimachinery/pkg/runtime/schema",
+    "k8s.io/apimachinery/pkg/types",
     "k8s.io/apimachinery/pkg/util/wait",
     "k8s.io/client-go/dynamic",
     "k8s.io/client-go/kubernetes",
