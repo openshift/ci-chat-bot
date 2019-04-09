@@ -172,6 +172,14 @@ func (b *Bot) Start(manager JobManager) error {
 		),
 
 		hanu.NewCommand(
+			"lunch",
+			"Make me a sandwich",
+			func(conv hanu.ConversationInterface) {
+				conv.Reply("Bon appétit! 🥪")
+			},
+		),
+
+		hanu.NewCommand(
 			"version",
 			"Report the version of the bot",
 			func(conv hanu.ConversationInterface) {
