@@ -4,7 +4,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-func ProwSpecForPeriodicConfig(config *PeriodicConfig, decorationConfig *DecorationConfig) *ProwJobSpec {
+func ProwSpecForPeriodicConfig(config *Periodic, decorationConfig *DecorationConfig) *ProwJobSpec {
 	spec := &ProwJobSpec{
 		Type:  PeriodicJob,
 		Job:   config.Name,
@@ -20,12 +20,12 @@ func ProwSpecForPeriodicConfig(config *PeriodicConfig, decorationConfig *Decorat
 	} else {
 		spec.DecorationConfig = &DecorationConfig{}
 	}
-	spec.DecorationConfig.SkipCloning = true
-
+	isTrue := true
+	spec.DecorationConfig.SkipCloning = &isTrue
 	return spec
 }
 
-func HasProwJob(config *Config, name string) (*PeriodicConfig, bool) {
+func HasProwJob(config *Config, name string) (*Periodic, bool) {
 	for i := range config.Periodics {
 		if config.Periodics[i].Name == name {
 			return &config.Periodics[i], true
@@ -34,7 +34,7 @@ func HasProwJob(config *Config, name string) (*PeriodicConfig, bool) {
 	return nil, false
 }
 
-func HasProwJobWithLabels(config *Config, selector labels.Selector) (*PeriodicConfig, bool) {
+func HasProwJobWithLabels(config *Config, selector labels.Selector) (*Periodic, bool) {
 	for i := range config.Periodics {
 		if selector.Matches(labels.Set(config.Periodics[i].Labels)) {
 			return &config.Periodics[i], true
