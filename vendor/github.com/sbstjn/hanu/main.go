@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -42,11 +43,25 @@ func New(token string) (*Bot, error) {
 
 // Handshake connects to the Slack API to get a socket connection
 func (b *Bot) Handshake() (*Bot, error) {
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	transport := &http.Transport{
+		Dial:                dialer.Dial,
+		TLSHandshakeTimeout: 15 * time.Second,
+	}
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   30 * time.Second,
+	}
+
 	// Check for HTTP error on connection
-	res, err := http.Get(fmt.Sprintf("https://slack.com/api/rtm.start?token=%s", b.Token))
+	res, err := client.Get(fmt.Sprintf("https://slack.com/api/rtm.start?token=%s", b.Token))
 	if err != nil {
 		return nil, errors.New("Failed to connect to Slack RTM API")
 	}
+	defer res.Body.Close()
 
 	// Check for HTTP status code
 	if res.StatusCode != 200 {
@@ -55,7 +70,6 @@ func (b *Bot) Handshake() (*Bot, error) {
 
 	// Read response body
 	body, err := ioutil.ReadAll(res.Body)
-	res.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("Failed to read body from response")
 	}
@@ -76,9 +90,14 @@ func (b *Bot) Handshake() (*Bot, error) {
 	b.ID = response.Self.ID
 
 	// Connect to websocket
-	b.Socket, err = websocket.Dial(response.URL, "", "https://api.slack.com/")
+	config, err := websocket.NewConfig(response.URL, "https://api.slack.com/")
 	if err != nil {
-		return nil, errors.New("Failed to connect to Websocket")
+		return nil, fmt.Errorf("Failed to create config for Websocket: %v", err)
+	}
+	config.Dialer = dialer
+	b.Socket, err = websocket.DialConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to connect to Websocket: %v", err)
 	}
 
 	return b, nil
