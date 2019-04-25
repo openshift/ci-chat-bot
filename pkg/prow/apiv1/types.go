@@ -19,6 +19,7 @@ limitations under the License.
 package apiv1
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -96,7 +97,7 @@ type ProwConfig struct {
 
 	// DefaultJobTimeout this is default deadline for prow jobs. This value is used when
 	// no timeout is configured at the job level. This value is set to 24 hours.
-	DefaultJobTimeout time.Duration `json:"default_job_timeout,omitempty"`
+	DefaultJobTimeout Duration `json:"default_job_timeout,omitempty"`
 }
 
 // GitHubOptions allows users to control how prow applications display GitHub website links.
@@ -145,11 +146,9 @@ type Controller struct {
 // Plank is config for the plank controller.
 type Plank struct {
 	Controller `json:",inline"`
-	// PodPendingTimeoutString compiles into PodPendingTimeout at load time.
-	PodPendingTimeoutString string `json:"pod_pending_timeout,omitempty"`
 	// PodPendingTimeout is after how long the controller will perform a garbage
 	// collection on pending pods. Defaults to one day.
-	PodPendingTimeout time.Duration `json:"-"`
+	PodPendingTimeout Duration `json:"pod_pending_timeout,omitempty"`
 	// DefaultDecorationConfig are defaults for shared fields for ProwJobs
 	// that request to have their PodSpecs decorated
 	DefaultDecorationConfig *DecorationConfig `json:"default_decoration_config,omitempty"`
@@ -414,11 +413,11 @@ type ProwJobSpec struct {
 type DecorationConfig struct {
 	// Timeout is how long the pod utilities will wait
 	// before aborting a job with SIGINT.
-	Timeout time.Duration `json:"timeout,omitempty"`
+	Timeout Duration `json:"timeout,omitempty"`
 	// GracePeriod is how long the pod utilities will wait
 	// after sending SIGINT to send SIGKILL when aborting
 	// a job. Only applicable if decorating the PodSpec.
-	GracePeriod time.Duration `json:"grace_period,omitempty"`
+	GracePeriod Duration `json:"grace_period,omitempty"`
 	// UtilityImages holds pull specs for utility container
 	// images used to decorate a PodSpec.
 	UtilityImages *UtilityImages `json:"utility_images,omitempty"`
@@ -461,10 +460,10 @@ func (d *DecorationConfig) ApplyDefault(def *DecorationConfig) *DecorationConfig
 	merged.UtilityImages = merged.UtilityImages.ApplyDefault(def.UtilityImages)
 	merged.GCSConfiguration = merged.GCSConfiguration.ApplyDefault(def.GCSConfiguration)
 
-	if merged.Timeout == 0 {
+	if merged.Timeout.Duration == 0 {
 		merged.Timeout = def.Timeout
 	}
-	if merged.GracePeriod == 0 {
+	if merged.GracePeriod.Duration == 0 {
 		merged.GracePeriod = def.GracePeriod
 	}
 	if merged.GCSCredentialsSecret == "" {
@@ -742,4 +741,36 @@ type ProwJobList struct {
 	metav1.ListMeta `json:"metadata"`
 
 	Items []ProwJob `json:"items"`
+}
+
+// Duration is a wrapper around time.Duration that parses times in either
+// 'integer number of nanoseconds' or 'duration string' formats and serializes
+// to 'duration string' format.
+type Duration struct {
+	time.Duration
+}
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	if err := json.Unmarshal(b, &d.Duration); err == nil {
+		// b was an integer number of nanoseconds.
+		return nil
+	}
+	// b was not an integer. Assume that it is a duration string.
+
+	var str string
+	err := json.Unmarshal(b, &str)
+	if err != nil {
+		return err
+	}
+
+	pd, err := time.ParseDuration(str)
+	if err != nil {
+		return err
+	}
+	d.Duration = pd
+	return nil
+}
+
+func (d *Duration) MarshalJSON() ([]byte, error) {
+	return json.Marshal(d.Duration.String())
 }

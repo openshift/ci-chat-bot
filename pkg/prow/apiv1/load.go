@@ -369,14 +369,8 @@ func parseProwConfig(c *Config) error {
 		return fmt.Errorf("validating plank config: %v", err)
 	}
 
-	if c.Plank.PodPendingTimeoutString == "" {
-		c.Plank.PodPendingTimeout = 24 * time.Hour
-	} else {
-		podPendingTimeout, err := time.ParseDuration(c.Plank.PodPendingTimeoutString)
-		if err != nil {
-			return fmt.Errorf("cannot parse duration for plank.pod_pending_timeout: %v", err)
-		}
-		c.Plank.PodPendingTimeout = podPendingTimeout
+	if c.Plank.PodPendingTimeout.Duration == 0 {
+		c.Plank.PodPendingTimeout.Duration = 24 * time.Hour
 	}
 
 	if c.ProwJobNamespace == "" {
@@ -420,8 +414,8 @@ func parseProwConfig(c *Config) error {
 	logrus.SetLevel(lvl)
 
 	// Avoid using a job timeout of infinity by setting the default value to 24 hours
-	if c.DefaultJobTimeout == 0 {
-		c.DefaultJobTimeout = DefaultJobTimeout
+	if c.DefaultJobTimeout.Duration == 0 {
+		c.DefaultJobTimeout.Duration = DefaultJobTimeout
 	}
 
 	return nil
