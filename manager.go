@@ -404,11 +404,11 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 	if m := reMajorMinorVersion.FindStringSubmatch(imageOrVersion); m != nil {
 		//imageOrVersion = fmt.Sprintf("%s", m[0])
 	} else if imageOrVersion == "nightly" {
-		imageOrVersion = "4.0.0-0.nightly"
+		imageOrVersion = "4.1.0-0.nightly"
 	} else if imageOrVersion == "ci" {
-		imageOrVersion = "4.0.0-0.ci"
+		imageOrVersion = "4.1.0-0.ci"
 	} else if imageOrVersion == "prerelease" {
-		imageOrVersion = "4.0.0-0.ci"
+		imageOrVersion = "4.1.0-0.ci"
 	}
 
 	is, err := m.imageClient.ImageV1().ImageStreams("ocp").Get("release", metav1.GetOptions{})
@@ -470,7 +470,7 @@ func (m *jobManager) LookupImageOrVersion(imageOrVersion string) (string, error)
 }
 
 func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
-	installImage, installVersion, err := m.resolveImageOrVersion(req.InstallImageVersion, "4.0.0-0.ci")
+	installImage, installVersion, err := m.resolveImageOrVersion(req.InstallImageVersion, "ci")
 	if err != nil {
 		return "", err
 	}
