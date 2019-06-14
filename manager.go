@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -182,8 +183,8 @@ func (m *jobManager) sync() error {
 			JobName:          job.Spec.Job,
 			InstallImage:     job.Annotations["ci-chat-bot.openshift.io/releaseImage"],
 			UpgradeImage:     job.Annotations["ci-chat-bot.openshift.io/upgradeImage"],
-			InstallVersion:   job.Annotations["release.openshift.io/from-tag"],
-			UpgradeVersion:   job.Annotations["release.openshift.io/tag"],
+			InstallVersion:   job.Annotations["ci-chat-bot.openshift.io/releaseVersion"],
+			UpgradeVersion:   job.Annotations["ci-chat-bot.openshift.io/upgradeVersion"],
 			RequestedBy:      job.Annotations["ci-chat-bot.openshift.io/user"],
 			RequestedChannel: job.Annotations["ci-chat-bot.openshift.io/channel"],
 			RequestedAt:      job.CreationTimestamp.Time,
@@ -219,12 +220,22 @@ func (m *jobManager) sync() error {
 			if j.Mode == "launch" {
 				if user := j.RequestedBy; len(user) > 0 {
 					if _, ok := m.requests[user]; !ok {
+						// if the user provided a release version (resolved, not the original input) use that
+						// so that we get a slightly better value to report to the user
+						from := job.Annotations["ci-chat-bot.openshift.io/releaseImage"]
+						if version := job.Annotations["ci-chat-bot.openshift.io/releaseVersion"]; len(version) > 0 {
+							from = version
+						}
+						to := job.Annotations["ci-chat-bot.openshift.io/upgradeImage"]
+						if version := job.Annotations["ci-chat-bot.openshift.io/upgradeVersion"]; len(version) > 0 {
+							to = version
+						}
 						m.requests[user] = &JobRequest{
 							User:                user,
 							Name:                job.Name,
 							JobName:             job.Spec.Job,
-							InstallImageVersion: job.Annotations["ci-chat-bot.openshift.io/releaseImage"],
-							UpgradeImageVersion: job.Annotations["ci-chat-bot.openshift.io/upgradeImage"],
+							InstallImageVersion: from,
+							UpgradeImageVersion: to,
 							RequestedAt:         job.CreationTimestamp.Time,
 							Channel:             job.Annotations["ci-chat-bot.openshift.io/channel"],
 						}
@@ -320,17 +331,26 @@ func (m *jobManager) ListJobs(users ...string) string {
 			if len(job.URL) > 0 {
 				details = fmt.Sprintf(", <%s|view logs>", job.URL)
 			}
+			var imageOrVersion string
+			switch {
+			case len(job.InstallVersion) > 0:
+				imageOrVersion = fmt.Sprintf(" <https://openshift-release.svc.ci.openshift.org/releasetag/%s|%s>", url.PathEscape(job.InstallVersion), job.InstallVersion)
+			case len(job.InstallImage) > 0:
+				imageOrVersion = " (from image)"
+			default:
+				imageOrVersion = ""
+			}
 			switch {
 			case job.State == prowapiv1.SuccessState:
-				fmt.Fprintf(buf, "• %d minutes ago by <@%s> - cluster has been shut down%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, details)
+				fmt.Fprintf(buf, "• %dm ago <@%s>%s - cluster has been shut down%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, imageOrVersion, details)
 			case job.State == prowapiv1.FailureState:
-				fmt.Fprintf(buf, "• %d minutes ago by <@%s> - cluster failed to start%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, details)
+				fmt.Fprintf(buf, "• %dm ago <@%s>%s - cluster failed to start%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, imageOrVersion, details)
 			case len(job.Credentials) > 0:
-				fmt.Fprintf(buf, "• %d minutes ago by <@%s> - available and will be torn down in %d minutes\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, int(job.ExpiresAt.Sub(now)/time.Minute))
+				fmt.Fprintf(buf, "• %dm ago <@%s>%s - available and will be torn down in %d minutes%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, imageOrVersion, int(job.ExpiresAt.Sub(now)/time.Minute), details)
 			case len(job.Failure) > 0:
-				fmt.Fprintf(buf, "• %d minutes ago by <@%s> - failure: %s%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, job.Failure, details)
+				fmt.Fprintf(buf, "• %dm ago <@%s>%s - failure: %s%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, imageOrVersion, job.Failure, details)
 			default:
-				fmt.Fprintf(buf, "• %d minutes ago by <@%s> - starting%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, details)
+				fmt.Fprintf(buf, "• %dm ago <@%s>%s - starting%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, imageOrVersion, details)
 			}
 		}
 		fmt.Fprintf(buf, "\n")
@@ -406,9 +426,9 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 	} else if imageOrVersion == "nightly" {
 		imageOrVersion = "4.1.0-0.nightly"
 	} else if imageOrVersion == "ci" {
-		imageOrVersion = "4.1.0-0.ci"
+		imageOrVersion = "4.2.0-0.ci"
 	} else if imageOrVersion == "prerelease" {
-		imageOrVersion = "4.1.0-0.ci"
+		imageOrVersion = "4.2.0-0.ci"
 	}
 
 	is, err := m.imageClient.ImageV1().ImageStreams("ocp").Get("release", metav1.GetOptions{})
