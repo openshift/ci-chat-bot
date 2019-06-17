@@ -21,6 +21,7 @@ const Version = "0.0.1"
 type options struct {
 	ProwConfigPath string
 	JobConfigPath  string
+	GithubEndpoint string
 }
 
 func main() {
@@ -30,9 +31,12 @@ func main() {
 }
 
 func run() error {
-	opt := &options{}
+	opt := &options{
+		GithubEndpoint: "https://api.github.com",
+	}
 	pflag.StringVar(&opt.ProwConfigPath, "prow-config", opt.ProwConfigPath, "A config file containing the prow configuration.")
 	pflag.StringVar(&opt.JobConfigPath, "job-config", opt.JobConfigPath, "A config file containing the jobs to run against releases.")
+	pflag.StringVar(&opt.GithubEndpoint, "github-endpoint", opt.GithubEndpoint, "An optional proxy for connecting to github.")
 	pflag.Parse()
 
 	botToken := os.Getenv("BOT_TOKEN")
@@ -63,7 +67,7 @@ func run() error {
 		return err
 	}
 
-	manager := NewJobManager(configAgent, prowClient, client, imageClient, config)
+	manager := NewJobManager(configAgent, prowClient, client, imageClient, config, opt.GithubEndpoint)
 	if err := manager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %v", err)
 	}

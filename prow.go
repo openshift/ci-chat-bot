@@ -4,15 +4,20 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base32"
+	"encoding/json"
 	"fmt"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+
+	"sigs.k8s.io/yaml"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
@@ -36,9 +41,13 @@ func findTargetName(spec *corev1.PodSpec) (string, error) {
 		}
 		for _, arg := range container.Args {
 			if strings.HasPrefix(arg, "--target=") {
-				name := strings.TrimPrefix(arg, "--target=")
-				if len(name) > 0 {
-					return name, nil
+				value := strings.TrimPrefix(arg, "--target=")
+				if len(value) > 0 {
+					value := (&resolvedEnvironment{env: container.Env}).Resolve(value)
+					if len(value) == 0 {
+						return "", fmt.Errorf("bug in resolving %s", value)
+					}
+					return value, nil
 				}
 			}
 		}
@@ -46,9 +55,136 @@ func findTargetName(spec *corev1.PodSpec) (string, error) {
 	return "", fmt.Errorf("could not find argument --target=X in prow job pod spec to identify target pod name")
 }
 
+func ciOperatorConfigRefForRefs(refs *prowapiv1.Refs) *corev1.ConfigMapKeySelector {
+	if refs == nil || len(refs.Org) == 0 || len(refs.Repo) == 0 {
+		return nil
+	}
+	baseRef := refs.BaseRef
+	if len(refs.BaseRef) == 0 {
+		baseRef = "master"
+	}
+	keyName := fmt.Sprintf("%s-%s-%s.yaml", refs.Org, refs.Repo, baseRef)
+	if m := reBranchVersion.FindStringSubmatch(baseRef); m != nil {
+		return &corev1.ConfigMapKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{
+				Name: fmt.Sprintf("ci-operator-%s-configs", m[2]),
+			},
+			Key: keyName,
+		}
+	}
+	return &corev1.ConfigMapKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{
+			Name: fmt.Sprintf("ci-operator-%s-configs", baseRef),
+		},
+		Key: keyName,
+	}
+}
+
+func loadJobConfigSpec(client clientset.Interface, env corev1.EnvVar, namespace string) (*unstructured.Unstructured, error) {
+	if len(env.Value) > 0 {
+		var cfg unstructured.Unstructured
+		if err := yaml.Unmarshal([]byte(env.Value), &cfg.Object); err != nil {
+			return nil, fmt.Errorf("unable to parse ci-operator config definition: %v", err)
+		}
+		return &cfg, nil
+	}
+	if env.ValueFrom == nil {
+		return &unstructured.Unstructured{}, nil
+	}
+	if env.ValueFrom.ConfigMapKeyRef == nil {
+		return nil, fmt.Errorf("only config spec values inline or referenced in config maps may be used")
+	}
+	configMap, keyName := env.ValueFrom.ConfigMapKeyRef.Name, env.ValueFrom.ConfigMapKeyRef.Key
+	cm, err := client.CoreV1().ConfigMaps(namespace).Get(configMap, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("unable to identify a ci-operator configuration for the provided refs: %v", err)
+	}
+	configData, ok := cm.Data[keyName]
+	if !ok {
+		return nil, fmt.Errorf("no ci-operator config was found in config map %s/%s with key %s", namespace, configMap, keyName)
+	}
+	var cfg unstructured.Unstructured
+	if err := yaml.Unmarshal([]byte(configData), &cfg.Object); err != nil {
+		return nil, fmt.Errorf("unable to parse ci-operator config definition from %s/%s[%s]: %v", namespace, configMap, keyName, err)
+	}
+	return &cfg, nil
+}
+
+func firstEnvVar(spec *corev1.PodSpec, name string) (*corev1.EnvVar, *corev1.Container) {
+	for i, container := range spec.InitContainers {
+		for j := range container.Env {
+			env := &container.Env[j]
+			if env.Name == name {
+				return env, &spec.InitContainers[i]
+			}
+		}
+	}
+	for i, container := range spec.Containers {
+		for j := range container.Env {
+			env := &container.Env[j]
+			if env.Name == name {
+				return env, &spec.Containers[i]
+			}
+		}
+	}
+	return nil, nil
+}
+
+var reEnvSubstitute = regexp.MustCompile(`$([a-zA-Z0-9_]+)`)
+
+type resolvedEnvironment struct {
+	env    []corev1.EnvVar
+	cached map[string]string
+}
+
+func (e *resolvedEnvironment) Resolve(value string) string {
+	return reEnvSubstitute.ReplaceAllStringFunc(value, func(s string) string {
+		name := s[2 : len(s)-1]
+		if value, ok := e.cached[name]; ok {
+			return value
+		}
+		return e.Lookup(s)
+	})
+}
+
+func (e *resolvedEnvironment) Lookup(name string) string {
+	if value, ok := e.cached[name]; ok {
+		return value
+	}
+	for i, env := range e.env {
+		if env.Name != name {
+			continue
+		}
+		if env.ValueFrom != nil {
+			return ""
+		}
+		if !strings.Contains(env.Value, "$(") {
+			return env.Value
+		}
+		if e.cached == nil {
+			e.cached = make(map[string]string)
+		}
+		value := (&resolvedEnvironment{cached: e.cached, env: e.env[:i]}).Resolve(env.Value)
+		e.cached[name] = value
+	}
+	return ""
+}
+
+// stopJob triggers namespace deletion, which will cause graceful shutdown of the
+// cluster. If this method returns nil, it is safe to consider the cluster released.
+func (m *jobManager) stopJob(name string) error {
+	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(name))
+	if err := m.coreClient.CoreV1().Namespaces().Delete(namespace, nil); err != nil && !errors.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
 // launchJob creates a ProwJob and watches its status as it goes.
 // This is a long running function but should also be reentrant.
 func (m *jobManager) launchJob(job *Job) error {
+	launchDeadline := 45 * time.Minute
+
 	if len(job.Credentials) > 0 && len(job.PasswordSnippet) > 0 {
 		return nil
 	}
@@ -88,13 +224,75 @@ func (m *jobManager) launchJob(job *Job) error {
 		},
 	}
 
+	// if the user specified a set of Git coordinates to build from, load the appropriate ci-operator
+	// configuration and inject the appropriate launch job
+	if refs := job.InstallRefs; refs != nil {
+		// budget additional 45m to build anything we need
+		launchDeadline += 45 * time.Minute
+
+		data, _ := json.Marshal(refs)
+		pj.Annotations["ci-chat-bot.openshift.io/releaseRefs"] = string(data)
+		// TODO: calculate this from the destination cluster
+		job.InstallImage = fmt.Sprintf("registry.svc.ci.openshift.org/%s/release:latest", namespace)
+
+		// find the ci-operator config for the job we will run
+		sourceEnv, _ := firstEnvVar(pj.Spec.PodSpec, "CONFIG_SPEC")
+		if sourceEnv == nil {
+			return fmt.Errorf("the CONFIG_SPEC for the launch job could not be found in the prow job")
+		}
+		sourceConfig, err := loadJobConfigSpec(m.coreClient, *sourceEnv, "ci")
+		if err != nil {
+			return fmt.Errorf("the launch job definition could not be loaded: %v", err)
+		}
+
+		// find the ci-operator config for the repo of the PR
+		configMapSelector := ciOperatorConfigRefForRefs(refs)
+		if configMapSelector == nil {
+			return fmt.Errorf("unable to identify a ci-operator configuration for the provided refs: %#v", refs)
+		}
+		targetConfig, err := loadJobConfigSpec(m.coreClient, corev1.EnvVar{ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: configMapSelector}}, "ci")
+		if err != nil {
+			return fmt.Errorf("unable to load ci-operator configuration for the provided refs: %v", err)
+		}
+
+		// check if the referenced PR repo already defines a test for our given cluster type (i.e. launch-aws)
+		tests, _, err := unstructured.NestedSlice(targetConfig.Object, "tests")
+		if err != nil {
+			return fmt.Errorf("invalid ci-operator config definition %v: 'tests' is not a slice", configMapSelector)
+		}
+		var newTests []interface{}
+		for _, test := range tests {
+			obj, ok := test.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if as, _, _ := unstructured.NestedString(obj, "as"); as == targetPodName {
+				newTests = append(newTests, test)
+			}
+		}
+		if len(newTests) > 0 {
+			targetConfig.Object["tests"] = newTests
+		} else {
+			targetConfig.Object["tests"] = sourceConfig.Object["tests"]
+		}
+		jobConfigData, err := yaml.Marshal(targetConfig.Object)
+		if err != nil {
+			return fmt.Errorf("unable to update ci-operator config definition: %v", err)
+		}
+		// log.Printf("running against %#v with:\n%s", refs, jobConfigData)
+		prow.OverrideJobConfig(&pj.Spec, refs, string(jobConfigData))
+	}
+
 	// register annotations the release controller can use to assess the success
 	// of this job if it is upgrading between two edges
-	if len(job.InstallVersion) > 0 && len(job.UpgradeVersion) > 0 {
+	if job.InstallRefs == nil && len(job.InstallVersion) > 0 && len(job.UpgradeVersion) > 0 {
 		pj.Labels["release.openshift.io/verify"] = "true"
 		pj.Annotations["release.openshift.io/from-tag"] = job.InstallVersion
 		pj.Annotations["release.openshift.io/tag"] = job.UpgradeVersion
 	}
+
+	pj.Annotations["ci-chat-bot.openshift.io/expires"] = strconv.Itoa(int(m.maxAge.Seconds() + launchDeadline.Seconds()))
+	prow.OverrideJobEnvVar(&pj.Spec, "CLUSTER_DURATION", strconv.Itoa(int(m.maxAge.Seconds())))
 
 	image := job.InstallImage
 	var initialImage string
@@ -103,11 +301,15 @@ func (m *jobManager) launchJob(job *Job) error {
 		image = job.UpgradeImage
 	}
 	prow.OverrideJobEnvironment(&pj.Spec, image, initialImage, namespace)
+
+	created := true
+	started := time.Now()
 	_, err = m.prowClient.Namespace(m.prowNamespace).Create(prow.ObjectToUnstructured(pj), metav1.CreateOptions{})
 	if err != nil {
 		if !errors.IsAlreadyExists(err) {
 			return err
 		}
+		created = false
 	}
 
 	log.Printf("prow job %s launched to target namespace %s", job.Name, namespace)
@@ -160,7 +362,7 @@ func (m *jobManager) launchJob(job *Job) error {
 
 	seen = false
 	var lastErr error
-	err = wait.PollImmediate(5*time.Second, 45*time.Minute, func() (bool, error) {
+	err = wait.PollImmediate(5*time.Second, launchDeadline, func() (bool, error) {
 		pod, err := m.coreClient.Core().Pods(namespace).Get(targetPodName, metav1.GetOptions{})
 		if err != nil {
 			// pod could not be created or we may not have permission yet
@@ -190,7 +392,14 @@ func (m *jobManager) launchJob(job *Job) error {
 		return fmt.Errorf("pod never became available: %v", err)
 	}
 
-	log.Printf("trying to grab the kubeconfig from launched pod")
+	startDuration := time.Now().Sub(started)
+	if created {
+		job.StartDuration = startDuration
+		job.ExpiresAt = started.Add(startDuration + m.maxAge)
+		log.Printf("cluster took %s from start to become available", startDuration)
+	}
+
+	log.Printf("trying to grab the kubeconfig from launched pod %s/%s", namespace, targetPodName)
 
 	var kubeconfig string
 	err = wait.PollImmediate(30*time.Second, 10*time.Minute, func() (bool, error) {
@@ -205,14 +414,14 @@ func (m *jobManager) launchJob(job *Job) error {
 
 				return false, nil
 			}
-			log.Printf("Unable to retrieve config contents: %v", err)
+			log.Printf("Unable to retrieve config contents for %s/%s: %v", namespace, targetPodName, err)
 			return false, nil
 		}
 		kubeconfig = contents
 		return len(contents) > 0, nil
 	})
 	if err != nil {
-		return fmt.Errorf("could not retrieve kubeconfig from pod: %v", err)
+		return fmt.Errorf("could not retrieve kubeconfig from pod %s/%s: %v", namespace, targetPodName, err)
 	}
 
 	job.Credentials = kubeconfig
@@ -221,7 +430,7 @@ func (m *jobManager) launchJob(job *Job) error {
 	// TODO: better criteria?
 	var waitErr error
 	if err := waitForClusterReachable(kubeconfig); err != nil {
-		log.Printf("error: unable to wait for the cluster to start: %v", err)
+		log.Printf("error: unable to wait for the cluster %s/%s to start: %v", namespace, targetPodName, err)
 		job.Credentials = ""
 		waitErr = fmt.Errorf("cluster did not become reachable: %v", err)
 	}
@@ -233,8 +442,14 @@ func (m *jobManager) launchJob(job *Job) error {
 	}
 	job.PasswordSnippet = reFixLines.ReplaceAllString(string(logs), "$1")
 
-	// clear the channel notification in case we crash so we don't attempt to redeliver
-	patch := []byte(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":""}}}`)
+	// clear the channel notification in case we crash so we don't attempt to redeliver, and set the best
+	// estimate we have of the expiration time if we created the cluster
+	var patch []byte
+	if created {
+		patch = []byte(fmt.Sprintf(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":"","ci-chat-bot.openshift.io/expires":"%d"}}}`, int(startDuration.Seconds()+m.maxAge.Seconds())))
+	} else {
+		patch = []byte(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":""}}}`)
+	}
 	if _, err := m.prowClient.Namespace(m.prowNamespace).Patch(job.Name, types.MergePatchType, patch, metav1.UpdateOptions{}); err != nil {
 		log.Printf("error: unable to clear channel annotation from prow job: %v", err)
 	}
@@ -351,7 +566,10 @@ func containerSuccessful(pod *corev1.Pod, containerName string) (bool, error) {
 		if container.State.Terminated == nil {
 			return false, nil
 		}
-		return container.State.Terminated.ExitCode == 0, nil
+		if container.State.Terminated.ExitCode == 0 {
+			return true, nil
+		}
+		return false, fmt.Errorf("container %s did not succeed, see logs for details", containerName)
 	}
 	return false, nil
 }
