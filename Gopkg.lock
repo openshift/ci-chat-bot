@@ -141,24 +141,28 @@
   version = "1.0.1"
 
 [[projects]]
-  digest = "1:b1c2790de3fd6ccc3b466ab9ea889f6b96b0aeb2c52936ca7d91515d9028e408"
+  digest = "1:86f5d3fdc70be4aa2fc22d171ce2617166f72aa1e3885b91ee0a7c458a77e6f9"
   name = "github.com/openshift/api"
   packages = [
     "image/docker10",
     "image/dockerpre012",
     "image/v1",
+    "project/v1",
   ]
   pruneopts = "UT"
   revision = "0d921e363e951d89f583292c60d013c318df64dc"
   version = "v3.9.0"
 
 [[projects]]
-  digest = "1:4e5c60cfccd549dc2351f66d7746a94145c49271cac1d92148d74db56688726f"
+  digest = "1:43a913843e67adbcb2cb020dc294add7ff4483d40333d20fff514ce0fbab6406"
   name = "github.com/openshift/client-go"
   packages = [
     "image/clientset/versioned",
     "image/clientset/versioned/scheme",
     "image/clientset/versioned/typed/image/v1",
+    "project/clientset/versioned",
+    "project/clientset/versioned/scheme",
+    "project/clientset/versioned/typed/project/v1",
   ]
   pruneopts = "UT"
   revision = "1fa528d3be060e4c7178eb69e76d37cf7e699e3c"
@@ -501,6 +505,7 @@
     "github.com/ghodss/yaml",
     "github.com/openshift/api/image/v1",
     "github.com/openshift/client-go/image/clientset/versioned",
+    "github.com/openshift/client-go/project/clientset/versioned",
     "github.com/sbstjn/hanu",
     "github.com/sirupsen/logrus",
     "github.com/spf13/pflag",
@@ -522,6 +527,7 @@
     "k8s.io/client-go/rest",
     "k8s.io/client-go/tools/clientcmd",
     "k8s.io/client-go/tools/remotecommand",
+    "sigs.k8s.io/yaml",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1

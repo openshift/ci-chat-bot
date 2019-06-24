@@ -31,6 +31,7 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
+	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 )
 
 const (
@@ -128,9 +129,11 @@ type jobManager struct {
 	prowClient       dynamic.NamespaceableResourceInterface
 	coreClient       clientset.Interface
 	imageClient      imageclientset.Interface
+	projectClient    projectclientset.Interface
 	coreConfig       *rest.Config
 	prowNamespace    string
 	githubURL        string
+	forcePROwner     string
 
 	muJob struct {
 		lock    sync.Mutex
@@ -144,7 +147,7 @@ type jobManager struct {
 // and reflect that state into ProwJobs that launch clusters. It attempts to recreate state on startup
 // by querying prow, but does not guarantee that some notifications to users may not be sent or may be
 // sent twice.
-func NewJobManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynamic.NamespaceableResourceInterface, coreClient clientset.Interface, imageClient imageclientset.Interface, config *rest.Config, githubURL string) *jobManager {
+func NewJobManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynamic.NamespaceableResourceInterface, coreClient clientset.Interface, imageClient imageclientset.Interface, projectClient projectclientset.Interface, config *rest.Config, githubURL, forcePROwner string) *jobManager {
 	m := &jobManager{
 		requests:      make(map[string]*JobRequest),
 		jobs:          make(map[string]*Job),
@@ -158,7 +161,9 @@ func NewJobManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynamic.Na
 		coreClient:       coreClient,
 		coreConfig:       config,
 		imageClient:      imageClient,
+		projectClient:    projectClient,
 		prowNamespace:    "ci",
+		forcePROwner:     forcePROwner,
 	}
 	m.muJob.running = make(map[string]struct{})
 	return m
@@ -650,6 +655,11 @@ func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) 
 		return nil, fmt.Errorf("pull request needs to be rebased to branch %s", pr.Base.Ref)
 	}
 
+	owner := m.forcePROwner
+	if len(owner) == 0 {
+		owner = pr.User.Login
+	}
+
 	return &prowapiv1.Refs{
 		Org:  locationParts[0],
 		Repo: locationParts[1],
@@ -661,7 +671,7 @@ func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) 
 			{
 				Number: num,
 				SHA:    pr.Head.SHA,
-				Author: pr.User.Login,
+				Author: owner,
 			},
 		},
 	}, nil
