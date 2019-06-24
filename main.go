@@ -14,6 +14,7 @@ import (
 
 	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
+	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 )
 
 const Version = "0.0.1"
@@ -22,6 +23,7 @@ type options struct {
 	ProwConfigPath string
 	JobConfigPath  string
 	GithubEndpoint string
+	ForcePROwner   string
 }
 
 func main() {
@@ -37,6 +39,7 @@ func run() error {
 	pflag.StringVar(&opt.ProwConfigPath, "prow-config", opt.ProwConfigPath, "A config file containing the prow configuration.")
 	pflag.StringVar(&opt.JobConfigPath, "job-config", opt.JobConfigPath, "A config file containing the jobs to run against releases.")
 	pflag.StringVar(&opt.GithubEndpoint, "github-endpoint", opt.GithubEndpoint, "An optional proxy for connecting to github.")
+	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
 	pflag.Parse()
 
 	botToken := os.Getenv("BOT_TOKEN")
@@ -61,13 +64,17 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("unable to create client: %v", err)
 	}
+	projectClient, err := projectclientset.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("unable to create client: %v", err)
+	}
 
 	configAgent := &prowapiv1.Agent{}
 	if err := configAgent.Start(opt.ProwConfigPath, opt.JobConfigPath); err != nil {
 		return err
 	}
 
-	manager := NewJobManager(configAgent, prowClient, client, imageClient, config, opt.GithubEndpoint)
+	manager := NewJobManager(configAgent, prowClient, client, imageClient, projectClient, config, opt.GithubEndpoint, opt.ForcePROwner)
 	if err := manager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %v", err)
 	}

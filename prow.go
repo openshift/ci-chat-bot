@@ -174,7 +174,7 @@ func (e *resolvedEnvironment) Lookup(name string) string {
 // cluster. If this method returns nil, it is safe to consider the cluster released.
 func (m *jobManager) stopJob(name string) error {
 	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(name))
-	if err := m.coreClient.CoreV1().Namespaces().Delete(namespace, nil); err != nil && !errors.IsNotFound(err) {
+	if err := m.projectClient.ProjectV1().Projects().Delete(namespace, nil); err != nil && !errors.IsNotFound(err) {
 		return err
 	}
 	return nil
