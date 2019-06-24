@@ -40,7 +40,7 @@ func (b *Bot) Start(manager JobManager) error {
 		}
 
 		var image string
-		if v, err := conv.String("image_or_version"); err == nil {
+		if v, err := conv.String("image_or_version_or_pr"); err == nil {
 			image = v
 		}
 
@@ -113,7 +113,7 @@ func (b *Bot) Start(manager JobManager) error {
 		),
 
 		hanu.NewCommand(
-			"launch <image_or_version>", "Launch an OpenShift cluster using a known image or version\n\n* nightly: the latest OCP build\n* ci: the latest CI build\n* <version>: a version listed on https://openshift-release.svc.ci.openshift.org\n* <stream>: the newest accepted version from a release stream (4.0.0-0.ci, 4.0.0-0.nightly, etc)\n* <image>: a release image\n\n",
+			"launch <image_or_version_or_pr>", "Launch an OpenShift cluster using a known image, version, or PR\n\n* nightly: the latest OCP build\n* ci: the latest CI build\n* <version>: a version listed on https://openshift-release.svc.ci.openshift.org\n* <stream>: the newest accepted version from a release stream (4.0.0-0.ci, 4.0.0-0.nightly, etc)\n* <image>: a release image\n* <org>/<repo>#<pr>: a pull request to launch\n",
 			launch,
 		),
 
@@ -140,6 +140,23 @@ func (b *Bot) Start(manager JobManager) error {
 					return
 				}
 				msg, err := manager.SyncJobForUser(conv.Message().User())
+				if err != nil {
+					conv.Reply(err.Error())
+					return
+				}
+				conv.Reply(msg)
+			},
+		),
+
+		hanu.NewCommand(
+			"done",
+			"Terminate the running cluster",
+			func(conv hanu.ConversationInterface) {
+				if !conv.Message().IsDirectMessage() {
+					conv.Reply("you must direct message me this request")
+					return
+				}
+				msg, err := manager.TerminateJobForUser(conv.Message().User())
 				if err != nil {
 					conv.Reply(err.Error())
 					return

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -90,6 +91,66 @@ func OverrideJobEnvironment(spec *prowapiv1.ProwJobSpec, image, initialImage, na
 			case name == "NAMESPACE":
 				c.Env[j].Value = namespace
 			}
+		}
+	}
+}
+
+func contains(slice []string, value string) bool {
+	for _, s := range slice {
+		if s == value {
+			return true
+		}
+	}
+	return false
+}
+
+func RemoveEnvVar(c *corev1.Container, names ...string) {
+	for i, env := range c.Env {
+		if !contains(names, env.Name) {
+			continue
+		}
+
+		removed := make([]corev1.EnvVar, 0, len(c.Env))
+		removed = append(removed, c.Env[:i]...)
+		for _, env := range c.Env[i+1:] {
+			if contains(names, env.Name) {
+				continue
+			}
+			removed = append(removed, env)
+		}
+		c.Env = removed
+		return
+	}
+}
+
+func OverrideJobEnvVar(spec *prowapiv1.ProwJobSpec, name, value string) {
+	for i := range spec.PodSpec.Containers {
+		c := &spec.PodSpec.Containers[i]
+		for j := range c.Env {
+			if c.Env[j].Name == name {
+				c.Env[j].Value = value
+				c.Env[j].ValueFrom = nil
+			}
+		}
+	}
+}
+
+func OverrideJobConfig(spec *prowapiv1.ProwJobSpec, refs *prowapiv1.Refs, value string) {
+	spec.Refs = refs
+
+	for i := range spec.PodSpec.Containers {
+		c := &spec.PodSpec.Containers[i]
+		var hasSpec bool
+		for j := range c.Env {
+			switch name := c.Env[j].Name; {
+			case name == "CONFIG_SPEC":
+				hasSpec = true
+				c.Env[j].Value = value
+				c.Env[j].ValueFrom = nil
+			}
+		}
+		if hasSpec {
+			RemoveEnvVar(c, "RELEASE_IMAGE_INITIAL", "RELEASE_IMAGE_LATEST")
 		}
 	}
 }

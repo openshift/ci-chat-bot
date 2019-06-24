@@ -2,12 +2,17 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math"
+	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,12 +33,22 @@ import (
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 )
 
+const (
+	// maxJobsPerUser limits the number of simultaneous jobs a user can launch to prevent
+	// a single user from consuming the infrastructure account.
+	maxJobsPerUser = 10
+
+	// maxTotalClusters limits the number of simultaneous clusters across all users to
+	// prevent saturating the infrastructure account.
+	maxTotalClusters = 15
+)
+
 // JobRequest keeps information about the request a user made to create
 // a job. This is reconstructable from a ProwJob.
 type JobRequest struct {
 	User string
 
-	// InstallImageVersion is a version or image to install
+	// InstallImageVersion is a version, image, or PR to install
 	InstallImageVersion string
 	// UpgradeImageVersion, if specified, is the version to upgrade to
 	UpgradeImageVersion string
@@ -51,6 +66,7 @@ type JobManager interface {
 
 	LaunchJobForUser(req *JobRequest) (string, error)
 	SyncJobForUser(user string) (string, error)
+	TerminateJobForUser(user string) (string, error)
 	GetLaunchJob(user string) (*Job, error)
 	LookupImageOrVersion(imageOrVersion string) (string, error)
 	ListJobs(users ...string) string
@@ -70,9 +86,15 @@ type Job struct {
 	JobName string
 	URL     string
 
-	Mode         string
+	Mode string
+
 	InstallImage string
+	// if set, the install image will be created via a pull request build
+	InstallRefs *prowapiv1.Refs
+
 	UpgradeImage string
+	// if set, the upgrade image will be created via a pull request build
+	UpgradeRefs *prowapiv1.Refs
 
 	// these fields are only set when this is an upgrade job between two known versions
 	InstallVersion string
@@ -85,16 +107,18 @@ type Job struct {
 	RequestedBy      string
 	RequestedChannel string
 
-	RequestedAt time.Time
-	ExpiresAt   time.Time
+	RequestedAt   time.Time
+	ExpiresAt     time.Time
+	StartDuration time.Duration
+	Complete      bool
 }
 
 type jobManager struct {
-	lock         sync.Mutex
-	requests     map[string]*JobRequest
-	jobs         map[string]*Job
-	lastEstimate time.Duration
-	started      time.Time
+	lock                 sync.Mutex
+	requests             map[string]*JobRequest
+	jobs                 map[string]*Job
+	started              time.Time
+	recentStartEstimates []time.Duration
 
 	clusterPrefix string
 	maxClusters   int
@@ -106,6 +130,7 @@ type jobManager struct {
 	imageClient      imageclientset.Interface
 	coreConfig       *rest.Config
 	prowNamespace    string
+	githubURL        string
 
 	muJob struct {
 		lock    sync.Mutex
@@ -119,14 +144,14 @@ type jobManager struct {
 // and reflect that state into ProwJobs that launch clusters. It attempts to recreate state on startup
 // by querying prow, but does not guarantee that some notifications to users may not be sent or may be
 // sent twice.
-func NewJobManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynamic.NamespaceableResourceInterface, coreClient clientset.Interface, imageClient imageclientset.Interface, config *rest.Config) *jobManager {
+func NewJobManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynamic.NamespaceableResourceInterface, coreClient clientset.Interface, imageClient imageclientset.Interface, config *rest.Config, githubURL string) *jobManager {
 	m := &jobManager{
 		requests:      make(map[string]*JobRequest),
 		jobs:          make(map[string]*Job),
 		clusterPrefix: "chat-bot-",
-		maxClusters:   10,
+		maxClusters:   maxTotalClusters,
 		maxAge:        2 * time.Hour,
-		lastEstimate:  10 * time.Minute,
+		githubURL:     githubURL,
 
 		prowConfigLoader: prowConfigLoader,
 		prowClient:       prowClient,
@@ -188,13 +213,31 @@ func (m *jobManager) sync() error {
 			RequestedBy:      job.Annotations["ci-chat-bot.openshift.io/user"],
 			RequestedChannel: job.Annotations["ci-chat-bot.openshift.io/channel"],
 			RequestedAt:      job.CreationTimestamp.Time,
-			ExpiresAt:        job.CreationTimestamp.Time.Add(m.maxAge),
+		}
+
+		if expirationString := job.Annotations["ci-chat-bot.openshift.io/expires"]; len(expirationString) > 0 {
+			if maxSeconds, err := strconv.Atoi(expirationString); err == nil && maxSeconds > 0 {
+				j.ExpiresAt = job.CreationTimestamp.Add(time.Duration(maxSeconds) * time.Second)
+			}
+		}
+		if j.ExpiresAt.IsZero() {
+			j.ExpiresAt = job.CreationTimestamp.Time.Add(m.maxAge)
 		}
 		if job.Status.CompletionTime != nil {
+			j.Complete = true
 			j.ExpiresAt = job.Status.CompletionTime.Add(15 * time.Minute)
 		}
 		if j.ExpiresAt.Before(now) {
 			continue
+		}
+
+		if refString, ok := job.Annotations["ci-chat-bot.openshift.io/releaseRefs"]; ok {
+			var refs prowapiv1.Refs
+			if err := json.Unmarshal([]byte(refString), &refs); err != nil {
+				log.Printf("Unable to unmarshal release refs from %s: %v", job.Name, err)
+			} else {
+				j.InstallRefs = &refs
+			}
 		}
 
 		switch job.Status.State {
@@ -225,6 +268,12 @@ func (m *jobManager) sync() error {
 						from := job.Annotations["ci-chat-bot.openshift.io/releaseImage"]
 						if version := job.Annotations["ci-chat-bot.openshift.io/releaseVersion"]; len(version) > 0 {
 							from = version
+						}
+						if refString, ok := job.Annotations["ci-chat-bot.openshift.io/releaseRefs"]; ok {
+							var refs prowapiv1.Refs
+							if err := json.Unmarshal([]byte(refString), &refs); err == nil && len(refs.Pulls) > 0 {
+								from = fmt.Sprintf("%s/%s#%d", refs.Org, refs.Repo, refs.Pulls[0].Number)
+							}
 						}
 						to := job.Annotations["ci-chat-bot.openshift.io/upgradeImage"]
 						if version := job.Annotations["ci-chat-bot.openshift.io/upgradeVersion"]; len(version) > 0 {
@@ -275,10 +324,20 @@ func (m *jobManager) SetNotifier(fn JobCallbackFunc) {
 }
 
 func (m *jobManager) estimateCompletion(requestedAt time.Time) time.Duration {
-	if requestedAt.IsZero() {
-		return m.lastEstimate.Truncate(time.Second)
+	// find the median, or default to 30m
+	var median time.Duration
+	if l := len(m.recentStartEstimates); l > 0 {
+		median = m.recentStartEstimates[l/2]
 	}
-	lastEstimate := m.lastEstimate - time.Now().Sub(requestedAt)
+	if median < time.Minute {
+		median = 30 * time.Minute
+	}
+
+	if requestedAt.IsZero() {
+		return median.Truncate(time.Second)
+	}
+
+	lastEstimate := median - time.Now().Sub(requestedAt)
 	if lastEstimate < 0 {
 		return time.Minute
 	}
@@ -301,8 +360,12 @@ func (m *jobManager) ListJobs(users ...string) string {
 	var clusters []*Job
 	var jobs []*Job
 	var totalJobs int
+	var runningClusters int
 	for _, job := range m.jobs {
 		if job.Mode == "launch" {
+			if !job.Complete {
+				runningClusters++
+			}
 			clusters = append(clusters, job)
 		} else {
 			totalJobs++
@@ -323,9 +386,9 @@ func (m *jobManager) ListJobs(users ...string) string {
 	buf := &bytes.Buffer{}
 	now := time.Now()
 	if len(clusters) == 0 {
-		fmt.Fprintf(buf, "No clusters up (start time is approximately %.1f minutes):\n\n", m.lastEstimate.Seconds()/60)
+		fmt.Fprintf(buf, "No clusters up (start time is approximately %d minutes):\n\n", m.estimateCompletion(time.Time{})/time.Minute)
 	} else {
-		fmt.Fprintf(buf, "%d/%d clusters up (start time is approximately %.1f minutes):\n\n", len(clusters), m.maxClusters, m.lastEstimate.Seconds()/60)
+		fmt.Fprintf(buf, "%d/%d clusters up (start time is approximately %d minutes):\n\n", runningClusters, m.maxClusters, m.estimateCompletion(time.Time{})/time.Minute)
 		for _, job := range clusters {
 			var details string
 			if len(job.URL) > 0 {
@@ -333,6 +396,8 @@ func (m *jobManager) ListJobs(users ...string) string {
 			}
 			var imageOrVersion string
 			switch {
+			case job.InstallRefs != nil && len(job.InstallRefs.Pulls) > 0:
+				imageOrVersion = fmt.Sprintf(" <https://github.com/%s/%s/pull/%d|%s/%s#%d>", url.PathEscape(job.InstallRefs.Org), url.PathEscape(job.InstallRefs.Repo), job.InstallRefs.Pulls[0].Number, job.InstallRefs.Org, job.InstallRefs.Repo, job.InstallRefs.Pulls[0].Number)
 			case len(job.InstallVersion) > 0:
 				imageOrVersion = fmt.Sprintf(" <https://openshift-release.svc.ci.openshift.org/releasetag/%s|%s>", url.PathEscape(job.InstallVersion), job.InstallVersion)
 			case len(job.InstallImage) > 0:
@@ -408,6 +473,21 @@ func (m *jobManager) GetLaunchJob(user string) (*Job, error) {
 	return &copied, nil
 }
 
+var reBranchVersion = regexp.MustCompile((`^(openshift-|release-)(\d+\.\d+)$`))
+
+func versionForRefs(refs *prowapiv1.Refs) string {
+	if refs == nil || len(refs.BaseRef) == 0 {
+		return ""
+	}
+	if refs.BaseRef == "master" {
+		return "4.2.0-0.latest"
+	}
+	if m := reBranchVersion.FindStringSubmatch(refs.BaseRef); m != nil {
+		return fmt.Sprintf("%s.0-0.latest", m[2])
+	}
+	return ""
+}
+
 var reMajorMinorVersion = regexp.MustCompile(`^(\d)\.(\d)$`)
 
 func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion string) (string, string, error) {
@@ -417,18 +497,20 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		}
 		imageOrVersion = defaultImageOrVersion
 	}
-	if strings.Contains(imageOrVersion, "/") {
-		return imageOrVersion, "", nil
+
+	unresolved := imageOrVersion
+	if strings.Contains(unresolved, "/") {
+		return unresolved, "", nil
 	}
 
-	if m := reMajorMinorVersion.FindStringSubmatch(imageOrVersion); m != nil {
-		//imageOrVersion = fmt.Sprintf("%s", m[0])
-	} else if imageOrVersion == "nightly" {
-		imageOrVersion = "4.1.0-0.nightly"
-	} else if imageOrVersion == "ci" {
-		imageOrVersion = "4.2.0-0.ci"
-	} else if imageOrVersion == "prerelease" {
-		imageOrVersion = "4.2.0-0.ci"
+	if m := reMajorMinorVersion.FindStringSubmatch(unresolved); m != nil {
+		//unresolved = fmt.Sprintf("%s", m[0])
+	} else if unresolved == "nightly" {
+		unresolved = "4.1.0-0.nightly"
+	} else if unresolved == "ci" {
+		unresolved = "4.2.0-0.ci"
+	} else if unresolved == "prerelease" {
+		unresolved = "4.2.0-0.ci"
 	}
 
 	is, err := m.imageClient.ImageV1().ImageStreams("ocp").Get("release", metav1.GetOptions{})
@@ -436,12 +518,12 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		return "", "", fmt.Errorf("unable to find release image stream: %v", err)
 	}
 
-	if tag := findImageStatusTag(is, imageOrVersion); tag != nil {
+	if tag := findImageStatusTag(is, unresolved); tag != nil {
 		log.Printf("Resolved %s to %s", imageOrVersion, tag.Image)
-		return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release@%s", tag.Image), imageOrVersion, nil
+		return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release@%s", tag.Image), unresolved, nil
 	}
 
-	if tag := findNewestImageSpecTagWithStream(is, imageOrVersion); tag != nil {
+	if tag := findNewestImageSpecTagWithStream(is, unresolved); tag != nil {
 		log.Printf("Resolved %s to %s", imageOrVersion, tag.Name)
 		return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
 	}
@@ -479,7 +561,7 @@ func findImageStatusTag(is *imagev1.ImageStream, name string) *imagev1.TagEvent 
 }
 
 func (m *jobManager) LookupImageOrVersion(imageOrVersion string) (string, error) {
-	installImage, installVersion, err := m.resolveImageOrVersion(imageOrVersion, "4.0.0-0.ci")
+	installImage, installVersion, err := m.resolveImageOrVersion(imageOrVersion, "ci")
 	if err != nil {
 		return "", err
 	}
@@ -489,51 +571,197 @@ func (m *jobManager) LookupImageOrVersion(imageOrVersion string) (string, error)
 	return fmt.Sprintf("`%s` launches version <https://openshift-release.svc.ci.openshift.org/releasetag/%s|%s>", imageOrVersion, installVersion, installVersion), nil
 }
 
-func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
-	installImage, installVersion, err := m.resolveImageOrVersion(req.InstallImageVersion, "ci")
-	if err != nil {
-		return "", err
+type GitHubPullRequest struct {
+	ID        int    `json:"id"`
+	Number    int    `json:"number"`
+	UpdatedAt string `json:"updated_at"`
+	State     string `json:"state"`
+
+	User GitHubPullRequestUser `json:"user"`
+
+	Merged    bool `json:"merged"`
+	Mergeable bool `json:"mergeable"`
+
+	Head GitHubPullRequestHead `json:"head"`
+	Base GitHubPullRequestBase `json:"base"`
+}
+
+type GitHubPullRequestUser struct {
+	Login string `json:"login"`
+}
+
+type GitHubPullRequestHead struct {
+	SHA string `json:"sha"`
+}
+
+type GitHubPullRequestBase struct {
+	Ref string `json:"ref"`
+	SHA string `json:"sha"`
+}
+
+func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) {
+	parts := strings.SplitN(spec, "#", 2)
+	if len(parts) != 2 {
+		return nil, nil
 	}
-	upgradeImage, upgradeVersion, err := m.resolveImageOrVersion(req.UpgradeImageVersion, "")
-	if err != nil {
-		return "", err
+	locationParts := strings.Split(parts[0], "/")
+	if len(locationParts) != 2 || len(locationParts[0]) == 0 || len(locationParts[1]) == 0 {
+		return nil, fmt.Errorf("when specifying a pull request, you must provide ORG/REPO#NUMBER")
+	}
+	num, err := strconv.Atoi(parts[1])
+	if err != nil || num < 1 {
+		return nil, fmt.Errorf("when specifying a pull request, you must provide ORG/REPO#NUMBER")
 	}
 
-	mode := "launch"
-	if len(upgradeImage) > 0 {
-		mode = "upgrade"
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/repos/%s/%s/pulls/%d", m.githubURL, url.PathEscape(locationParts[0]), url.PathEscape(locationParts[1]), num), nil)
+	if err != nil {
+		return nil, fmt.Errorf("unable to lookup pull request: %v", err)
+	}
+	if token := os.Getenv("GITHUB_TOKEN"); len(token) > 0 {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("unable to lookup pull request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case 200:
+		// retrieve
+	case 403:
+		data, _ := ioutil.ReadAll(resp.Body)
+		log.Printf("failed to access server:\n%s", string(data))
+		return nil, fmt.Errorf("unable to lookup pull request: forbidden")
+	case 404:
+		return nil, fmt.Errorf("pull request not found")
+	default:
+		return nil, fmt.Errorf("unable to lookup pull request: %d %s", resp.StatusCode, resp.Status)
+	}
+
+	var pr GitHubPullRequest
+	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
+		return nil, fmt.Errorf("unable to retrieve pull request info: %v", err)
+	}
+	if pr.Merged {
+		return nil, fmt.Errorf("pull request has already been merged to %s", pr.Base.Ref)
+	}
+	if !pr.Mergeable {
+		return nil, fmt.Errorf("pull request needs to be rebased to branch %s", pr.Base.Ref)
+	}
+
+	return &prowapiv1.Refs{
+		Org:  locationParts[0],
+		Repo: locationParts[1],
+
+		BaseRef: pr.Base.Ref,
+		BaseSHA: pr.Base.SHA,
+
+		Pulls: []prowapiv1.Pull{
+			{
+				Number: num,
+				SHA:    pr.Head.SHA,
+				Author: pr.User.Login,
+			},
+		},
+	}, nil
+}
+
+func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
+	user := req.User
+	if len(user) == 0 {
+		return nil, fmt.Errorf("must specify the name of the user who requested this cluster")
+	}
+
+	req.RequestedAt = time.Now()
+	name := fmt.Sprintf("%s%s", m.clusterPrefix, req.RequestedAt.UTC().Format("2006-01-02-150405.9999"))
+	req.Name = name
+
+	job := &Job{
+		Mode:  "launch",
+		Name:  name,
+		State: prowapiv1.PendingState,
+
+		RequestedBy:      user,
+		RequestedChannel: req.Channel,
+		RequestedAt:      req.RequestedAt,
+
+		ExpiresAt: req.RequestedAt.Add(m.maxAge),
+	}
+
+	// if the user provided a pull spec (org/repo#number) we'll build from that
+	installRefs, err := m.resolveAsPullRequest(req.InstallImageVersion)
+	if err != nil {
+		return nil, err
+	}
+	if installRefs != nil {
+		job.InstallRefs = installRefs
+		job.InstallVersion = versionForRefs(installRefs)
+	} else {
+		// otherwise, resolve as a semantic version (as a tag on the release image stream) or as an image
+		job.InstallImage, job.InstallVersion, err = m.resolveImageOrVersion(req.InstallImageVersion, "ci")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// upgrade image is optional - resolve it similarly, and if set make this an upgrade job
+	upgradeRefs, err := m.resolveAsPullRequest(req.UpgradeImageVersion)
+	if err != nil {
+		return nil, err
+	}
+	if upgradeRefs != nil {
+		job.UpgradeRefs = upgradeRefs
+		job.UpgradeVersion = versionForRefs(upgradeRefs)
+	} else {
+		job.UpgradeImage, job.UpgradeVersion, err = m.resolveImageOrVersion(req.UpgradeImageVersion, "")
+		if err != nil {
+			return nil, err
+		}
+	}
+	if job.UpgradeRefs != nil || len(job.UpgradeImage) > 0 {
+		job.Mode = "upgrade"
+	}
+
+	// TODO: this should be possible but requires some thought, disable for now
+	// (mainly we need two namespaces and jobs to build in)
+	if job.UpgradeRefs != nil || (job.InstallRefs != nil && job.Mode == "upgrade") {
+		return nil, fmt.Errorf("upgrading to a PR build is not supported at this time")
+	}
+
+	return job, nil
+}
+
+func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
+	job, err := m.resolveToJob(req)
+	if err != nil {
+		return "", err
 	}
 
 	// try to pick a job that matches the install version, if we can, otherwise use the first that
 	// matches us (we can do better)
-	var job *prowapiv1.ProwJob
-	selector := labels.Set{"job-env": "aws", "job-type": mode}
-	if len(installVersion) > 0 {
-		if v, err := semver.ParseTolerant(installVersion); err == nil {
+	var prowJob *prowapiv1.ProwJob
+	selector := labels.Set{"job-env": "aws", "job-type": job.Mode}
+	if len(job.InstallVersion) > 0 {
+		if v, err := semver.ParseTolerant(job.InstallVersion); err == nil {
 			withRelease := labels.Merge(selector, labels.Set{"job-release": fmt.Sprintf("%d.%d", v.Major, v.Minor)})
-			job, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(withRelease))
+			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(withRelease))
 		}
 	}
-	if job == nil {
-		job, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(selector))
+	if prowJob == nil {
+		prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(selector))
 	}
-	if job == nil {
-		return "", fmt.Errorf("configuration error, unable to find job matching %s", selector)
+	if prowJob == nil {
+		return "", fmt.Errorf("configuration error, unable to find prow job matching %s", selector)
 	}
-	jobName := job.Spec.Job
-	log.Printf("Selected %s job %s for user - %s->%s %s->%s", mode, jobName, installVersion, upgradeVersion, installImage, upgradeImage)
+	job.JobName = prowJob.Spec.Job
+	log.Printf("Selected %s job %s for user - %s->%s %s->%s", job.Mode, job.JobName, job.InstallVersion, job.UpgradeVersion, job.InstallImage, job.UpgradeImage)
 
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
 	user := req.User
-	if len(user) == 0 {
-		return "", fmt.Errorf("must specify the name of the user who requested this cluster")
-	}
-
-	req.RequestedAt = time.Now()
-
-	if mode == "launch" {
+	if job.Mode == "launch" {
 		existing, ok := m.requests[user]
 		if ok {
 			if len(existing.Name) == 0 {
@@ -559,7 +787,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 
 		launchedClusters := 0
 		for _, job := range m.jobs {
-			if job != nil && job.Mode == "launch" {
+			if job != nil && job.Mode == "launch" && !job.Complete {
 				launchedClusters++
 			}
 		}
@@ -587,38 +815,61 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 				running++
 			}
 		}
-		if running > 3 {
-			return "", fmt.Errorf("you can't have more than 3 running jobs at a time")
+		if running > maxJobsPerUser {
+			return "", fmt.Errorf("you can't have more than %d running jobs at a time", maxJobsPerUser)
 		}
 	}
 
-	newJob := &Job{
-		Name:    fmt.Sprintf("%s%s", m.clusterPrefix, req.RequestedAt.UTC().Format("2006-01-02-150405.9999")),
-		State:   prowapiv1.PendingState,
-		JobName: jobName,
-		Mode:    mode,
+	m.jobs[job.Name] = job
 
-		InstallImage:   installImage,
-		UpgradeImage:   upgradeImage,
-		InstallVersion: installVersion,
-		UpgradeVersion: upgradeVersion,
+	log.Printf("user %q requests cluster %q", user, job.Name)
+	go m.handleJobStartup(*job)
 
-		RequestedBy:      user,
-		RequestedChannel: req.Channel,
-		RequestedAt:      req.RequestedAt,
-
-		ExpiresAt: req.RequestedAt.Add(m.maxAge),
-	}
-	req.Name = newJob.Name
-	m.jobs[newJob.Name] = newJob
-
-	log.Printf("user %q requests cluster %q", user, newJob.Name)
-	go m.handleJobStartup(*newJob)
-
-	if mode == "launch" {
+	if job.Mode == "launch" {
 		return "", fmt.Errorf("a cluster is being created - I'll send you the credentials in about ~%d minutes", m.estimateCompletion(req.RequestedAt)/time.Minute)
 	}
 	return "", fmt.Errorf("job has been started")
+}
+
+func (m *jobManager) clusterNameForUser(user string) (string, error) {
+	if len(user) == 0 {
+		return "", fmt.Errorf("must specify the name of the user who requested this cluster")
+	}
+
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	existing, ok := m.requests[user]
+	if !ok || len(existing.Name) == 0 {
+		return "", fmt.Errorf("no cluster has been requested by you")
+	}
+	return existing.Name, nil
+}
+
+func (m *jobManager) TerminateJobForUser(user string) (string, error) {
+	name, err := m.clusterNameForUser(user)
+	if err != nil {
+		return "", err
+	}
+	log.Printf("user %q requests job %q to be terminated", user, name)
+	if err := m.stopJob(name); err != nil {
+		return "", fmt.Errorf("unable to terminate running cluster: %v", err)
+	}
+
+	// mark the cluster as failed, clear the request, and allow the user to launch again
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	existing, ok := m.requests[user]
+	if !ok || existing.Name != name {
+		return "", fmt.Errorf("another cluster was launched while trying to stop this cluster")
+	}
+	delete(m.requests, user)
+	if job, ok := m.jobs[name]; ok {
+		job.Failure = "deletion requested"
+		job.ExpiresAt = time.Now().Add(15 * time.Minute)
+		job.Complete = true
+	}
+	return "the cluster was flagged for shutdown, you may now launch another", nil
 }
 
 func (m *jobManager) SyncJobForUser(user string) (string, error) {
@@ -676,9 +927,15 @@ func (m *jobManager) finishedJob(job Job) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	now := time.Now()
-	if job.Mode == "launch" && len(job.Credentials) > 0 {
-		m.lastEstimate = now.Sub(job.RequestedAt)
+	// track the 10 most recent starts in sorted order
+	if job.Mode == "launch" && len(job.Credentials) > 0 && job.StartDuration > 0 {
+		m.recentStartEstimates = append(m.recentStartEstimates, job.StartDuration)
+		if len(m.recentStartEstimates) > 10 {
+			m.recentStartEstimates = m.recentStartEstimates[:10]
+		}
+		sort.Slice(m.recentStartEstimates, func(i, j int) bool {
+			return m.recentStartEstimates[i] < m.recentStartEstimates[j]
+		})
 	}
 
 	log.Printf("completed job request for %s and notifying participants (%s)", job.Name, job.RequestedBy)
