@@ -90,6 +90,14 @@
   version = "v0.2.0"
 
 [[projects]]
+  digest = "1:e62657cca9badaa308d86e7716083e4c5933bb78e30a17743fc67f50be26f6f4"
+  name = "github.com/gorilla/websocket"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "c3e18be99d19e6b3e8f1559eea2c161a665c4b6b"
+  version = "v1.4.1"
+
+[[projects]]
   branch = "master"
   digest = "1:86c1210529e69d69860f2bb3ee9ccce0b595aa3f9165e7dd1388e5c612915888"
   name = "github.com/gregjones/httpcache"
@@ -141,6 +149,19 @@
   version = "1.0.1"
 
 [[projects]]
+  digest = "1:3b68aaa159109450b5c0c79e40a02347db7ceb10bb8758687898f7e57d355cf7"
+  name = "github.com/nlopes/slack"
+  packages = [
+    ".",
+    "internal/errorsx",
+    "internal/timex",
+    "slackutilsx",
+  ]
+  pruneopts = "UT"
+  revision = "1af34b6bda3d43878255fff7bd2884ea0c23295e"
+  version = "v0.6.0"
+
+[[projects]]
   digest = "1:86f5d3fdc70be4aa2fc22d171ce2617166f72aa1e3885b91ee0a7c458a77e6f9"
   name = "github.com/openshift/api"
   packages = [
@@ -185,6 +206,14 @@
   version = "v2.0.1"
 
 [[projects]]
+  digest = "1:cf31692c14422fa27c83a05292eb5cbe0fb2775972e8f1f8446a71549bd8980b"
+  name = "github.com/pkg/errors"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "ba968bfe8b2f7e042a574c888954fccecfa385b4"
+  version = "v0.8.1"
+
+[[projects]]
   branch = "master"
   digest = "1:ad65c21cad052ae0b994f7124129b26e8125d2a06c2316ee9e97cb23ba75f527"
   name = "github.com/sbstjn/allot"
@@ -199,6 +228,30 @@
   pruneopts = "UT"
   revision = "ee3cb0f9de3d05b9ccaf4ab6e30ba3880b1f1484"
   version = "v0.1.0"
+
+[[projects]]
+  branch = "master"
+  digest = "1:568d7e33d3a71932fcf135e52c6af000a8dcafd4afd297966acea3bde7a74aed"
+  name = "github.com/shomali11/commander"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "141478e8c0690fea13d8298fd3ac32071b9cccfe"
+
+[[projects]]
+  branch = "master"
+  digest = "1:cb446b817e59c7ef516ceb3b5e313cde7bf59df528c0874b20d0c605b0b546f2"
+  name = "github.com/shomali11/proper"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "6e70a05688e78340575a088d318f0d2fa8866ec0"
+
+[[projects]]
+  branch = "master"
+  digest = "1:4b46db2e06912eea2488882f148f07dab268d9661892bcb01c2260fea83ac57e"
+  name = "github.com/shomali11/slacker"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "289f4e2732b6146a81b723eb419585cd12cf60d3"
 
 [[projects]]
   digest = "1:fd61cf4ae1953d55df708acb6b91492d538f49c305b364a014049914495db426"
@@ -507,6 +560,7 @@
     "github.com/openshift/client-go/image/clientset/versioned",
     "github.com/openshift/client-go/project/clientset/versioned",
     "github.com/sbstjn/hanu",
+    "github.com/shomali11/slacker",
     "github.com/sirupsen/logrus",
     "github.com/spf13/pflag",
     "k8s.io/api/core/v1",
