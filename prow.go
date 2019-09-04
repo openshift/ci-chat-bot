@@ -31,6 +31,10 @@ import (
 	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 )
 
+// supportedPlatforms requires a job within the release periodics that can launch a
+// cluster that has the label job-env: platform-name.
+var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere"}
+
 func findTargetName(spec *corev1.PodSpec) (string, error) {
 	if spec == nil {
 		return "", fmt.Errorf("prow job has no pod spec, cannot find target pod name")
