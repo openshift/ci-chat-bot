@@ -53,6 +53,8 @@ type JobRequest struct {
 	InstallImageVersion string
 	// UpgradeImageVersion, if specified, is the version to upgrade to
 	UpgradeImageVersion string
+	// An optional string controlling the platform type
+	Platform string
 
 	Channel     string
 	RequestedAt time.Time
@@ -743,6 +745,9 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 }
 
 func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
+	if len(req.Platform) == 0 {
+		return "", fmt.Errorf("platform must be set when launching clusters")
+	}
 	job, err := m.resolveToJob(req)
 	if err != nil {
 		return "", err
@@ -751,7 +756,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	// try to pick a job that matches the install version, if we can, otherwise use the first that
 	// matches us (we can do better)
 	var prowJob *prowapiv1.ProwJob
-	selector := labels.Set{"job-env": "aws", "job-type": job.Mode}
+	selector := labels.Set{"job-env": req.Platform, "job-type": job.Mode}
 	if len(job.InstallVersion) > 0 {
 		if v, err := semver.ParseTolerant(job.InstallVersion); err == nil {
 			withRelease := labels.Merge(selector, labels.Set{"job-release": fmt.Sprintf("%d.%d", v.Major, v.Minor)})
