@@ -510,32 +510,72 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		return unresolved, "", nil
 	}
 
+	is, err := m.imageClient.ImageV1().ImageStreams("ocp").Get("release", metav1.GetOptions{})
+	if err != nil {
+		return "", "", fmt.Errorf("unable to find release image stream: %v", err)
+	}
+
 	if m := reMajorMinorVersion.FindStringSubmatch(unresolved); m != nil {
-		//unresolved = fmt.Sprintf("%s", m[0])
+		if tag := findNewestStableImageSpecTagBySemanticMajor(is, unresolved); tag != nil {
+			log.Printf("Resolved major.minor %s to semver tag %s", imageOrVersion, tag.Name)
+			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release@%s", tag.Name), tag.Name, nil
+		}
+		if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.nightly", unresolved)); tag != nil {
+			log.Printf("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
+			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
+		}
+		return "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
 	} else if unresolved == "nightly" {
-		unresolved = "4.1.0-0.nightly"
+		unresolved = "4.2.0-0.nightly"
 	} else if unresolved == "ci" {
 		unresolved = "4.2.0-0.ci"
 	} else if unresolved == "prerelease" {
 		unresolved = "4.2.0-0.ci"
 	}
 
-	is, err := m.imageClient.ImageV1().ImageStreams("ocp").Get("release", metav1.GetOptions{})
-	if err != nil {
-		return "", "", fmt.Errorf("unable to find release image stream: %v", err)
-	}
-
-	if tag := findImageStatusTag(is, unresolved); tag != nil {
-		log.Printf("Resolved %s to %s", imageOrVersion, tag.Image)
-		return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release@%s", tag.Image), unresolved, nil
+	if tag, name := findImageStatusTag(is, unresolved); tag != nil {
+		log.Printf("Resolved %s to image %s", imageOrVersion, tag.Image)
+		return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release@%s", tag.Image), name, nil
 	}
 
 	if tag := findNewestImageSpecTagWithStream(is, unresolved); tag != nil {
-		log.Printf("Resolved %s to %s", imageOrVersion, tag.Name)
+		log.Printf("Resolved %s to tag %s", imageOrVersion, tag.Name)
 		return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
 	}
 
 	return "", "", fmt.Errorf("unable to find a release matching %q on https://openshift-release.svc.ci.openshift.org", imageOrVersion)
+}
+
+func findNewestStableImageSpecTagBySemanticMajor(is *imagev1.ImageStream, majorMinor string) *imagev1.TagReference {
+	base, err := semver.ParseTolerant(majorMinor)
+	if err != nil {
+		return nil
+	}
+	var candidates semver.Versions
+	for _, tag := range is.Spec.Tags {
+		if tag.Annotations["release.openshift.io/name"] != "4-stable" {
+			continue
+		}
+		v, err := semver.ParseTolerant(tag.Name)
+		if err != nil {
+			continue
+		}
+		if v.Major != base.Major || v.Minor != base.Minor {
+			continue
+		}
+		candidates = append(candidates, v)
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	sort.Sort(candidates)
+	tagName := candidates[len(candidates)-1].String()
+	for i, tag := range is.Spec.Tags {
+		if tag.Name == tagName {
+			return &is.Spec.Tags[i]
+		}
+	}
+	return nil
 }
 
 func findNewestImageSpecTagWithStream(is *imagev1.ImageStream, name string) *imagev1.TagReference {
@@ -555,16 +595,16 @@ func findNewestImageSpecTagWithStream(is *imagev1.ImageStream, name string) *ima
 	return newest
 }
 
-func findImageStatusTag(is *imagev1.ImageStream, name string) *imagev1.TagEvent {
+func findImageStatusTag(is *imagev1.ImageStream, name string) (*imagev1.TagEvent, string) {
 	for _, tag := range is.Status.Tags {
 		if tag.Tag == name {
 			if len(tag.Items) == 0 {
-				return nil
+				return nil, ""
 			}
-			return &tag.Items[0]
+			return &tag.Items[0], tag.Tag
 		}
 	}
-	return nil
+	return nil, ""
 }
 
 func (m *jobManager) LookupImageOrVersion(imageOrVersion string) (string, error) {
