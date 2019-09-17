@@ -185,7 +185,7 @@ func (b *Bot) Start(manager JobManager) error {
 	slack.Command("version", &slacker.CommandDefinition{
 		Description: "Report the version of the bot",
 		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
-			response.Reply(fmt.Sprintf("Thanks for asking! I'm running `%s`", Version))
+			response.Reply(fmt.Sprintf("Thanks for asking! I'm running `%s` ( https://github.com/openshift/ci-chat-bot )", Version))
 		},
 	})
 
