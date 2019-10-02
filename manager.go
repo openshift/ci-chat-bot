@@ -487,7 +487,7 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 		return ""
 	}
 	if refs.BaseRef == "master" {
-		return "4.2.0-0.latest"
+		return "4.3.0-0.latest"
 	}
 	if m := reBranchVersion.FindStringSubmatch(refs.BaseRef); m != nil {
 		return fmt.Sprintf("%s.0-0.latest", m[2])
@@ -503,6 +503,11 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 			return "", "", nil
 		}
 		imageOrVersion = defaultImageOrVersion
+	}
+
+	// workaround Slack's annoying habit of turning 4.3.0-0.ci into a hyperlink in slackdown
+	if strings.HasPrefix(imageOrVersion, "<") && strings.HasSuffix(imageOrVersion, ">") && strings.Contains(imageOrVersion, "|") {
+		imageOrVersion = imageOrVersion[strings.Index(imageOrVersion, "|")+1 : len(imageOrVersion)-1]
 	}
 
 	unresolved := imageOrVersion
@@ -524,13 +529,17 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 			log.Printf("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
 			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
 		}
+		if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.ci", unresolved)); tag != nil {
+			log.Printf("Resolved major.minor %s to ci tag %s", imageOrVersion, tag.Name)
+			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
+		}
 		return "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
 	} else if unresolved == "nightly" {
 		unresolved = "4.2.0-0.nightly"
 	} else if unresolved == "ci" {
-		unresolved = "4.2.0-0.ci"
+		unresolved = "4.3.0-0.ci"
 	} else if unresolved == "prerelease" {
-		unresolved = "4.2.0-0.ci"
+		unresolved = "4.3.0-0.ci"
 	}
 
 	if tag, name := findImageStatusTag(is, unresolved); tag != nil {
