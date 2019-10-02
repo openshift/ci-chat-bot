@@ -518,7 +518,7 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 	if m := reMajorMinorVersion.FindStringSubmatch(unresolved); m != nil {
 		if tag := findNewestStableImageSpecTagBySemanticMajor(is, unresolved); tag != nil {
 			log.Printf("Resolved major.minor %s to semver tag %s", imageOrVersion, tag.Name)
-			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release@%s", tag.Name), tag.Name, nil
+			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
 		}
 		if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.nightly", unresolved)); tag != nil {
 			log.Printf("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
