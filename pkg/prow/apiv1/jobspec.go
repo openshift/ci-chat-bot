@@ -20,7 +20,7 @@ type JobSpec struct {
 
 	// refs & extra_refs from the full spec
 	Refs      *Refs   `json:"refs,omitempty"`
-	ExtraRefs []*Refs `json:"extra_refs,omitempty"`
+	ExtraRefs []Refs `json:"extra_refs,omitempty"`
 
 	// we need to keep track of the agent until we
 	// migrate everyone away from using the $BUILD_NUMBER
@@ -155,7 +155,7 @@ func GetRevisionFromSpec(spec *JobSpec) string {
 	if spec.Refs != nil {
 		return getRevisionFromRef(spec.Refs)
 	} else if len(spec.ExtraRefs) > 0 {
-		return getRevisionFromRef(spec.ExtraRefs[0])
+		return getRevisionFromRef(&spec.ExtraRefs[0])
 	}
 	return ""
 }

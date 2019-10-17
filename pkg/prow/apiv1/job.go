@@ -4,25 +4,11 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-func ProwSpecForPeriodicConfig(config *Periodic, decorationConfig *DecorationConfig) *ProwJobSpec {
-	spec := &ProwJobSpec{
-		Type:  PeriodicJob,
-		Job:   config.Name,
-		Agent: KubernetesAgent,
-
-		Refs: &Refs{},
-
-		PodSpec: config.Spec.DeepCopy(),
-	}
-
-	if decorationConfig != nil {
-		spec.DecorationConfig = decorationConfig.DeepCopy()
-	} else {
-		spec.DecorationConfig = &DecorationConfig{}
-	}
+func ProwSpecForPeriodicConfig(config *Periodic) *ProwJobSpec {
+	spec := PeriodicSpec(*config)
 	isTrue := true
 	spec.DecorationConfig.SkipCloning = &isTrue
-	return spec
+	return &spec
 }
 
 func HasProwJob(config *Config, name string) (*Periodic, bool) {

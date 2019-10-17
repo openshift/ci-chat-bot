@@ -27,7 +27,7 @@ func JobForLabels(prowConfigLoader ProwConfigLoader, selector labels.Selector) (
 		return nil, fmt.Errorf("no prow job matches the label selector %s", selector.String())
 	}
 
-	spec := prowapiv1.ProwSpecForPeriodicConfig(periodicConfig, config.Plank.DefaultDecorationConfig)
+	spec := prowapiv1.ProwSpecForPeriodicConfig(periodicConfig)
 
 	pj := &prowapiv1.ProwJob{
 		TypeMeta: metav1.TypeMeta{APIVersion: "prow.k8s.io/v1", Kind: "ProwJob"},
@@ -50,7 +50,7 @@ func JobForConfig(prowConfigLoader ProwConfigLoader, jobName string) (*prowapiv1
 		return nil, fmt.Errorf("the prow job %s is not valid: no job with that name", jobName)
 	}
 
-	spec := prowapiv1.ProwSpecForPeriodicConfig(periodicConfig, config.Plank.DefaultDecorationConfig)
+	spec := prowapiv1.ProwSpecForPeriodicConfig(periodicConfig)
 
 	pj := &prowapiv1.ProwJob{
 		TypeMeta: metav1.TypeMeta{APIVersion: "prow.k8s.io/v1", Kind: "ProwJob"},
