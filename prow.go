@@ -6,12 +6,13 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
-	"log"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"k8s.io/klog"
 	"sigs.k8s.io/yaml"
 
 	corev1 "k8s.io/api/core/v1"
@@ -84,34 +85,34 @@ func ciOperatorConfigRefForRefs(refs *prowapiv1.Refs) *corev1.ConfigMapKeySelect
 	}
 }
 
-func loadJobConfigSpec(client clientset.Interface, env corev1.EnvVar, namespace string) (*unstructured.Unstructured, error) {
+func loadJobConfigSpec(client clientset.Interface, env corev1.EnvVar, namespace string) (*unstructured.Unstructured, string, string, error) {
 	if len(env.Value) > 0 {
 		var cfg unstructured.Unstructured
 		if err := yaml.Unmarshal([]byte(env.Value), &cfg.Object); err != nil {
-			return nil, fmt.Errorf("unable to parse ci-operator config definition: %v", err)
+			return nil, "", "", fmt.Errorf("unable to parse ci-operator config definition: %v", err)
 		}
-		return &cfg, nil
+		return &cfg, "", "", nil
 	}
 	if env.ValueFrom == nil {
-		return &unstructured.Unstructured{}, nil
+		return &unstructured.Unstructured{}, "", "", nil
 	}
 	if env.ValueFrom.ConfigMapKeyRef == nil {
-		return nil, fmt.Errorf("only config spec values inline or referenced in config maps may be used")
+		return nil, "", "", fmt.Errorf("only config spec values inline or referenced in config maps may be used")
 	}
 	configMap, keyName := env.ValueFrom.ConfigMapKeyRef.Name, env.ValueFrom.ConfigMapKeyRef.Key
 	cm, err := client.CoreV1().ConfigMaps(namespace).Get(configMap, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("unable to identify a ci-operator configuration for the provided refs: %v", err)
+		return nil, "", "", fmt.Errorf("unable to identify a ci-operator configuration for the provided refs: %v", err)
 	}
 	configData, ok := cm.Data[keyName]
 	if !ok {
-		return nil, fmt.Errorf("no ci-operator config was found in config map %s/%s with key %s", namespace, configMap, keyName)
+		return nil, "", "", fmt.Errorf("no ci-operator config was found in config map %s/%s with key %s", namespace, configMap, keyName)
 	}
 	var cfg unstructured.Unstructured
 	if err := yaml.Unmarshal([]byte(configData), &cfg.Object); err != nil {
-		return nil, fmt.Errorf("unable to parse ci-operator config definition from %s/%s[%s]: %v", namespace, configMap, keyName, err)
+		return nil, "", "", fmt.Errorf("unable to parse ci-operator config definition from %s/%s[%s]: %v", namespace, configMap, keyName, err)
 	}
-	return &cfg, nil
+	return &cfg, namespace, configMap, nil
 }
 
 func firstEnvVar(spec *corev1.PodSpec, name string) (*corev1.EnvVar, *corev1.Container) {
@@ -244,9 +245,13 @@ func (m *jobManager) launchJob(job *Job) error {
 		if sourceEnv == nil {
 			return fmt.Errorf("the CONFIG_SPEC for the launch job could not be found in the prow job")
 		}
-		sourceConfig, err := loadJobConfigSpec(m.coreClient, *sourceEnv, "ci")
+		sourceConfig, srcNamespace, srcName, err := loadJobConfigSpec(m.coreClient, *sourceEnv, "ci")
 		if err != nil {
 			return fmt.Errorf("the launch job definition could not be loaded: %v", err)
+		}
+		if len(os.Getenv("DEBUG_PROW_JOB")) > 0 {
+			data, _ := json.MarshalIndent(sourceConfig, "", "  ")
+			klog.Infof("Found target job config %s/%s:\n%s", srcNamespace, srcName, string(data))
 		}
 
 		// find the ci-operator config for the repo of the PR
@@ -254,9 +259,13 @@ func (m *jobManager) launchJob(job *Job) error {
 		if configMapSelector == nil {
 			return fmt.Errorf("unable to identify a ci-operator configuration for the provided refs: %#v", refs)
 		}
-		targetConfig, err := loadJobConfigSpec(m.coreClient, corev1.EnvVar{ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: configMapSelector}}, "ci")
+		targetConfig, targetNamespace, targetName, err := loadJobConfigSpec(m.coreClient, corev1.EnvVar{ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: configMapSelector}}, "ci")
 		if err != nil {
 			return fmt.Errorf("unable to load ci-operator configuration for the provided refs: %v", err)
+		}
+		if klog.V(2) {
+			data, _ := json.MarshalIndent(targetConfig, "", "  ")
+			klog.Infof("Found target job config %s/%s:\n%s", targetNamespace, targetName, string(data))
 		}
 
 		// check if the referenced PR repo already defines a test for our given cluster type (i.e. launch-aws)
@@ -283,8 +292,11 @@ func (m *jobManager) launchJob(job *Job) error {
 		if err != nil {
 			return fmt.Errorf("unable to update ci-operator config definition: %v", err)
 		}
-		// log.Printf("running against %#v with:\n%s", refs, jobConfigData)
 		prow.OverrideJobConfig(&pj.Spec, refs, string(jobConfigData))
+		if klog.V(2) {
+			data, _ := json.MarshalIndent(pj.Spec, "", "  ")
+			klog.Infof("Job config after override:\n%s", string(data))
+		}
 	}
 
 	// register annotations the release controller can use to assess the success
@@ -306,6 +318,11 @@ func (m *jobManager) launchJob(job *Job) error {
 	}
 	prow.OverrideJobEnvironment(&pj.Spec, image, initialImage, namespace)
 
+	if klog.V(2) {
+		data, _ := json.MarshalIndent(pj, "", "  ")
+		klog.Infof("Would create prow job:\n%s", string(data))
+	}
+
 	created := true
 	started := time.Now()
 	_, err = m.prowClient.Namespace(m.prowNamespace).Create(prow.ObjectToUnstructured(pj), metav1.CreateOptions{})
@@ -316,7 +333,7 @@ func (m *jobManager) launchJob(job *Job) error {
 		created = false
 	}
 
-	log.Printf("prow job %s launched to target namespace %s", job.Name, namespace)
+	klog.Infof("prow job %s launched to target namespace %s", job.Name, namespace)
 	err = wait.PollImmediate(10*time.Second, 15*time.Minute, func() (bool, error) {
 		uns, err := m.prowClient.Namespace(m.prowNamespace).Get(job.Name, metav1.GetOptions{})
 		if err != nil {
@@ -362,7 +379,7 @@ func (m *jobManager) launchJob(job *Job) error {
 		return fmt.Errorf("unable to check launch status: %v", err)
 	}
 
-	log.Printf("waiting for setup container in pod %s/%s to complete", namespace, targetPodName)
+	klog.Infof("waiting for setup container in pod %s/%s to complete", namespace, targetPodName)
 
 	seen = false
 	var lastErr error
@@ -400,10 +417,10 @@ func (m *jobManager) launchJob(job *Job) error {
 	if created {
 		job.StartDuration = startDuration
 		job.ExpiresAt = started.Add(startDuration + m.maxAge)
-		log.Printf("cluster took %s from start to become available", startDuration)
+		klog.Infof("cluster took %s from start to become available", startDuration)
 	}
 
-	log.Printf("trying to grab the kubeconfig from launched pod %s/%s", namespace, targetPodName)
+	klog.Infof("trying to grab the kubeconfig from launched pod %s/%s", namespace, targetPodName)
 
 	var kubeconfig string
 	err = wait.PollImmediate(30*time.Second, 10*time.Minute, func() (bool, error) {
@@ -418,7 +435,7 @@ func (m *jobManager) launchJob(job *Job) error {
 
 				return false, nil
 			}
-			log.Printf("Unable to retrieve config contents for %s/%s: %v", namespace, targetPodName, err)
+			klog.Infof("Unable to retrieve config contents for %s/%s: %v", namespace, targetPodName, err)
 			return false, nil
 		}
 		kubeconfig = contents
@@ -434,7 +451,7 @@ func (m *jobManager) launchJob(job *Job) error {
 	// TODO: better criteria?
 	var waitErr error
 	if err := waitForClusterReachable(kubeconfig); err != nil {
-		log.Printf("error: unable to wait for the cluster %s/%s to start: %v", namespace, targetPodName, err)
+		klog.Infof("error: unable to wait for the cluster %s/%s to start: %v", namespace, targetPodName, err)
 		job.Credentials = ""
 		waitErr = fmt.Errorf("cluster did not become reachable: %v", err)
 	}
@@ -442,7 +459,7 @@ func (m *jobManager) launchJob(job *Job) error {
 	lines := int64(2)
 	logs, err := m.coreClient.Core().Pods(namespace).GetLogs(targetPodName, &corev1.PodLogOptions{Container: "setup", TailLines: &lines}).DoRaw()
 	if err != nil {
-		log.Printf("error: unable to get setup logs")
+		klog.Infof("error: unable to get setup logs")
 	}
 	job.PasswordSnippet = reFixLines.ReplaceAllString(string(logs), "$1")
 
@@ -455,7 +472,7 @@ func (m *jobManager) launchJob(job *Job) error {
 		patch = []byte(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":""}}}`)
 	}
 	if _, err := m.prowClient.Namespace(m.prowNamespace).Patch(job.Name, types.MergePatchType, patch, metav1.UpdateOptions{}); err != nil {
-		log.Printf("error: unable to clear channel annotation from prow job: %v", err)
+		klog.Infof("error: unable to clear channel annotation from prow job: %v", err)
 	}
 
 	return waitErr
@@ -481,7 +498,7 @@ func waitForClusterReachable(kubeconfig string) error {
 		if err == nil {
 			return true, nil
 		}
-		log.Printf("cluster is not yet reachable %s: %v", cfg.Host, err)
+		klog.Infof("cluster is not yet reachable %s: %v", cfg.Host, err)
 		return false, nil
 	})
 }

@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/nlopes/slack"
 	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 	"github.com/shomali11/slacker"
+	"k8s.io/klog"
 )
 
 type Bot struct {
@@ -189,18 +189,18 @@ func (b *Bot) Start(manager JobManager) error {
 		},
 	})
 
-	log.Printf("ci-chat-bot up and listening to slack")
+	klog.Infof("ci-chat-bot up and listening to slack")
 	return slack.Listen(context.Background())
 }
 
 func (b *Bot) jobResponder(slack *slacker.Slacker) func(Job) {
 	return func(job Job) {
 		if len(job.RequestedChannel) == 0 || len(job.RequestedBy) == 0 {
-			log.Printf("no requested channel or user, can't notify")
+			klog.Infof("no requested channel or user, can't notify")
 			return
 		}
 		if len(job.Credentials) == 0 && len(job.Failure) == 0 {
-			log.Printf("no credentials or failure, still pending")
+			klog.Infof("no credentials or failure, still pending")
 			return
 		}
 		b.notifyJob(slacker.NewResponse(job.RequestedChannel, slack.Client(), slack.RTM()), &job)
@@ -271,7 +271,7 @@ func (b *Bot) notifyJob(response slacker.ResponseWriter, job *Job) {
 func (b *Bot) sendKubeconfig(response slacker.ResponseWriter, channel, contents, comment, identifier string) {
 	// msg := conv.Message().(hanu.Message)
 	// if len(msg.Channel) == 0 {
-	// 	log.Printf("error: no channel in response: %#v", msg)
+	// 	klog.Infof("error: no channel in response: %#v", msg)
 	// 	return
 	// }
 	_, err := response.Client().UploadFile(slack.FileUploadParameters{
@@ -282,10 +282,10 @@ func (b *Bot) sendKubeconfig(response slacker.ResponseWriter, channel, contents,
 		InitialComment: comment,
 	})
 	if err != nil {
-		log.Printf("error: unable to send attachment with message: %v", err)
+		klog.Infof("error: unable to send attachment with message: %v", err)
 		return
 	}
-	log.Printf("successfully uploaded file to %s", channel)
+	klog.Infof("successfully uploaded file to %s", channel)
 
 	// v := url.Values{}
 	// v.Set("content", contents)
@@ -296,31 +296,31 @@ func (b *Bot) sendKubeconfig(response slacker.ResponseWriter, channel, contents,
 	// v.Set("initial_comment", comment)
 	// req, err := http.NewRequest("POST", "https://slack.com/api/files.upload", strings.NewReader(v.Encode()))
 	// if err != nil {
-	// 	log.Printf("error: unable to send attachment with message: %v", err)
+	// 	klog.Infof("error: unable to send attachment with message: %v", err)
 	// 	return
 	// }
 	// req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	// resp, err := http.DefaultClient.Do(req)
 	// if err != nil {
-	// 	log.Printf("error: unable to send attachment with message: %v", err)
+	// 	klog.Infof("error: unable to send attachment with message: %v", err)
 	// 	return
 	// }
 	// defer resp.Body.Close()
 	// if resp.StatusCode != 200 {
-	// 	log.Printf("error: unable to send attachment with message: %d", resp.StatusCode)
+	// 	klog.Infof("error: unable to send attachment with message: %d", resp.StatusCode)
 	// 	return
 	// }
 	// data, _ := ioutil.ReadAll(resp.Body)
 	// out := &slackResponse{}
 	// if err := json.Unmarshal(data, out); err != nil {
-	// 	log.Printf("error: unable to send attachment with message: %v", err)
+	// 	klog.Infof("error: unable to send attachment with message: %v", err)
 	// 	return
 	// }
 	// if !out.Ok {
-	// 	log.Printf("error: unable to send attachment with message: response was invalid:\n%s", string(data))
+	// 	klog.Infof("error: unable to send attachment with message: response was invalid:\n%s", string(data))
 	// 	return
 	// }
-	// log.Printf("successfully uploaded file to %s", msg.Channel)
+	// klog.Infof("successfully uploaded file to %s", msg.Channel)
 }
 
 type slackResponse struct {
@@ -337,7 +337,7 @@ func isRetriable(err error) bool {
 		return true
 	case strings.Contains(err.Error(), "cannot unmarshal object into Go struct field"):
 		// this could be a legitimate error, so log it to ensure we can debug
-		log.Printf("warning: Ignoring serialization error and continuing: %v", err)
+		klog.Infof("warning: Ignoring serialization error and continuing: %v", err)
 		return true
 	default:
 		return false
