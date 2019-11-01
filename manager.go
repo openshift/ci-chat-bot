@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"math"
 	"net/http"
 	"net/url"
@@ -18,6 +17,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog"
 
 	"github.com/blang/semver"
 
@@ -174,7 +174,7 @@ func NewJobManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynamic.Na
 func (m *jobManager) Start() error {
 	go wait.Forever(func() {
 		if err := m.sync(); err != nil {
-			log.Printf("error during sync: %v", err)
+			klog.Infof("error during sync: %v", err)
 			return
 		}
 		time.Sleep(5 * time.Minute)
@@ -241,7 +241,7 @@ func (m *jobManager) sync() error {
 		if refString, ok := job.Annotations["ci-chat-bot.openshift.io/releaseRefs"]; ok {
 			var refs prowapiv1.Refs
 			if err := json.Unmarshal([]byte(refString), &refs); err != nil {
-				log.Printf("Unable to unmarshal release refs from %s: %v", job.Name, err)
+				klog.Infof("Unable to unmarshal release refs from %s: %v", job.Name, err)
 			} else {
 				j.InstallRefs = &refs
 			}
@@ -309,18 +309,18 @@ func (m *jobManager) sync() error {
 	// forget everything that is too old
 	for _, job := range m.jobs {
 		if job.ExpiresAt.Before(now) {
-			log.Printf("job %q is expired", job.Name)
+			klog.Infof("job %q is expired", job.Name)
 			delete(m.jobs, job.Name)
 		}
 	}
 	for _, req := range m.requests {
 		if req.RequestedAt.Add(m.maxAge * 2).Before(now) {
-			log.Printf("request %q is expired", req.User)
+			klog.Infof("request %q is expired", req.User)
 			delete(m.requests, req.User)
 		}
 	}
 
-	log.Printf("Job sync complete, %d jobs and %d requests", len(m.jobs), len(m.requests))
+	klog.Infof("Job sync complete, %d jobs and %d requests", len(m.jobs), len(m.requests))
 	return nil
 }
 
@@ -522,15 +522,15 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 
 	if m := reMajorMinorVersion.FindStringSubmatch(unresolved); m != nil {
 		if tag := findNewestStableImageSpecTagBySemanticMajor(is, unresolved); tag != nil {
-			log.Printf("Resolved major.minor %s to semver tag %s", imageOrVersion, tag.Name)
+			klog.Infof("Resolved major.minor %s to semver tag %s", imageOrVersion, tag.Name)
 			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
 		}
 		if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.nightly", unresolved)); tag != nil {
-			log.Printf("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
+			klog.Infof("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
 			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
 		}
 		if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.ci", unresolved)); tag != nil {
-			log.Printf("Resolved major.minor %s to ci tag %s", imageOrVersion, tag.Name)
+			klog.Infof("Resolved major.minor %s to ci tag %s", imageOrVersion, tag.Name)
 			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
 		}
 		return "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
@@ -543,12 +543,12 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 	}
 
 	if tag, name := findImageStatusTag(is, unresolved); tag != nil {
-		log.Printf("Resolved %s to image %s", imageOrVersion, tag.Image)
+		klog.Infof("Resolved %s to image %s", imageOrVersion, tag.Image)
 		return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release@%s", tag.Image), name, nil
 	}
 
 	if tag := findNewestImageSpecTagWithStream(is, unresolved); tag != nil {
-		log.Printf("Resolved %s to tag %s", imageOrVersion, tag.Name)
+		klog.Infof("Resolved %s to tag %s", imageOrVersion, tag.Name)
 		return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
 	}
 
@@ -687,7 +687,7 @@ func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) 
 		// retrieve
 	case 403:
 		data, _ := ioutil.ReadAll(resp.Body)
-		log.Printf("failed to access server:\n%s", string(data))
+		klog.Errorf("Failed to access server:\n%s", string(data))
 		return nil, fmt.Errorf("unable to lookup pull request: forbidden")
 	case 404:
 		return nil, fmt.Errorf("pull request not found")
@@ -819,7 +819,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		return "", fmt.Errorf("configuration error, unable to find prow job matching %s", selector)
 	}
 	job.JobName = prowJob.Spec.Job
-	log.Printf("Selected %s job %s for user - %s->%s %s->%s", job.Mode, job.JobName, job.InstallVersion, job.UpgradeVersion, job.InstallImage, job.UpgradeImage)
+	klog.Infof("Selected %s job %s for user - %s->%s %s->%s", job.Mode, job.JobName, job.InstallVersion, job.UpgradeVersion, job.InstallImage, job.UpgradeImage)
 
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -829,20 +829,20 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		existing, ok := m.requests[user]
 		if ok {
 			if len(existing.Name) == 0 {
-				log.Printf("user %q already requested cluster", user)
+				klog.Infof("user %q already requested cluster", user)
 				return "", fmt.Errorf("you have already requested a cluster and it should be ready in ~ %d minutes", m.estimateCompletion(existing.RequestedAt)/time.Minute)
 			}
 			if job, ok := m.jobs[existing.Name]; ok {
 				if len(job.Credentials) > 0 {
-					log.Printf("user %q cluster is already up", user)
+					klog.Infof("user %q cluster is already up", user)
 					return "your cluster is already running, see your credentials again with the 'auth' command", nil
 				}
 				if len(job.Failure) == 0 {
-					log.Printf("user %q cluster has no credentials yet", user)
+					klog.Infof("user %q cluster has no credentials yet", user)
 					return "", fmt.Errorf("you have already requested a cluster and it should be ready in ~ %d minutes", m.estimateCompletion(existing.RequestedAt)/time.Minute)
 				}
 
-				log.Printf("user %q cluster failed, allowing them to request another", user)
+				klog.Infof("user %q cluster failed, allowing them to request another", user)
 				delete(m.jobs, existing.Name)
 				delete(m.requests, user)
 			}
@@ -856,7 +856,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 			}
 		}
 		if launchedClusters >= m.maxClusters {
-			log.Printf("user %q is will have to wait", user)
+			klog.Infof("user %q is will have to wait", user)
 			var waitUntil time.Time
 			for _, c := range m.jobs {
 				if c == nil || c.Mode != "launch" {
@@ -886,7 +886,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 
 	m.jobs[job.Name] = job
 
-	log.Printf("user %q requests cluster %q", user, job.Name)
+	klog.Infof("user %q requests cluster %q", user, job.Name)
 	go m.handleJobStartup(*job)
 
 	if job.Mode == "launch" {
@@ -915,7 +915,7 @@ func (m *jobManager) TerminateJobForUser(user string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	log.Printf("user %q requests job %q to be terminated", user, name)
+	klog.Infof("user %q requests job %q to be terminated", user, name)
 	if err := m.stopJob(name); err != nil {
 		return "", fmt.Errorf("unable to terminate running cluster: %v", err)
 	}
@@ -965,7 +965,7 @@ func (m *jobManager) SyncJobForUser(user string) (string, error) {
 
 	copied := *job
 	copied.Failure = ""
-	log.Printf("user %q requests job %q to be refreshed", user, copied.Name)
+	klog.Infof("user %q requests job %q to be refreshed", user, copied.Name)
 	go m.handleJobStartup(copied)
 
 	return msg, nil
@@ -973,13 +973,13 @@ func (m *jobManager) SyncJobForUser(user string) (string, error) {
 
 func (m *jobManager) handleJobStartup(job Job) {
 	if !m.tryJob(job.Name) {
-		log.Printf("another worker is already running for %s", job.Name)
+		klog.Infof("another worker is already running for %s", job.Name)
 		return
 	}
 	defer m.finishJob(job.Name)
 
 	if err := m.launchJob(&job); err != nil {
-		log.Printf("failed to launch job: %v", err)
+		klog.Errorf("Failed to launch job: %v", err)
 		job.Failure = err.Error()
 	}
 	if job.Mode == "launch" {
@@ -1002,12 +1002,12 @@ func (m *jobManager) finishedJob(job Job) {
 		})
 	}
 
-	log.Printf("completed job request for %s and notifying participants (%s)", job.Name, job.RequestedBy)
+	klog.Infof("completed job request for %s and notifying participants (%s)", job.Name, job.RequestedBy)
 
 	m.jobs[job.Name] = &job
 	for _, request := range m.requests {
 		if request.Name == job.Name {
-			log.Printf("notify %q that job %q is complete", request.User, request.Name)
+			klog.Infof("notify %q that job %q is complete", request.User, request.Name)
 			if m.notifierFn != nil {
 				go m.notifierFn(job)
 			}

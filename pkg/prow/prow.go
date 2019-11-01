@@ -60,6 +60,7 @@ func JobForConfig(prowConfigLoader ProwConfigLoader, jobName string) (*prowapiv1
 			State:     prowapiv1.TriggeredState,
 		},
 	}
+	pj = pj.DeepCopy()
 	return pj, nil
 }
 
