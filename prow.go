@@ -34,7 +34,7 @@ import (
 
 // supportedPlatforms requires a job within the release periodics that can launch a
 // cluster that has the label job-env: platform-name.
-var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere"}
+var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal"}
 
 func findTargetName(spec *corev1.PodSpec) (string, error) {
 	if spec == nil {
