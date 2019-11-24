@@ -3,5 +3,5 @@ build:
 .PHONY: build
 
 update-deps:
-	dep ensure
+	GO111MODULE=on go mod vendor
 .PHONY: update-deps
