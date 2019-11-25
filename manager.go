@@ -59,7 +59,9 @@ type JobRequest struct {
 	Channel     string
 	RequestedAt time.Time
 	Name        string
-	JobName     string
+
+	JobName   string
+	JobParams map[string]string
 }
 
 // JobManager responds to user actions and tracks the state of the launched
@@ -85,9 +87,10 @@ type JobCallbackFunc func(Job)
 type Job struct {
 	Name string
 
-	State   prowapiv1.ProwJobState
-	JobName string
-	URL     string
+	State     prowapiv1.ProwJobState
+	JobName   string
+	JobParams map[string]string
+	URL       string
 
 	Mode string
 
@@ -182,6 +185,45 @@ func (m *jobManager) Start() error {
 	return nil
 }
 
+func paramsFromAnnotation(value string) (map[string]string, error) {
+	values := make(map[string]string)
+	if len(value) == 0 {
+		return values, nil
+	}
+	for _, part := range strings.Split(value, ",") {
+		if len(part) == 0 {
+			return nil, fmt.Errorf("parameter may not be empty")
+		}
+		parts := strings.SplitN(part, "=", 2)
+		key := strings.TrimSpace(parts[0])
+		if len(key) == 0 {
+			return nil, fmt.Errorf("parameter name may not be empty")
+		}
+		if len(parts) == 1 {
+			values[key] = ""
+			continue
+		}
+		values[key] = parts[1]
+	}
+	return values, nil
+}
+
+func paramsToString(params map[string]string) string {
+	var pairs []string
+	for k, v := range params {
+		if len(k) == 0 {
+			continue
+		}
+		if len(v) == 0 {
+			pairs = append(pairs, k)
+			continue
+		}
+		pairs = append(pairs, fmt.Sprintf("%s=%s", k, v))
+	}
+	sort.Strings(pairs)
+	return strings.Join(pairs, ",")
+}
+
 func (m *jobManager) sync() error {
 	u, err := m.prowClient.Namespace(m.prowNamespace).List(metav1.ListOptions{
 		LabelSelector: labels.SelectorFromSet(labels.Set{
@@ -220,6 +262,13 @@ func (m *jobManager) sync() error {
 			RequestedBy:      job.Annotations["ci-chat-bot.openshift.io/user"],
 			RequestedChannel: job.Annotations["ci-chat-bot.openshift.io/channel"],
 			RequestedAt:      job.CreationTimestamp.Time,
+		}
+
+		var err error
+		j.JobParams, err = paramsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
+		if err != nil {
+			klog.Infof("Unable to unmarshal parameters from %s: %v", job.Name, err)
+			continue
 		}
 
 		if expirationString := job.Annotations["ci-chat-bot.openshift.io/expires"]; len(expirationString) > 0 {
@@ -286,10 +335,17 @@ func (m *jobManager) sync() error {
 						if version := job.Annotations["ci-chat-bot.openshift.io/upgradeVersion"]; len(version) > 0 {
 							to = version
 						}
+						params, err := paramsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
+						if err != nil {
+							klog.Infof("Unable to unmarshal parameters from %s: %v", job.Name, err)
+							continue
+						}
+
 						m.requests[user] = &JobRequest{
 							User:                user,
 							Name:                job.Name,
 							JobName:             job.Spec.Job,
+							JobParams:           params,
 							InstallImageVersion: from,
 							UpgradeImageVersion: to,
 							RequestedAt:         job.CreationTimestamp.Time,
@@ -743,6 +799,8 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		Name:  name,
 		State: prowapiv1.PendingState,
 
+		JobParams: req.JobParams,
+
 		RequestedBy:      user,
 		RequestedChannel: req.Channel,
 		RequestedAt:      req.RequestedAt,
@@ -819,7 +877,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		return "", fmt.Errorf("configuration error, unable to find prow job matching %s", selector)
 	}
 	job.JobName = prowJob.Spec.Job
-	klog.Infof("Selected %s job %s for user - %s->%s %s->%s", job.Mode, job.JobName, job.InstallVersion, job.UpgradeVersion, job.InstallImage, job.UpgradeImage)
+	klog.Infof("Selected %s job %s for user - %s->%s %s->%s, params=%s", job.Mode, job.JobName, job.InstallVersion, job.UpgradeVersion, job.InstallImage, job.UpgradeImage, paramsToString(job.JobParams))
 
 	m.lock.Lock()
 	defer m.lock.Unlock()

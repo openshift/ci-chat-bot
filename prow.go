@@ -6,6 +6,7 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"os"
 	"regexp"
 	"strconv"
@@ -35,6 +36,9 @@ import (
 // supportedPlatforms requires a job within the release periodics that can launch a
 // cluster that has the label job-env: platform-name.
 var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal"}
+
+// supportedParameters are the allowed parameter keys that can be passed to jobs
+var supportedParameters = []string{"ovn", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge"}
 
 func findTargetName(spec *corev1.PodSpec) (string, error) {
 	if spec == nil {
@@ -211,6 +215,7 @@ func (m *jobManager) launchJob(job *Job) error {
 		Namespace: m.prowNamespace,
 		Annotations: map[string]string{
 			"ci-chat-bot.openshift.io/mode":           job.Mode,
+			"ci-chat-bot.openshift.io/jobParams":      paramsToString(job.JobParams),
 			"ci-chat-bot.openshift.io/user":           job.RequestedBy,
 			"ci-chat-bot.openshift.io/channel":        job.RequestedChannel,
 			"ci-chat-bot.openshift.io/ns":             namespace,
@@ -316,7 +321,14 @@ func (m *jobManager) launchJob(job *Job) error {
 		initialImage = image
 		image = job.UpgradeImage
 	}
-	prow.OverrideJobEnvironment(&pj.Spec, image, initialImage, namespace)
+	var variants []string
+	for k := range job.JobParams {
+		if contains(supportedParameters, k) {
+			variants = append(variants, k)
+		}
+	}
+	sort.Strings(variants)
+	prow.OverrideJobEnvironment(&pj.Spec, image, initialImage, namespace, variants)
 
 	if klog.V(2) {
 		data, _ := json.MarshalIndent(pj, "", "  ")
