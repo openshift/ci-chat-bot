@@ -87,10 +87,12 @@ type JobCallbackFunc func(Job)
 type Job struct {
 	Name string
 
-	State     prowapiv1.ProwJobState
-	JobName   string
+	State   prowapiv1.ProwJobState
+	JobName string
+	URL     string
+
+	Platform  string
 	JobParams map[string]string
-	URL       string
 
 	Mode string
 
@@ -255,6 +257,7 @@ func (m *jobManager) sync() error {
 			URL:              job.Status.URL,
 			Mode:             job.Annotations["ci-chat-bot.openshift.io/mode"],
 			JobName:          job.Spec.Job,
+			Platform:         job.Annotations["ci-chat-bot.openshift.io/platform"],
 			InstallImage:     job.Annotations["ci-chat-bot.openshift.io/releaseImage"],
 			UpgradeImage:     job.Annotations["ci-chat-bot.openshift.io/upgradeImage"],
 			InstallVersion:   job.Annotations["ci-chat-bot.openshift.io/releaseVersion"],
@@ -345,6 +348,7 @@ func (m *jobManager) sync() error {
 							User:                user,
 							Name:                job.Name,
 							JobName:             job.Spec.Job,
+							Platform:            job.Annotations["ci-chat-bot.openshift.io/platform"],
 							JobParams:           params,
 							InstallImageVersion: from,
 							UpgradeImageVersion: to,
@@ -468,17 +472,31 @@ func (m *jobManager) ListJobs(users ...string) string {
 			default:
 				imageOrVersion = ""
 			}
+
+			// summarize the job parameters
+			var options string
+			params := make(map[string]string)
+			for k, v := range job.JobParams {
+				params[k] = v
+			}
+			if len(job.Platform) > 0 {
+				params[job.Platform] = ""
+			}
+			if s := paramsToString(params); len(s) > 0 {
+				options = fmt.Sprintf(" (%s)", s)
+			}
+
 			switch {
 			case job.State == prowapiv1.SuccessState:
-				fmt.Fprintf(buf, "• %dm ago <@%s>%s - cluster has been shut down%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, imageOrVersion, details)
+				fmt.Fprintf(buf, "• <@%s>%s - cluster has been shut down%s\n", job.RequestedBy, imageOrVersion, details)
 			case job.State == prowapiv1.FailureState:
-				fmt.Fprintf(buf, "• %dm ago <@%s>%s - cluster failed to start%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, imageOrVersion, details)
+				fmt.Fprintf(buf, "• <@%s>%s%s - cluster failed to start%s\n", job.RequestedBy, imageOrVersion, options, details)
 			case len(job.Credentials) > 0:
-				fmt.Fprintf(buf, "• %dm ago <@%s>%s - available and will be torn down in %d minutes%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, imageOrVersion, int(job.ExpiresAt.Sub(now)/time.Minute), details)
+				fmt.Fprintf(buf, "• <@%s>%s%s - available and will be torn down in %d minutes%s\n", job.RequestedBy, imageOrVersion, options, int(job.ExpiresAt.Sub(now)/time.Minute), details)
 			case len(job.Failure) > 0:
-				fmt.Fprintf(buf, "• %dm ago <@%s>%s - failure: %s%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, imageOrVersion, job.Failure, details)
+				fmt.Fprintf(buf, "• <@%s>%s%s - failure: %s%s\n", job.RequestedBy, imageOrVersion, options, job.Failure, details)
 			default:
-				fmt.Fprintf(buf, "• %dm ago <@%s>%s - starting%s\n", int(now.Sub(job.RequestedAt)/time.Minute), job.RequestedBy, imageOrVersion, details)
+				fmt.Fprintf(buf, "• <@%s>%s%s - starting, %d minutes elapsed %s\n", job.RequestedBy, imageOrVersion, options, int(now.Sub(job.RequestedAt)/time.Minute), details)
 			}
 		}
 		fmt.Fprintf(buf, "\n")
@@ -799,6 +817,7 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		Name:  name,
 		State: prowapiv1.PendingState,
 
+		Platform:  req.Platform,
 		JobParams: req.JobParams,
 
 		RequestedBy:      user,
