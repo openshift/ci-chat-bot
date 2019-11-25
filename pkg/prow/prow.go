@@ -3,6 +3,7 @@ package prow
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -80,17 +81,19 @@ func UnstructuredToObject(in runtime.Unstructured, out runtime.Object) error {
 	return runtime.DefaultUnstructuredConverter.FromUnstructured(in.UnstructuredContent(), out)
 }
 
-func OverrideJobEnvironment(spec *prowapiv1.ProwJobSpec, image, initialImage, namespace string) {
+func OverrideJobEnvironment(spec *prowapiv1.ProwJobSpec, image, initialImage, namespace string, variants []string) {
 	for i := range spec.PodSpec.Containers {
 		c := &spec.PodSpec.Containers[i]
 		for j := range c.Env {
-			switch name := c.Env[j].Name; {
-			case name == "RELEASE_IMAGE_LATEST":
+			switch name := c.Env[j].Name; name {
+			case "RELEASE_IMAGE_LATEST":
 				c.Env[j].Value = image
-			case name == "RELEASE_IMAGE_INITIAL":
+			case "RELEASE_IMAGE_INITIAL":
 				c.Env[j].Value = initialImage
-			case name == "NAMESPACE":
+			case "NAMESPACE":
 				c.Env[j].Value = namespace
+			case "CLUSTER_VARIANT":
+				c.Env[j].Value = strings.Join(variants, ",")
 			}
 		}
 	}

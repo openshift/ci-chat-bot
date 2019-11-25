@@ -34,8 +34,9 @@ func (b *Bot) Start(manager JobManager) error {
 
 	slack.Command("launch <image_or_version_or_pr> <options>", &slacker.CommandDefinition{
 		Description: fmt.Sprintf(
-			"Launch an OpenShift cluster using a known image, version, or PR. You may omit both arguments. Use `nightly` for the latest OCP build, `ci` for the the latest CI build, provide a version directly from any listed on https://openshift-release.svc.ci.openshift.org, a stream name (4.1.0-0.ci, 4.1.0-0.nightly, etc), a major/minor `X.Y` to load the latest stable version for that version (`4.1`), `<org>/<repo>#<pr>` to launch from a PR, or an image for the first argument. Options is a comma-delimited list of variations including platform (%s).",
+			"Launch an OpenShift cluster using a known image, version, or PR. You may omit both arguments. Use `nightly` for the latest OCP build, `ci` for the the latest CI build, provide a version directly from any listed on https://openshift-release.svc.ci.openshift.org, a stream name (4.1.0-0.ci, 4.1.0-0.nightly, etc), a major/minor `X.Y` to load the latest stable version for that version (`4.1`), `<org>/<repo>#<pr>` to launch from a PR, or an image for the first argument. Options is a comma-delimited list of variations including platform (%s) and variant (%s).",
 			strings.Join(codeSlice(supportedPlatforms), ", "),
+			strings.Join(codeSlice(supportedParameters), ", "),
 		),
 		Example: "launch openshift/origin#49563 gcp",
 		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
@@ -48,24 +49,10 @@ func (b *Bot) Start(manager JobManager) error {
 
 			image := request.StringParam("image_or_version_or_pr", "")
 
-			options := request.StringParam("options", "")
-			var platform string
-			for _, opt := range strings.Split(options, ",") {
-				switch {
-				case contains(supportedPlatforms, opt):
-					if len(platform) > 0 {
-						response.Reply("you may only specify one platform in options")
-						return
-					}
-					platform = opt
-				case opt == "":
-				default:
-					response.Reply(fmt.Sprintf("unrecognized option: %s", opt))
-					return
-				}
-			}
-			if len(platform) == 0 {
-				platform = "aws"
+			platform, params, err := parseOptions(request.StringParam("options", ""))
+			if err != nil {
+				response.Reply(err.Error())
+				return
 			}
 
 			msg, err := manager.LaunchJobForUser(&JobRequest{
@@ -73,6 +60,7 @@ func (b *Bot) Start(manager JobManager) error {
 				InstallImageVersion: image,
 				Channel:             channel,
 				Platform:            platform,
+				JobParams:           params,
 			})
 			if err != nil {
 				response.Reply(err.Error())
@@ -154,7 +142,7 @@ func (b *Bot) Start(manager JobManager) error {
 		},
 	})
 
-	slack.Command("test upgrade <from> <to>", &slacker.CommandDefinition{
+	slack.Command("test upgrade <from> <to> <options>", &slacker.CommandDefinition{
 		Description: "Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://openshift-release.svc.ci.openshift.org",
 		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
 			user := request.Event().User
@@ -167,12 +155,19 @@ func (b *Bot) Start(manager JobManager) error {
 			from := request.StringParam("from", "")
 			to := request.StringParam("to", "")
 
+			platform, params, err := parseOptions(request.StringParam("options", ""))
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+
 			msg, err := manager.LaunchJobForUser(&JobRequest{
 				User:                user,
 				InstallImageVersion: from,
 				UpgradeImageVersion: to,
 				Channel:             channel,
-				Platform:            "aws",
+				Platform:            platform,
+				JobParams:           params,
 			})
 			if err != nil {
 				response.Reply(err.Error())
@@ -269,11 +264,6 @@ func (b *Bot) notifyJob(response slacker.ResponseWriter, job *Job) {
 }
 
 func (b *Bot) sendKubeconfig(response slacker.ResponseWriter, channel, contents, comment, identifier string) {
-	// msg := conv.Message().(hanu.Message)
-	// if len(msg.Channel) == 0 {
-	// 	klog.Infof("error: no channel in response: %#v", msg)
-	// 	return
-	// }
 	_, err := response.Client().UploadFile(slack.FileUploadParameters{
 		Content:        contents,
 		Channels:       []string{channel},
@@ -286,41 +276,6 @@ func (b *Bot) sendKubeconfig(response slacker.ResponseWriter, channel, contents,
 		return
 	}
 	klog.Infof("successfully uploaded file to %s", channel)
-
-	// v := url.Values{}
-	// v.Set("content", contents)
-	// v.Set("token", b.token)
-	// v.Set("channels", msg.Channel)
-	// v.Set("filename", fmt.Sprintf("cluster-bot-%s.kubeconfig", identifier))
-	// v.Set("filetype", "text")
-	// v.Set("initial_comment", comment)
-	// req, err := http.NewRequest("POST", "https://slack.com/api/files.upload", strings.NewReader(v.Encode()))
-	// if err != nil {
-	// 	klog.Infof("error: unable to send attachment with message: %v", err)
-	// 	return
-	// }
-	// req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	// resp, err := http.DefaultClient.Do(req)
-	// if err != nil {
-	// 	klog.Infof("error: unable to send attachment with message: %v", err)
-	// 	return
-	// }
-	// defer resp.Body.Close()
-	// if resp.StatusCode != 200 {
-	// 	klog.Infof("error: unable to send attachment with message: %d", resp.StatusCode)
-	// 	return
-	// }
-	// data, _ := ioutil.ReadAll(resp.Body)
-	// out := &slackResponse{}
-	// if err := json.Unmarshal(data, out); err != nil {
-	// 	klog.Infof("error: unable to send attachment with message: %v", err)
-	// 	return
-	// }
-	// if !out.Ok {
-	// 	klog.Infof("error: unable to send attachment with message: response was invalid:\n%s", string(data))
-	// 	return
-	// }
-	// klog.Infof("successfully uploaded file to %s", msg.Channel)
 }
 
 type slackResponse struct {
@@ -354,4 +309,32 @@ func codeSlice(items []string) []string {
 		code = append(code, fmt.Sprintf("`%s`", item))
 	}
 	return code
+}
+
+func parseOptions(options string) (string, map[string]string, error) {
+	params, err := paramsFromAnnotation(options)
+	if err != nil {
+		return "", nil, fmt.Errorf("options could not be parsed: %v", err)
+	}
+	var platform string
+	for opt := range params {
+		switch {
+		case contains(supportedPlatforms, opt):
+			if len(platform) > 0 {
+				return "", nil, fmt.Errorf("you may only specify one platform in options")
+			}
+			platform = opt
+			delete(params, opt)
+		case opt == "":
+			delete(params, opt)
+		case contains(supportedParameters, opt):
+			// do nothing
+		default:
+			return "", nil, fmt.Errorf("unrecognized option: %s", opt)
+		}
+	}
+	if len(platform) == 0 {
+		platform = "aws"
+	}
+	return platform, params, nil
 }
