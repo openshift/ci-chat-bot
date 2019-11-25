@@ -6,9 +6,9 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -219,6 +219,7 @@ func (m *jobManager) launchJob(job *Job) error {
 			"ci-chat-bot.openshift.io/user":           job.RequestedBy,
 			"ci-chat-bot.openshift.io/channel":        job.RequestedChannel,
 			"ci-chat-bot.openshift.io/ns":             namespace,
+			"ci-chat-bot.openshift.io/platform":       job.Platform,
 			"ci-chat-bot.openshift.io/releaseVersion": job.InstallVersion,
 			"ci-chat-bot.openshift.io/upgradeVersion": job.UpgradeVersion,
 			"ci-chat-bot.openshift.io/releaseImage":   job.InstallImage,
