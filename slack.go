@@ -26,7 +26,7 @@ func NewBot(token string) *Bot {
 func (b *Bot) Start(manager JobManager) error {
 	slack := slacker.NewClient(b.token)
 
-	manager.SetNotifier(b.jobResponder(slack))
+	manager.SetNotifiers(b.jobResponder(slack, b.stateNotifyJob), b.jobResponder(slack, b.soonDoneJob))
 
 	slack.DefaultCommand(func(request slacker.Request, response slacker.ResponseWriter) {
 		response.Reply("unrecognized command, msg me `help` for a list of all commands")
@@ -106,6 +106,23 @@ func (b *Bot) Start(manager JobManager) error {
 			response.Reply(msg)
 		},
 	})
+	slack.Command("keep", &slacker.CommandDefinition{
+		Description: "A cluster expires after 2h. Keep will add another hour to the expiration time.",
+		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
+			user := request.Event().User
+			channel := request.Event().Channel
+			if !isDirectMessage(channel) {
+				response.Reply("you must direct message me this request")
+				return
+			}
+			msg, err := manager.KeepJobForUser(user)
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+			response.Reply(msg)
+		},
+	})
 	slack.Command("done", &slacker.CommandDefinition{
 		Description: "Terminate the running cluster",
 		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
@@ -138,7 +155,7 @@ func (b *Bot) Start(manager JobManager) error {
 				response.Reply(err.Error())
 				return
 			}
-			b.notifyJob(slacker.NewResponse(job.RequestedChannel, slack.Client(), slack.RTM()), job)
+			b.stateNotifyJob(slacker.NewResponse(job.RequestedChannel, slack.Client(), slack.RTM()), job)
 		},
 	})
 
@@ -188,7 +205,7 @@ func (b *Bot) Start(manager JobManager) error {
 	return slack.Listen(context.Background())
 }
 
-func (b *Bot) jobResponder(slack *slacker.Slacker) func(Job) {
+func (b *Bot) jobResponder(slack *slacker.Slacker, fn func(response slacker.ResponseWriter, job *Job)) func(Job) {
 	return func(job Job) {
 		if len(job.RequestedChannel) == 0 || len(job.RequestedBy) == 0 {
 			klog.Infof("no requested channel or user, can't notify")
@@ -198,11 +215,15 @@ func (b *Bot) jobResponder(slack *slacker.Slacker) func(Job) {
 			klog.Infof("no credentials or failure, still pending")
 			return
 		}
-		b.notifyJob(slacker.NewResponse(job.RequestedChannel, slack.Client(), slack.RTM()), &job)
+		fn(slacker.NewResponse(job.RequestedChannel, slack.Client(), slack.RTM()), &job)
 	}
 }
 
-func (b *Bot) notifyJob(response slacker.ResponseWriter, job *Job) {
+func (b *Bot) soonDone(response slacker.ResponseWriter, job *Job) {
+	response.Reply(fmt.Sprintf("Your job will terminate in 15 minutes."))
+}
+
+func (b *Bot) stateNotifyJob(response slacker.ResponseWriter, job *Job) {
 	if job.Mode == "launch" {
 		switch {
 		case len(job.Failure) > 0 && len(job.URL) > 0:

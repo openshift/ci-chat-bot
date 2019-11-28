@@ -491,6 +491,20 @@ func (m *jobManager) launchJob(job *Job) error {
 	return waitErr
 }
 
+func (m *jobManager) keepJob(job *Job) error {
+	if job.ExpiresAt.After(time.Now().Add(time.Hour)) {
+		return fmt.Errorf("cluster expires in more than an hour. Cannot extend it now.")
+	}
+
+	patch := []byte(fmt.Sprintf(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/notified":"","ci-chat-bot.openshift.io/expires":"%d"}}}`, int(time.Now().Sub(job.RequestedAt).Seconds() + 3600)))
+	if _, err := m.prowClient.Namespace(m.prowNamespace).Patch(job.Name, types.MergePatchType, patch, metav1.UpdateOptions{}); err != nil {
+		klog.Infof("error: unable to patch expires annotation for prow job: %v", err)
+		return fmt.Errorf("cannot keep cluster for another hour: %v", err)
+	}
+
+	return nil
+}
+
 var reFixLines = regexp.MustCompile(`(?m)^level=info msg=\"(.*)\"$`)
 
 // waitForClusterReachable performs a slow poll, waiting for the cluster to come alive.

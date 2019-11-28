@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog"
 
@@ -67,11 +68,12 @@ type JobRequest struct {
 // JobManager responds to user actions and tracks the state of the launched
 // clusters.
 type JobManager interface {
-	SetNotifier(JobCallbackFunc)
+	SetNotifiers(state JobCallbackFunc, soonDone JobCallbackFunc)
 
 	LaunchJobForUser(req *JobRequest) (string, error)
 	SyncJobForUser(user string) (string, error)
 	TerminateJobForUser(user string) (string, error)
+	KeepJobForUser(user string) (string, error)
 	GetLaunchJob(user string) (*Job, error)
 	LookupImageOrVersion(imageOrVersion string) (string, error)
 	ListJobs(users ...string) string
@@ -147,7 +149,7 @@ type jobManager struct {
 		running map[string]struct{}
 	}
 
-	notifierFn JobCallbackFunc
+	stateNotifierFn, soonDoneNotifierFn JobCallbackFunc
 }
 
 // NewJobManager creates a manager that will track the requests made by a user to create clusters
@@ -363,6 +365,15 @@ func (m *jobManager) sync() error {
 			if previous == nil || previous.State != j.State || len(j.Credentials) == 0 {
 				go m.handleJobStartup(*j)
 			}
+
+			if notifiedString := job.Annotations["ci-chat-bot.openshift.io/notified"]; len(notifiedString) == 0 && j.Mode == "" && j.Failure == "" && time.Now().Add(time.Minute*15).After(j.ExpiresAt) {
+				patch := []byte(fmt.Sprintf(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/notified":"%d"}}}`, int(time.Now().Sub(j.RequestedAt).Seconds())))
+				if _, err := m.prowClient.Namespace(m.prowNamespace).Patch(job.Name, types.MergePatchType, patch, metav1.UpdateOptions{}); err != nil {
+					klog.Infof("error: unable to patch notified annotation for prow job: %v", err)
+				} else {
+					m.soonDoneNotifierFn(*j)
+				}
+			}
 		}
 	}
 
@@ -384,10 +395,11 @@ func (m *jobManager) sync() error {
 	return nil
 }
 
-func (m *jobManager) SetNotifier(fn JobCallbackFunc) {
+func (m *jobManager) SetNotifiers(stateFn, soonDoneFn JobCallbackFunc) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.notifierFn = fn
+	m.stateNotifierFn = stateFn
+	m.soonDoneNotifierFn = soonDoneFn
 }
 
 func (m *jobManager) estimateCompletion(requestedAt time.Time) time.Duration {
@@ -1013,6 +1025,27 @@ func (m *jobManager) TerminateJobForUser(user string) (string, error) {
 	return "the cluster was flagged for shutdown, you may now launch another", nil
 }
 
+func (m *jobManager) KeepJobForUser(user string) (string, error) {
+	name, err := m.clusterNameForUser(user)
+	if err != nil {
+		return "", err
+	}
+
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	job, ok := m.jobs[name]
+	if !ok {
+		return "", fmt.Errorf("unable to keep cluster: not found")
+	}
+
+	klog.Infof("user %q requests job %q to be kept", user, name)
+	if err := m.keepJob(job); err != nil {
+		return "", fmt.Errorf("unable to keep running cluster: %v", err)
+	}
+
+	return fmt.Sprintf("the cluster is kept for another hour until %s", job.ExpiresAt), nil
+}
+
 func (m *jobManager) SyncJobForUser(user string) (string, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -1085,8 +1118,8 @@ func (m *jobManager) finishedJob(job Job) {
 	for _, request := range m.requests {
 		if request.Name == job.Name {
 			klog.Infof("notify %q that job %q is complete", request.User, request.Name)
-			if m.notifierFn != nil {
-				go m.notifierFn(job)
+			if m.stateNotifierFn != nil {
+				go m.stateNotifierFn(job)
 			}
 		}
 	}
