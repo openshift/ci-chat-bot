@@ -863,8 +863,8 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 
 	// TODO: this should be possible but requires some thought, disable for now
 	// (mainly we need two namespaces and jobs to build in)
-	if job.UpgradeRefs != nil || (job.InstallRefs != nil && job.Mode == "upgrade") {
-		return nil, fmt.Errorf("upgrading to a PR build is not supported at this time")
+	if job.Mode == "upgrade" && job.InstallRefs != nil {
+		return nil, fmt.Errorf("upgrading is not supported from a PR, only to one")
 	}
 
 	return job, nil

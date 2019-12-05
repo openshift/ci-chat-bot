@@ -139,22 +139,28 @@ func OverrideJobEnvVar(spec *prowapiv1.ProwJobSpec, name, value string) {
 	}
 }
 
-func OverrideJobConfig(spec *prowapiv1.ProwJobSpec, refs *prowapiv1.Refs, value string) {
+func OverrideJobConfig(spec *prowapiv1.ProwJobSpec, refs *prowapiv1.Refs, value string, installImage string) {
 	spec.Refs = refs
 
 	for i := range spec.PodSpec.Containers {
 		c := &spec.PodSpec.Containers[i]
-		var hasSpec bool
+		var clearImages bool
+		var hasInitialImage bool
 		for j := range c.Env {
-			switch name := c.Env[j].Name; {
-			case name == "CONFIG_SPEC":
-				hasSpec = true
+			switch c.Env[j].Name {
+			case "CONFIG_SPEC":
+				clearImages = true
 				c.Env[j].Value = value
 				c.Env[j].ValueFrom = nil
+			case "RELEASE_IMAGE_INITIAL":
+				hasInitialImage = true
 			}
 		}
-		if hasSpec {
+		if clearImages {
 			RemoveEnvVar(c, "RELEASE_IMAGE_INITIAL", "RELEASE_IMAGE_LATEST")
+		}
+		if hasInitialImage && len(installImage) > 0 {
+			c.Env = append(c.Env, corev1.EnvVar{Name: "RELEASE_IMAGE_INITIAL", Value: installImage})
 		}
 	}
 }

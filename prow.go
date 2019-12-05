@@ -237,14 +237,29 @@ func (m *jobManager) launchJob(job *Job) error {
 
 	// if the user specified a set of Git coordinates to build from, load the appropriate ci-operator
 	// configuration and inject the appropriate launch job
-	if refs := job.InstallRefs; refs != nil {
+	var targetUpgrade bool
+	var refs *prowapiv1.Refs
+	switch {
+	case job.InstallRefs != nil:
+		refs = job.UpgradeRefs
+		targetUpgrade = false
+	case job.UpgradeRefs != nil:
+		refs = job.UpgradeRefs
+		targetUpgrade = true
+	}
+	if refs != nil {
 		// budget additional 45m to build anything we need
 		launchDeadline += 45 * time.Minute
 
 		data, _ := json.Marshal(refs)
 		pj.Annotations["ci-chat-bot.openshift.io/releaseRefs"] = string(data)
 		// TODO: calculate this from the destination cluster
-		job.InstallImage = fmt.Sprintf("registry.svc.ci.openshift.org/%s/release:latest", namespace)
+		image := fmt.Sprintf("registry.svc.ci.openshift.org/%s/release:latest", namespace)
+		if targetUpgrade {
+			job.UpgradeImage = image
+		} else {
+			job.InstallImage = image
+		}
 
 		// find the ci-operator config for the job we will run
 		sourceEnv, _ := firstEnvVar(pj.Spec.PodSpec, "CONFIG_SPEC")
@@ -298,7 +313,8 @@ func (m *jobManager) launchJob(job *Job) error {
 		if err != nil {
 			return fmt.Errorf("unable to update ci-operator config definition: %v", err)
 		}
-		prow.OverrideJobConfig(&pj.Spec, refs, string(jobConfigData))
+		prow.OverrideJobConfig(&pj.Spec, refs, string(jobConfigData), job.InstallImage)
+
 		if klog.V(2) {
 			data, _ := json.MarshalIndent(pj.Spec, "", "  ")
 			klog.Infof("Job config after override:\n%s", string(data))
@@ -307,7 +323,7 @@ func (m *jobManager) launchJob(job *Job) error {
 
 	// register annotations the release controller can use to assess the success
 	// of this job if it is upgrading between two edges
-	if job.InstallRefs == nil && len(job.InstallVersion) > 0 && len(job.UpgradeVersion) > 0 {
+	if job.InstallRefs == nil && job.UpgradeRefs == nil && len(job.InstallVersion) > 0 && len(job.UpgradeVersion) > 0 {
 		pj.Labels["release.openshift.io/verify"] = "true"
 		pj.Annotations["release.openshift.io/from-tag"] = job.InstallVersion
 		pj.Annotations["release.openshift.io/tag"] = job.UpgradeVersion
