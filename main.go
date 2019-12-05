@@ -35,6 +35,8 @@ func main() {
 }
 
 func run() error {
+	emptyFlags := flag.NewFlagSet("empty", flag.ContinueOnError)
+	klog.InitFlags(emptyFlags)
 	opt := &options{
 		GithubEndpoint: "https://api.github.com",
 	}
@@ -42,7 +44,7 @@ func run() error {
 	pflag.StringVar(&opt.JobConfigPath, "job-config", opt.JobConfigPath, "A config file containing the jobs to run against releases.")
 	pflag.StringVar(&opt.GithubEndpoint, "github-endpoint", opt.GithubEndpoint, "An optional proxy for connecting to github.")
 	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
-	pflag.CommandLine.AddGoFlag(flag.Lookup("v"))
+	pflag.CommandLine.AddGoFlag(emptyFlags.Lookup("v"))
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
 
