@@ -241,7 +241,7 @@ func (m *jobManager) launchJob(job *Job) error {
 	var refs *prowapiv1.Refs
 	switch {
 	case job.InstallRefs != nil:
-		refs = job.UpgradeRefs
+		refs = job.InstallRefs
 		targetUpgrade = false
 	case job.UpgradeRefs != nil:
 		refs = job.UpgradeRefs
