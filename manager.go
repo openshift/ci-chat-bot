@@ -160,7 +160,7 @@ func NewJobManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynamic.Na
 		jobs:          make(map[string]*Job),
 		clusterPrefix: "chat-bot-",
 		maxClusters:   maxTotalClusters,
-		maxAge:        2 * time.Hour,
+		maxAge:        8 * time.Hour,
 		githubURL:     githubURL,
 
 		prowConfigLoader: prowConfigLoader,
