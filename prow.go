@@ -488,9 +488,17 @@ func (m *jobManager) launchJob(job *Job) error {
 	lines := int64(2)
 	logs, err := m.coreClient.Core().Pods(namespace).GetLogs(targetPodName, &corev1.PodLogOptions{Container: "setup", TailLines: &lines}).DoRaw()
 	if err != nil {
-		klog.Infof("error: unable to get setup logs")
+		klog.Infof("error: unable to get setup logs: %v", err)
 	}
-	job.PasswordSnippet = reFixLines.ReplaceAllString(string(logs), "$1")
+	job.PasswordSnippet = strings.TrimSpace(reFixLines.ReplaceAllString(string(logs), "$1"))
+
+	password, err := commandContents(m.coreClient.Core(), m.coreConfig, namespace, targetPodName, "test", []string{"cat", "/tmp/artifacts/installer/auth/kubeadmin-password"})
+	if err != nil {
+		klog.Infof("error: unable to get kubeadmin password: %v", err)
+		job.PasswordSnippet = fmt.Sprintf("\nError: Unable to retrieve kubeadmin password, you must use the kubeconfig file to access the cluster: %v", err)
+	} else {
+		job.PasswordSnippet += fmt.Sprintf("\nLog in to the console with user `kubeadmin` and password `%s`", password)
+	}
 
 	// clear the channel notification in case we crash so we don't attempt to redeliver, and set the best
 	// estimate we have of the expiration time if we created the cluster
