@@ -214,6 +214,7 @@ func (m *jobManager) launchJob(job *Job) error {
 		Name:      job.Name,
 		Namespace: m.prowNamespace,
 		Annotations: map[string]string{
+			"ci-chat-bot.openshift.io/originalMessage":   job.OriginalMessage,
 			"ci-chat-bot.openshift.io/mode":           job.Mode,
 			"ci-chat-bot.openshift.io/jobParams":      paramsToString(job.JobParams),
 			"ci-chat-bot.openshift.io/user":           job.RequestedBy,
@@ -349,7 +350,7 @@ func (m *jobManager) launchJob(job *Job) error {
 
 	if klog.V(2) {
 		data, _ := json.MarshalIndent(pj, "", "  ")
-		klog.Infof("Would create prow job:\n%s", string(data))
+		klog.Infof("Job %q will create prow job:\n%s", job.Name, string(data))
 	}
 
 	created := true
@@ -362,7 +363,7 @@ func (m *jobManager) launchJob(job *Job) error {
 		created = false
 	}
 
-	klog.Infof("prow job %s launched to target namespace %s", job.Name, namespace)
+	klog.Infof("Job %q started a prow job that will create pods in namespace %s", job.Name, namespace)
 	err = wait.PollImmediate(10*time.Second, 15*time.Minute, func() (bool, error) {
 		uns, err := m.prowClient.Namespace(m.prowNamespace).Get(job.Name, metav1.GetOptions{})
 		if err != nil {
@@ -383,6 +384,8 @@ func (m *jobManager) launchJob(job *Job) error {
 	}
 
 	if job.Mode != "launch" {
+		m.clearNotificationAnnotations(job, false, 0)
+		klog.Infof("Job %s will report results at %s (to %s / %s)", job.Name, job.URL, job.RequestedBy, job.RequestedChannel)
 		return nil
 	}
 
@@ -408,7 +411,7 @@ func (m *jobManager) launchJob(job *Job) error {
 		return fmt.Errorf("unable to check launch status: %v", err)
 	}
 
-	klog.Infof("waiting for setup container in pod %s/%s to complete", namespace, targetPodName)
+	klog.Infof("Job %q waiting for setup container in pod %s/%s to complete", job.Name, namespace, targetPodName)
 
 	seen = false
 	var lastErr error
@@ -449,7 +452,7 @@ func (m *jobManager) launchJob(job *Job) error {
 		klog.Infof("cluster took %s from start to become available", startDuration)
 	}
 
-	klog.Infof("trying to grab the kubeconfig from launched pod %s/%s", namespace, targetPodName)
+	klog.Infof("Job %q waiting for kubeconfig from pod %s/%s", job.Name, namespace, targetPodName)
 
 	var kubeconfig string
 	err = wait.PollImmediate(30*time.Second, 10*time.Minute, func() (bool, error) {
@@ -480,7 +483,7 @@ func (m *jobManager) launchJob(job *Job) error {
 	// TODO: better criteria?
 	var waitErr error
 	if err := waitForClusterReachable(kubeconfig); err != nil {
-		klog.Infof("error: unable to wait for the cluster %s/%s to start: %v", namespace, targetPodName, err)
+		klog.Infof("error: Job %q unable to wait for the cluster %s/%s to start: %v", job.Name, namespace, targetPodName, err)
 		job.Credentials = ""
 		waitErr = fmt.Errorf("cluster did not become reachable: %v", err)
 	}
@@ -488,20 +491,28 @@ func (m *jobManager) launchJob(job *Job) error {
 	lines := int64(2)
 	logs, err := m.coreClient.Core().Pods(namespace).GetLogs(targetPodName, &corev1.PodLogOptions{Container: "setup", TailLines: &lines}).DoRaw()
 	if err != nil {
-		klog.Infof("error: unable to get setup logs: %v", err)
+		klog.Infof("error: Job %q unable to get setup logs: %v", job.Name, err)
 	}
 	job.PasswordSnippet = strings.TrimSpace(reFixLines.ReplaceAllString(string(logs), "$1"))
 
 	password, err := commandContents(m.coreClient.Core(), m.coreConfig, namespace, targetPodName, "test", []string{"cat", "/tmp/artifacts/installer/auth/kubeadmin-password"})
 	if err != nil {
-		klog.Infof("error: unable to get kubeadmin password: %v", err)
+		klog.Infof("error: Job %q unable to get kubeadmin password: %v", job.Name, err)
 		job.PasswordSnippet = fmt.Sprintf("\nError: Unable to retrieve kubeadmin password, you must use the kubeconfig file to access the cluster: %v", err)
 	} else {
 		job.PasswordSnippet += fmt.Sprintf("\nLog in to the console with user `kubeadmin` and password `%s`", password)
 	}
 
-	// clear the channel notification in case we crash so we don't attempt to redeliver, and set the best
-	// estimate we have of the expiration time if we created the cluster
+	m.clearNotificationAnnotations(job, created, startDuration)
+
+	return waitErr
+}
+
+var reFixLines = regexp.MustCompile(`(?m)^level=info msg=\"(.*)\"$`)
+
+// clearNotificationAnnotations removes the channel notification annotations in case we crash,
+// so we don't attempt to redeliver, and set the best estimate we have of the expiration time if we created the cluster
+func (m *jobManager) clearNotificationAnnotations(job *Job, created bool, startDuration time.Duration) {
 	var patch []byte
 	if created {
 		patch = []byte(fmt.Sprintf(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":"","ci-chat-bot.openshift.io/expires":"%d"}}}`, int(startDuration.Seconds()+m.maxAge.Seconds())))
@@ -509,13 +520,9 @@ func (m *jobManager) launchJob(job *Job) error {
 		patch = []byte(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":""}}}`)
 	}
 	if _, err := m.prowClient.Namespace(m.prowNamespace).Patch(job.Name, types.MergePatchType, patch, metav1.UpdateOptions{}); err != nil {
-		klog.Infof("error: unable to clear channel annotation from prow job: %v", err)
+		klog.Infof("error: Job %q unable to clear channel annotation from prow job: %v", job.Name, err)
 	}
-
-	return waitErr
 }
-
-var reFixLines = regexp.MustCompile(`(?m)^level=info msg=\"(.*)\"$`)
 
 // waitForClusterReachable performs a slow poll, waiting for the cluster to come alive.
 // It returns an error if the cluster doesn't respond within the time limit.

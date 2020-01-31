@@ -56,6 +56,7 @@ func (b *Bot) Start(manager JobManager) error {
 			}
 
 			msg, err := manager.LaunchJobForUser(&JobRequest{
+				OriginalMessage:     request.Event().Text,
 				User:                user,
 				InstallImageVersion: image,
 				Channel:             channel,
@@ -162,6 +163,7 @@ func (b *Bot) Start(manager JobManager) error {
 			}
 
 			msg, err := manager.LaunchJobForUser(&JobRequest{
+				OriginalMessage:     request.Event().Text,
 				User:                user,
 				InstallImageVersion: from,
 				UpgradeImageVersion: to,
@@ -191,19 +193,28 @@ func (b *Bot) Start(manager JobManager) error {
 func (b *Bot) jobResponder(slack *slacker.Slacker) func(Job) {
 	return func(job Job) {
 		if len(job.RequestedChannel) == 0 || len(job.RequestedBy) == 0 {
-			klog.Infof("no requested channel or user, can't notify")
+			klog.Infof("job %q has no requested channel or user, can't notify", job.Name)
 			return
 		}
-		if len(job.Credentials) == 0 && len(job.Failure) == 0 {
-			klog.Infof("no credentials or failure, still pending")
-			return
+		switch job.Mode {
+		case "launch":
+			if len(job.Credentials) == 0 && len(job.Failure) == 0 {
+				klog.Infof("no credentials or failure, still pending")
+				return
+			}
+		default:
+			if len(job.URL) == 0 && len(job.Failure) == 0 {
+				klog.Infof("no URL or failure, still pending")
+				return
+			}
 		}
 		b.notifyJob(slacker.NewResponse(job.RequestedChannel, slack.Client(), slack.RTM()), &job)
 	}
 }
 
 func (b *Bot) notifyJob(response slacker.ResponseWriter, job *Job) {
-	if job.Mode == "launch" {
+	switch job.Mode {
+	case "launch":
 		switch {
 		case len(job.Failure) > 0 && len(job.URL) > 0:
 			response.Reply(fmt.Sprintf("your cluster failed to launch: %s (see %s for details)", job.Failure, job.URL))
@@ -248,9 +259,13 @@ func (b *Bot) notifyJob(response slacker.ResponseWriter, job *Job) {
 
 	switch {
 	case len(job.Credentials) == 0 && len(job.URL) > 0:
-		response.Reply(fmt.Sprintf("job is still running (launched %d minutes ago), see %s for details", time.Now().Sub(job.RequestedAt)/time.Minute, job.URL))
+		if len(job.OriginalMessage) > 0 {
+			response.Reply(fmt.Sprintf("job <%s|%s> is running", job.URL, job.OriginalMessage))
+		} else {
+			response.Reply(fmt.Sprintf("job is running, see %s for details", job.URL))
+		}
 	case len(job.Credentials) == 0:
-		response.Reply(fmt.Sprintf("job is still running (launched %d minutes ago)", time.Now().Sub(job.RequestedAt)/time.Minute))
+		response.Reply(fmt.Sprintf("job is running (launched %d minutes ago)", time.Now().Sub(job.RequestedAt)/time.Minute))
 	default:
 		comment := fmt.Sprintf("Your job has started a cluster, it will be shut down when the test ends.")
 		if len(job.URL) > 0 {

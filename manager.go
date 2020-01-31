@@ -47,6 +47,8 @@ const (
 // JobRequest keeps information about the request a user made to create
 // a job. This is reconstructable from a ProwJob.
 type JobRequest struct {
+	OriginalMessage string
+
 	User string
 
 	// InstallImageVersion is a version, image, or PR to install
@@ -86,6 +88,8 @@ type JobCallbackFunc func(Job)
 // field may be empty to indicate the user has already been notified.
 type Job struct {
 	Name string
+
+	OriginalMessage string
 
 	State   prowapiv1.ProwJobState
 	JobName string
@@ -255,6 +259,7 @@ func (m *jobManager) sync() error {
 			Name:             job.Name,
 			State:            job.Status.State,
 			URL:              job.Status.URL,
+			OriginalMessage:  job.Annotations["ci-chat-bot.openshift.io/originalMessage"],
 			Mode:             job.Annotations["ci-chat-bot.openshift.io/mode"],
 			JobName:          job.Spec.Job,
 			Platform:         job.Annotations["ci-chat-bot.openshift.io/platform"],
@@ -345,6 +350,8 @@ func (m *jobManager) sync() error {
 						}
 
 						m.requests[user] = &JobRequest{
+							OriginalMessage: 	job.Annotations["ci-chat-bot.openshift.io/originalMessage"],
+
 							User:                user,
 							Name:                job.Name,
 							JobName:             job.Spec.Job,
@@ -450,6 +457,16 @@ func (m *jobManager) ListJobs(users ...string) string {
 		}
 		return false
 	})
+	sort.Slice(jobs, func(i, j int) bool {
+		if jobs[i].RequestedAt.Before(jobs[j].RequestedAt) {
+			return true
+		}
+		if jobs[i].Name < jobs[j].Name {
+			return true
+		}
+		return false
+	})
+
 	buf := &bytes.Buffer{}
 	now := time.Now()
 	if len(clusters) == 0 {
@@ -496,7 +513,7 @@ func (m *jobManager) ListJobs(users ...string) string {
 			case len(job.Failure) > 0:
 				fmt.Fprintf(buf, "• <@%s>%s%s - failure: %s%s\n", job.RequestedBy, imageOrVersion, options, job.Failure, details)
 			default:
-				fmt.Fprintf(buf, "• <@%s>%s%s - starting, %d minutes elapsed %s\n", job.RequestedBy, imageOrVersion, options, int(now.Sub(job.RequestedAt)/time.Minute), details)
+				fmt.Fprintf(buf, "• <@%s>%s%s - starting, %d minutes elapsed%s\n", job.RequestedBy, imageOrVersion, options, int(now.Sub(job.RequestedAt)/time.Minute), details)
 			}
 		}
 		fmt.Fprintf(buf, "\n")
@@ -505,7 +522,6 @@ func (m *jobManager) ListJobs(users ...string) string {
 	if len(jobs) > 0 {
 		fmt.Fprintf(buf, "Running jobs:\n\n")
 		for _, job := range jobs {
-
 			fmt.Fprintf(buf, "• %d minutes ago - ", int(now.Sub(job.RequestedAt)/time.Minute))
 			switch {
 			case job.State == prowapiv1.SuccessState:
@@ -518,10 +534,16 @@ func (m *jobManager) ListJobs(users ...string) string {
 				fmt.Fprint(buf, "pending ")
 			}
 			var details string
-			if len(job.URL) > 0 {
+			switch {
+			case len(job.URL) > 0 && len(job.OriginalMessage) > 0:
+				details = fmt.Sprintf("<%s|%s>", job.URL, job.OriginalMessage)
+			case len(job.URL) > 0:
 				details = fmt.Sprintf("<%s|%s>", job.URL, job.JobName)
-			} else {
+			default:
 				details = job.JobName
+			}
+			if len(job.RequestedBy) > 0 {
+				details += fmt.Sprintf(" <@%s>", job.RequestedBy)
 			}
 			fmt.Fprintln(buf, details)
 		}
@@ -813,6 +835,7 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 	req.Name = name
 
 	job := &Job{
+		OriginalMessage: req.OriginalMessage,
 		Mode:  "launch",
 		Name:  name,
 		State: prowapiv1.PendingState,
@@ -896,7 +919,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		return "", fmt.Errorf("configuration error, unable to find prow job matching %s", selector)
 	}
 	job.JobName = prowJob.Spec.Job
-	klog.Infof("Selected %s job %s for user - %s->%s %s->%s, params=%s", job.Mode, job.JobName, job.InstallVersion, job.UpgradeVersion, job.InstallImage, job.UpgradeImage, paramsToString(job.JobParams))
+	klog.Infof("Job %q requested by user %q with mode %s prow job %s - %s->%s %s->%s, params=%s", job.Name, req.User, job.Mode, job.JobName, job.InstallVersion, job.UpgradeVersion, job.InstallImage, job.UpgradeImage, paramsToString(job.JobParams))
 
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -963,13 +986,13 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 
 	m.jobs[job.Name] = job
 
-	klog.Infof("user %q requests cluster %q", user, job.Name)
+	klog.Infof("Job %q starting cluster for %q", job.Name, user)
 	go m.handleJobStartup(*job)
 
 	if job.Mode == "launch" {
 		return "", fmt.Errorf("a cluster is being created - I'll send you the credentials in about ~%d minutes", m.estimateCompletion(req.RequestedAt)/time.Minute)
 	}
-	return "", fmt.Errorf("job has been started")
+	return "", fmt.Errorf("starting job now")
 }
 
 func (m *jobManager) clusterNameForUser(user string) (string, error) {
@@ -1056,12 +1079,10 @@ func (m *jobManager) handleJobStartup(job Job) {
 	defer m.finishJob(job.Name)
 
 	if err := m.launchJob(&job); err != nil {
-		klog.Errorf("Failed to launch job: %v", err)
+		klog.Errorf("Job %q failed to launch: %v", job.Name, err)
 		job.Failure = err.Error()
 	}
-	if job.Mode == "launch" {
-		m.finishedJob(job)
-	}
+	m.finishedJob(job)
 }
 
 func (m *jobManager) finishedJob(job Job) {
@@ -1079,15 +1100,12 @@ func (m *jobManager) finishedJob(job Job) {
 		})
 	}
 
-	klog.Infof("completed job request for %s and notifying participants (%s)", job.Name, job.RequestedBy)
-
 	m.jobs[job.Name] = &job
-	for _, request := range m.requests {
-		if request.Name == job.Name {
-			klog.Infof("notify %q that job %q is complete", request.User, request.Name)
-			if m.notifierFn != nil {
-				go m.notifierFn(job)
-			}
+
+	if len(job.RequestedChannel) > 0 && len(job.RequestedBy) > 0 {
+		klog.Infof("Job %q complete, notify %q", job.Name, job.RequestedBy)
+		if m.notifierFn != nil {
+			go m.notifierFn(job)
 		}
 	}
 }
