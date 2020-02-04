@@ -951,7 +951,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 
 		launchedClusters := 0
 		for _, job := range m.jobs {
-			if job != nil && job.Mode == "launch" && !job.Complete {
+			if job != nil && job.Mode == "launch" && !job.Complete && len(job.Failure) == 0 {
 				launchedClusters++
 			}
 		}
