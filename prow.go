@@ -537,7 +537,7 @@ func waitForClusterReachable(kubeconfig string) error {
 		return err
 	}
 
-	return wait.PollImmediate(15*time.Second, 20*time.Minute, func() (bool, error) {
+	return wait.PollImmediate(15*time.Second, 30*time.Minute, func() (bool, error) {
 		_, err := client.Core().Namespaces().Get("openshift-apiserver", metav1.GetOptions{})
 		if err == nil {
 			return true, nil
