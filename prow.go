@@ -214,17 +214,17 @@ func (m *jobManager) launchJob(job *Job) error {
 		Name:      job.Name,
 		Namespace: m.prowNamespace,
 		Annotations: map[string]string{
-			"ci-chat-bot.openshift.io/originalMessage":   job.OriginalMessage,
-			"ci-chat-bot.openshift.io/mode":           job.Mode,
-			"ci-chat-bot.openshift.io/jobParams":      paramsToString(job.JobParams),
-			"ci-chat-bot.openshift.io/user":           job.RequestedBy,
-			"ci-chat-bot.openshift.io/channel":        job.RequestedChannel,
-			"ci-chat-bot.openshift.io/ns":             namespace,
-			"ci-chat-bot.openshift.io/platform":       job.Platform,
-			"ci-chat-bot.openshift.io/releaseVersion": job.InstallVersion,
-			"ci-chat-bot.openshift.io/upgradeVersion": job.UpgradeVersion,
-			"ci-chat-bot.openshift.io/releaseImage":   job.InstallImage,
-			"ci-chat-bot.openshift.io/upgradeImage":   job.UpgradeImage,
+			"ci-chat-bot.openshift.io/originalMessage": job.OriginalMessage,
+			"ci-chat-bot.openshift.io/mode":            job.Mode,
+			"ci-chat-bot.openshift.io/jobParams":       paramsToString(job.JobParams),
+			"ci-chat-bot.openshift.io/user":            job.RequestedBy,
+			"ci-chat-bot.openshift.io/channel":         job.RequestedChannel,
+			"ci-chat-bot.openshift.io/ns":              namespace,
+			"ci-chat-bot.openshift.io/platform":        job.Platform,
+			"ci-chat-bot.openshift.io/releaseVersion":  job.InstallVersion,
+			"ci-chat-bot.openshift.io/upgradeVersion":  job.UpgradeVersion,
+			"ci-chat-bot.openshift.io/releaseImage":    job.InstallImage,
+			"ci-chat-bot.openshift.io/upgradeImage":    job.UpgradeImage,
 
 			"prow.k8s.io/job": pj.Spec.Job,
 		},
@@ -396,18 +396,21 @@ func (m *jobManager) launchJob(job *Job) error {
 			if !errors.IsNotFound(err) {
 				return false, err
 			}
-			if seen {
-				return false, fmt.Errorf("pod was deleted")
+			if seen || errorAppliesToResource(err, "namespaces") {
+				return false, fmt.Errorf("cluster has already been torn down")
 			}
 			return false, nil
 		}
 		seen = true
 		if pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed" {
-			return false, fmt.Errorf("pod has already exited")
+			return false, fmt.Errorf("cluster has already been torn down")
 		}
 		return true, nil
 	})
 	if err != nil {
+		if strings.HasPrefix(err.Error(), "cluster ") {
+			return err
+		}
 		return fmt.Errorf("unable to check launch status: %v", err)
 	}
 
@@ -423,24 +426,30 @@ func (m *jobManager) launchJob(job *Job) error {
 				lastErr = err
 				return false, err
 			}
-			if seen {
-				return false, fmt.Errorf("pod was deleted")
+			if seen || errorAppliesToResource(err, "namespaces") {
+				return false, fmt.Errorf("cluster has already been torn down")
 			}
 			return false, nil
 		}
 		seen = true
 		if pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed" {
-			return false, fmt.Errorf("pod has already exited")
+			return false, fmt.Errorf("cluster has already been torn down")
 		}
 		ok, err := containerSuccessful(pod, "setup")
 		if err != nil {
 			return false, err
+		}
+		if containerTerminated(pod, "test") {
+			return false, fmt.Errorf("cluster is shutting down")
 		}
 		return ok, nil
 	})
 	if err != nil {
 		if lastErr != nil && err == wait.ErrWaitTimeout {
 			err = lastErr
+		}
+		if strings.HasPrefix(err.Error(), "cluster ") {
+			return err
 		}
 		return fmt.Errorf("pod never became available: %v", err)
 	}
@@ -637,4 +646,21 @@ func containerSuccessful(pod *corev1.Pod, containerName string) (bool, error) {
 		return false, fmt.Errorf("container %s did not succeed, see logs for details", containerName)
 	}
 	return false, nil
+}
+
+func containerTerminated(pod *corev1.Pod, containerName string) bool {
+	for _, container := range pod.Status.ContainerStatuses {
+		if container.Name != containerName {
+			continue
+		}
+		if container.State.Terminated != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func errorAppliesToResource(err error, resource string) bool {
+	apierr, ok := err.(errors.APIStatus)
+	return ok && apierr.Status().Details != nil && apierr.Status().Details.Kind == resource
 }
