@@ -396,7 +396,7 @@ func (m *jobManager) launchJob(job *Job) error {
 			if !errors.IsNotFound(err) {
 				return false, err
 			}
-			if seen || errorAppliesToResource(err, "namespaces") {
+			if seen {
 				return false, fmt.Errorf("cluster has already been torn down")
 			}
 			return false, nil
@@ -426,7 +426,7 @@ func (m *jobManager) launchJob(job *Job) error {
 				lastErr = err
 				return false, err
 			}
-			if seen || errorAppliesToResource(err, "namespaces") {
+			if seen {
 				return false, fmt.Errorf("cluster has already been torn down")
 			}
 			return false, nil
