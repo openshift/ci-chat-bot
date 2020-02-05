@@ -38,7 +38,7 @@ import (
 var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal"}
 
 // supportedParameters are the allowed parameter keys that can be passed to jobs
-var supportedParameters = []string{"ovn", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv6"}
+var supportedParameters = []string{"ovn", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv6", "preserve_bootstrap"}
 
 func findTargetName(spec *corev1.PodSpec) (string, error) {
 	if spec == nil {
