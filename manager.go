@@ -350,7 +350,7 @@ func (m *jobManager) sync() error {
 						}
 
 						m.requests[user] = &JobRequest{
-							OriginalMessage: 	job.Annotations["ci-chat-bot.openshift.io/originalMessage"],
+							OriginalMessage: job.Annotations["ci-chat-bot.openshift.io/originalMessage"],
 
 							User:                user,
 							Name:                job.Name,
@@ -367,7 +367,7 @@ func (m *jobManager) sync() error {
 			}
 
 			m.jobs[job.Name] = j
-			if previous == nil || previous.State != j.State || len(j.Credentials) == 0 {
+			if previous == nil || previous.State != j.State || !(previous.Complete || len(previous.Credentials) > 0) {
 				go m.handleJobStartup(*j)
 			}
 		}
@@ -836,9 +836,9 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 
 	job := &Job{
 		OriginalMessage: req.OriginalMessage,
-		Mode:  "launch",
-		Name:  name,
-		State: prowapiv1.PendingState,
+		Mode:            "launch",
+		Name:            name,
+		State:           prowapiv1.PendingState,
 
 		Platform:  req.Platform,
 		JobParams: req.JobParams,
