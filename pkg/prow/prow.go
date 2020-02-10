@@ -81,7 +81,7 @@ func UnstructuredToObject(in runtime.Unstructured, out runtime.Object) error {
 	return runtime.DefaultUnstructuredConverter.FromUnstructured(in.UnstructuredContent(), out)
 }
 
-func OverrideJobEnvironment(spec *prowapiv1.ProwJobSpec, image, initialImage, namespace string, variants []string) {
+func OverrideJobEnvironment(spec *prowapiv1.ProwJobSpec, image, initialImage, targetRelease, namespace string, variants []string) {
 	for i := range spec.PodSpec.Containers {
 		c := &spec.PodSpec.Containers[i]
 		for j := range c.Env {
@@ -94,6 +94,10 @@ func OverrideJobEnvironment(spec *prowapiv1.ProwJobSpec, image, initialImage, na
 				c.Env[j].Value = namespace
 			case "CLUSTER_VARIANT":
 				c.Env[j].Value = strings.Join(variants, ",")
+			case "BRANCH":
+				if len(targetRelease) > 0 {
+					c.Env[j].Value = targetRelease
+				}
 			}
 		}
 	}

@@ -179,6 +179,13 @@ func (e *resolvedEnvironment) Lookup(name string) string {
 	return ""
 }
 
+var (
+	// reReleaseVersion detects whether a branch appears to correlate to a release branch
+	reReleaseVersion = regexp.MustCompile(`^(release|openshift)-(\d+\.\d+)`)
+	// reVersion detects whether a version appears to correlate to a major.minor release
+	reVersion = regexp.MustCompile(`^(\d+\.\d+)`)
+)
+
 // stopJob triggers namespace deletion, which will cause graceful shutdown of the
 // cluster. If this method returns nil, it is safe to consider the cluster released.
 func (m *jobManager) stopJob(name string) error {
@@ -238,6 +245,7 @@ func (m *jobManager) launchJob(job *Job) error {
 
 	// if the user specified a set of Git coordinates to build from, load the appropriate ci-operator
 	// configuration and inject the appropriate launch job
+	var targetRelease string
 	var targetUpgrade bool
 	var refs *prowapiv1.Refs
 	switch {
@@ -251,6 +259,10 @@ func (m *jobManager) launchJob(job *Job) error {
 	if refs != nil {
 		// budget additional 45m to build anything we need
 		launchDeadline += 45 * time.Minute
+
+		if m := reReleaseVersion.FindStringSubmatch(refs.BaseRef); m != nil {
+			targetRelease = m[2]
+		}
 
 		data, _ := json.Marshal(refs)
 		pj.Annotations["ci-chat-bot.openshift.io/releaseRefs"] = string(data)
@@ -333,12 +345,21 @@ func (m *jobManager) launchJob(job *Job) error {
 	pj.Annotations["ci-chat-bot.openshift.io/expires"] = strconv.Itoa(int(m.maxAge.Seconds() + launchDeadline.Seconds()))
 	prow.OverrideJobEnvVar(&pj.Spec, "CLUSTER_DURATION", strconv.Itoa(int(m.maxAge.Seconds())))
 
+	version := job.InstallVersion
 	image := job.InstallImage
 	var initialImage string
 	if len(job.UpgradeImage) > 0 {
 		initialImage = image
+		version = job.UpgradeVersion
 		image = job.UpgradeImage
 	}
+
+	if len(targetRelease) == 0 {
+		if m := reVersion.FindStringSubmatch(version); m != nil {
+			targetRelease = m[1]
+		}
+	}
+
 	var variants []string
 	for k := range job.JobParams {
 		if contains(supportedParameters, k) {
@@ -346,7 +367,7 @@ func (m *jobManager) launchJob(job *Job) error {
 		}
 	}
 	sort.Strings(variants)
-	prow.OverrideJobEnvironment(&pj.Spec, image, initialImage, namespace, variants)
+	prow.OverrideJobEnvironment(&pj.Spec, image, initialImage, targetRelease, namespace, variants)
 
 	if klog.V(2) {
 		data, _ := json.MarshalIndent(pj, "", "  ")

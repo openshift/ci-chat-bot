@@ -720,6 +720,9 @@ func (m *jobManager) LookupImageOrVersion(imageOrVersion string) (string, error)
 	if len(installVersion) == 0 {
 		return fmt.Sprintf("Will launch directly from the image `%s`", installImage), nil
 	}
+	if len(imageOrVersion) == 0 {
+		return fmt.Sprintf("default version <https://openshift-release.svc.ci.openshift.org/releasetag/%s|%s>", installVersion, installVersion), nil
+	}
 	return fmt.Sprintf("`%s` launches version <https://openshift-release.svc.ci.openshift.org/releasetag/%s|%s>", imageOrVersion, installVersion, installVersion), nil
 }
 
