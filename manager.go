@@ -51,11 +51,15 @@ type JobRequest struct {
 
 	User string
 
-	// InstallImageVersion is a version, image, or PR to install
-	InstallImageVersion string
-	// UpgradeImageVersion, if specified, is the version to upgrade to
-	UpgradeImageVersion string
-	// An optional string controlling the platform type
+	// Inputs is one or more list of inputs to build a release image. For each input there may be zero or one images or versions, and
+	// zero or more pull requests. If a base image or version is present, the PRs are built relative to that version. If no build
+	// is necessary then this can be a single build.
+	Inputs [][]string
+
+	// Type is the type of job to run. Allowed types are 'install', 'upgrade', or 'build'. The default is 'build'.
+	Type JobType
+
+	// An optional string controlling the platform type for jobs that launch clusters. Required for install or upgrade jobs.
 	Platform string
 
 	Channel     string
@@ -65,6 +69,14 @@ type JobRequest struct {
 	JobName   string
 	JobParams map[string]string
 }
+
+type JobType string
+
+const (
+	JobTypeBuild   = "build"
+	JobTypeInstall = "install"
+	JobTypeUpgrade = "upgrade"
+)
 
 // JobManager responds to user actions and tracks the state of the launched
 // clusters.
@@ -83,6 +95,13 @@ type JobManager interface {
 // way.
 type JobCallbackFunc func(Job)
 
+// JobInput defines the input to a job. Different modes need different inputs.
+type JobInput struct {
+	Image   string
+	Version string
+	Refs    []prowapiv1.Refs
+}
+
 // Job responds to user requests and tracks the state of the launched
 // jobs. This object must be recreatable from a ProwJob, but the RequestedChannel
 // field may be empty to indicate the user has already been notified.
@@ -100,17 +119,7 @@ type Job struct {
 
 	Mode string
 
-	InstallImage string
-	// if set, the install image will be created via a pull request build
-	InstallRefs *prowapiv1.Refs
-
-	UpgradeImage string
-	// if set, the upgrade image will be created via a pull request build
-	UpgradeRefs *prowapiv1.Refs
-
-	// these fields are only set when this is an upgrade job between two known versions
-	InstallVersion string
-	UpgradeVersion string
+	Inputs []JobInput
 
 	Credentials     string
 	PasswordSnippet string
@@ -123,6 +132,10 @@ type Job struct {
 	ExpiresAt     time.Time
 	StartDuration time.Duration
 	Complete      bool
+}
+
+func (j Job) IsComplete() bool {
+	return j.Complete || len(j.Credentials) > 0 || (len(j.State) > 0 && j.State != prowapiv1.PendingState)
 }
 
 type jobManager struct {
@@ -255,6 +268,18 @@ func (m *jobManager) sync() error {
 	for _, job := range list.Items {
 		previous := m.jobs[job.Name]
 
+		value := job.Annotations["ci-chat-bot.openshift.io/jobInputs"]
+		var inputs []JobInput
+		if len(value) > 0 {
+			if err := json.Unmarshal([]byte(value), &inputs); err != nil {
+				klog.Warningf("Could not deserialize job input annotation from build %s: %v", job.Name, err)
+			}
+		}
+		if len(inputs) == 0 {
+			klog.Infof("No job inputs for %s", job.Name)
+			continue
+		}
+
 		j := &Job{
 			Name:             job.Name,
 			State:            job.Status.State,
@@ -263,10 +288,7 @@ func (m *jobManager) sync() error {
 			Mode:             job.Annotations["ci-chat-bot.openshift.io/mode"],
 			JobName:          job.Spec.Job,
 			Platform:         job.Annotations["ci-chat-bot.openshift.io/platform"],
-			InstallImage:     job.Annotations["ci-chat-bot.openshift.io/releaseImage"],
-			UpgradeImage:     job.Annotations["ci-chat-bot.openshift.io/upgradeImage"],
-			InstallVersion:   job.Annotations["ci-chat-bot.openshift.io/releaseVersion"],
-			UpgradeVersion:   job.Annotations["ci-chat-bot.openshift.io/upgradeVersion"],
+			Inputs:           inputs,
 			RequestedBy:      job.Annotations["ci-chat-bot.openshift.io/user"],
 			RequestedChannel: job.Annotations["ci-chat-bot.openshift.io/channel"],
 			RequestedAt:      job.CreationTimestamp.Time,
@@ -295,15 +317,6 @@ func (m *jobManager) sync() error {
 			continue
 		}
 
-		if refString, ok := job.Annotations["ci-chat-bot.openshift.io/releaseRefs"]; ok {
-			var refs prowapiv1.Refs
-			if err := json.Unmarshal([]byte(refString), &refs); err != nil {
-				klog.Infof("Unable to unmarshal release refs from %s: %v", job.Name, err)
-			} else {
-				j.InstallRefs = &refs
-			}
-		}
-
 		switch job.Status.State {
 		case prowapiv1.FailureState:
 			j.Failure = "job failed, see logs"
@@ -327,21 +340,23 @@ func (m *jobManager) sync() error {
 			if j.Mode == "launch" {
 				if user := j.RequestedBy; len(user) > 0 {
 					if _, ok := m.requests[user]; !ok {
-						// if the user provided a release version (resolved, not the original input) use that
-						// so that we get a slightly better value to report to the user
-						from := job.Annotations["ci-chat-bot.openshift.io/releaseImage"]
-						if version := job.Annotations["ci-chat-bot.openshift.io/releaseVersion"]; len(version) > 0 {
-							from = version
-						}
-						if refString, ok := job.Annotations["ci-chat-bot.openshift.io/releaseRefs"]; ok {
-							var refs prowapiv1.Refs
-							if err := json.Unmarshal([]byte(refString), &refs); err == nil && len(refs.Pulls) > 0 {
-								from = fmt.Sprintf("%s/%s#%d", refs.Org, refs.Repo, refs.Pulls[0].Number)
+						var inputStrings [][]string
+						for _, input := range inputs {
+							var current []string
+							switch {
+							case len(input.Version) > 0:
+								current = append(current, input.Version)
+							case len(input.Image) > 0:
+								current = append(current, input.Image)
 							}
-						}
-						to := job.Annotations["ci-chat-bot.openshift.io/upgradeImage"]
-						if version := job.Annotations["ci-chat-bot.openshift.io/upgradeVersion"]; len(version) > 0 {
-							to = version
+							for _, ref := range input.Refs {
+								for _, pull := range ref.Pulls {
+									current = append(current, fmt.Sprintf("%s/%s#%d", ref.Org, ref.Repo, pull.Number))
+								}
+							}
+							if len(current) > 0 {
+								inputStrings = append(inputStrings, current)
+							}
 						}
 						params, err := paramsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
 						if err != nil {
@@ -352,22 +367,21 @@ func (m *jobManager) sync() error {
 						m.requests[user] = &JobRequest{
 							OriginalMessage: job.Annotations["ci-chat-bot.openshift.io/originalMessage"],
 
-							User:                user,
-							Name:                job.Name,
-							JobName:             job.Spec.Job,
-							Platform:            job.Annotations["ci-chat-bot.openshift.io/platform"],
-							JobParams:           params,
-							InstallImageVersion: from,
-							UpgradeImageVersion: to,
-							RequestedAt:         job.CreationTimestamp.Time,
-							Channel:             job.Annotations["ci-chat-bot.openshift.io/channel"],
+							User:        user,
+							Name:        job.Name,
+							JobName:     job.Spec.Job,
+							Platform:    job.Annotations["ci-chat-bot.openshift.io/platform"],
+							JobParams:   params,
+							Inputs:      inputStrings,
+							RequestedAt: job.CreationTimestamp.Time,
+							Channel:     job.Annotations["ci-chat-bot.openshift.io/channel"],
 						}
 					}
 				}
 			}
 
 			m.jobs[job.Name] = j
-			if previous == nil || previous.State != j.State || !(previous.Complete || len(previous.Credentials) > 0) {
+			if previous == nil || previous.State != j.State || !previous.IsComplete() {
 				go m.handleJobStartup(*j)
 			}
 		}
@@ -479,16 +493,23 @@ func (m *jobManager) ListJobs(users ...string) string {
 				details = fmt.Sprintf(", <%s|view logs>", job.URL)
 			}
 			var imageOrVersion string
-			switch {
-			case job.InstallRefs != nil && len(job.InstallRefs.Pulls) > 0:
-				imageOrVersion = fmt.Sprintf(" <https://github.com/%s/%s/pull/%d|%s/%s#%d>", url.PathEscape(job.InstallRefs.Org), url.PathEscape(job.InstallRefs.Repo), job.InstallRefs.Pulls[0].Number, job.InstallRefs.Org, job.InstallRefs.Repo, job.InstallRefs.Pulls[0].Number)
-			case len(job.InstallVersion) > 0:
-				imageOrVersion = fmt.Sprintf(" <https://openshift-release.svc.ci.openshift.org/releasetag/%s|%s>", url.PathEscape(job.InstallVersion), job.InstallVersion)
-			case len(job.InstallImage) > 0:
-				imageOrVersion = " (from image)"
-			default:
-				imageOrVersion = ""
+			var inputParts []string
+			var jobInput JobInput
+			if len(job.Inputs) > 0 {
+				jobInput = job.Inputs[0]
 			}
+			switch {
+			case len(jobInput.Version) > 0:
+				inputParts = append(inputParts, fmt.Sprintf("<https://openshift-release.svc.ci.openshift.org/releasetag/%s|%s>", url.PathEscape(jobInput.Version), jobInput.Version))
+			case len(jobInput.Image) > 0:
+				inputParts = append(inputParts, "(image)")
+			}
+			for _, ref := range jobInput.Refs {
+				for _, pull := range ref.Pulls {
+					inputParts = append(inputParts, fmt.Sprintf(" <https://github.com/%s/%s/pull/%d|%s/%s#%d>", url.PathEscape(ref.Org), url.PathEscape(ref.Repo), pull.Number, ref.Org, ref.Repo, pull.Number))
+				}
+			}
+			imageOrVersion = strings.Join(inputParts, ",")
 
 			// summarize the job parameters
 			var options string
@@ -508,6 +529,8 @@ func (m *jobManager) ListJobs(users ...string) string {
 				fmt.Fprintf(buf, "• <@%s>%s - cluster has been shut down%s\n", job.RequestedBy, imageOrVersion, details)
 			case job.State == prowapiv1.FailureState:
 				fmt.Fprintf(buf, "• <@%s>%s%s - cluster failed to start%s\n", job.RequestedBy, imageOrVersion, options, details)
+			case job.Complete:
+				fmt.Fprintf(buf, "• <@%s>%s%s - cluster has requested shut down%s\n", job.RequestedBy, imageOrVersion, options, details)
 			case len(job.Credentials) > 0:
 				fmt.Fprintf(buf, "• <@%s>%s%s - available and will be torn down in %d minutes%s\n", job.RequestedBy, imageOrVersion, options, int(job.ExpiresAt.Sub(now)/time.Minute), details)
 			case len(job.Failure) > 0:
@@ -539,6 +562,8 @@ func (m *jobManager) ListJobs(users ...string) string {
 				details = fmt.Sprintf("<%s|%s>", job.URL, job.OriginalMessage)
 			case len(job.URL) > 0:
 				details = fmt.Sprintf("<%s|%s>", job.URL, job.JobName)
+			case len(job.OriginalMessage) > 0:
+				details = job.OriginalMessage
 			default:
 				details = job.JobName
 			}
@@ -573,6 +598,8 @@ func (m *jobManager) GetLaunchJob(user string) (*Job, error) {
 		return nil, fmt.Errorf("your cluster has expired and credentials are no longer available")
 	}
 	copied := *job
+	copied.Inputs = make([]JobInput, len(job.Inputs))
+	copy(copied.Inputs, job.Inputs)
 	return &copied, nil
 }
 
@@ -770,14 +797,14 @@ func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) 
 
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/repos/%s/%s/pulls/%d", m.githubURL, url.PathEscape(locationParts[0]), url.PathEscape(locationParts[1]), num), nil)
 	if err != nil {
-		return nil, fmt.Errorf("unable to lookup pull request: %v", err)
+		return nil, fmt.Errorf("unable to lookup pull request %s: %v", spec, err)
 	}
 	if token := os.Getenv("GITHUB_TOKEN"); len(token) > 0 {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("unable to lookup pull request: %v", err)
+		return nil, fmt.Errorf("unable to lookup pull request %s: %v", spec, err)
 	}
 	defer resp.Body.Close()
 
@@ -787,11 +814,11 @@ func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) 
 	case 403:
 		data, _ := ioutil.ReadAll(resp.Body)
 		klog.Errorf("Failed to access server:\n%s", string(data))
-		return nil, fmt.Errorf("unable to lookup pull request: forbidden")
+		return nil, fmt.Errorf("unable to lookup pull request %s: forbidden", spec)
 	case 404:
-		return nil, fmt.Errorf("pull request not found")
+		return nil, fmt.Errorf("pull request %s not found", spec)
 	default:
-		return nil, fmt.Errorf("unable to lookup pull request: %d %s", resp.StatusCode, resp.Status)
+		return nil, fmt.Errorf("unable to lookup pull request %s: %d %s", spec, resp.StatusCode, resp.Status)
 	}
 
 	var pr GitHubPullRequest
@@ -799,10 +826,10 @@ func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) 
 		return nil, fmt.Errorf("unable to retrieve pull request info: %v", err)
 	}
 	if pr.Merged {
-		return nil, fmt.Errorf("pull request has already been merged to %s", pr.Base.Ref)
+		return nil, fmt.Errorf("pull request %s has already been merged to %s", spec, pr.Base.Ref)
 	}
 	if !pr.Mergeable {
-		return nil, fmt.Errorf("pull request needs to be rebased to branch %s", pr.Base.Ref)
+		return nil, fmt.Errorf("pull request %s needs to be rebased to branch %s", spec, pr.Base.Ref)
 	}
 
 	owner := m.forcePROwner
@@ -833,13 +860,16 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		return nil, fmt.Errorf("must specify the name of the user who requested this cluster")
 	}
 
+	if len(req.Type) == 0 {
+		req.Type = JobTypeBuild
+	}
+
 	req.RequestedAt = time.Now()
 	name := fmt.Sprintf("%s%s", m.clusterPrefix, req.RequestedAt.UTC().Format("2006-01-02-150405.9999"))
 	req.Name = name
 
 	job := &Job{
 		OriginalMessage: req.OriginalMessage,
-		Mode:            "launch",
 		Name:            name,
 		State:           prowapiv1.PendingState,
 
@@ -853,53 +883,96 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		ExpiresAt: req.RequestedAt.Add(m.maxAge),
 	}
 
-	// if the user provided a pull spec (org/repo#number) we'll build from that
-	installRefs, err := m.resolveAsPullRequest(req.InstallImageVersion)
-	if err != nil {
-		return nil, err
-	}
-	if installRefs != nil {
-		job.InstallRefs = installRefs
-		job.InstallVersion = versionForRefs(installRefs)
-	} else {
-		// otherwise, resolve as a semantic version (as a tag on the release image stream) or as an image
-		job.InstallImage, job.InstallVersion, err = m.resolveImageOrVersion(req.InstallImageVersion, "ci")
+	var jobInputs []JobInput
+
+	// default install type jobs to "ci"
+	if len(req.Inputs) == 0 && req.Type == JobTypeInstall {
+		_, version, err := m.resolveImageOrVersion("ci", "")
 		if err != nil {
 			return nil, err
 		}
+		req.Inputs = append(req.Inputs, []string{version})
 	}
 
-	// upgrade image is optional - resolve it similarly, and if set make this an upgrade job
-	upgradeRefs, err := m.resolveAsPullRequest(req.UpgradeImageVersion)
-	if err != nil {
-		return nil, err
-	}
-	if upgradeRefs != nil {
-		job.UpgradeRefs = upgradeRefs
-		job.UpgradeVersion = versionForRefs(upgradeRefs)
-	} else {
-		job.UpgradeImage, job.UpgradeVersion, err = m.resolveImageOrVersion(req.UpgradeImageVersion, "")
-		if err != nil {
-			return nil, err
+	for _, input := range req.Inputs {
+		var jobInput JobInput
+		for _, part := range input {
+			// if the user provided a pull spec (org/repo#number) we'll build from that
+			pr, err := m.resolveAsPullRequest(part)
+			if err != nil {
+				return nil, err
+			}
+			if pr != nil {
+				var existing bool
+				for i, ref := range jobInput.Refs {
+					if ref.Org == pr.Org && ref.Repo == pr.Repo {
+						jobInput.Refs[i].Pulls = append(jobInput.Refs[i].Pulls, pr.Pulls...)
+						existing = true
+						break
+					}
+				}
+				if !existing {
+					jobInput.Refs = append(jobInput.Refs, *pr)
+				}
+			} else {
+				// otherwise, resolve as a semantic version (as a tag on the release image stream) or as an image
+				image, version, err := m.resolveImageOrVersion(part, "")
+				if err != nil {
+					return nil, err
+				}
+				if len(image) == 0 {
+					return nil, fmt.Errorf("unable to resolve %q to an image", part)
+				}
+				if len(jobInput.Image) > 0 {
+					return nil, fmt.Errorf("only one image or version may be specified in a list of installs")
+				}
+				jobInput.Image = image
+				jobInput.Version = version
+			}
 		}
+		if len(jobInput.Version) == 0 && len(jobInput.Refs) > 0 {
+			jobInput.Version = versionForRefs(&jobInput.Refs[0])
+		}
+		jobInputs = append(jobInputs, jobInput)
 	}
-	if job.UpgradeRefs != nil || len(job.UpgradeImage) > 0 {
+
+	switch req.Type {
+	case JobTypeBuild:
+		var prs int
+		for _, input := range jobInputs {
+			for _, ref := range input.Refs {
+				prs += len(ref.Pulls)
+			}
+		}
+		if len(jobInputs) != 1 || prs == 0 {
+			return nil, fmt.Errorf("at least one pull request is required to build a release image")
+		}
+		job.Mode = "build"
+	case JobTypeInstall:
+		if len(jobInputs) != 1 {
+			return nil, fmt.Errorf("launching a cluster requires one image, version, or pull request")
+		}
+		if len(req.Platform) == 0 {
+			return nil, fmt.Errorf("platform must be set when launching clusters")
+		}
+		job.Mode = "launch"
+	case JobTypeUpgrade:
+		if len(jobInputs) != 2 {
+			return nil, fmt.Errorf("upgrading a cluster requires two images, versions, or pull requests")
+		}
+		if len(req.Platform) == 0 {
+			return nil, fmt.Errorf("platform must be set when upgrading clusters")
+		}
 		job.Mode = "upgrade"
+	default:
+		return nil, fmt.Errorf("unexpected job type: %q", req.Type)
 	}
-
-	// TODO: this should be possible but requires some thought, disable for now
-	// (mainly we need two namespaces and jobs to build in)
-	if job.Mode == "upgrade" && job.InstallRefs != nil {
-		return nil, fmt.Errorf("upgrading is not supported from a PR, only to one")
-	}
+	job.Inputs = jobInputs
 
 	return job, nil
 }
 
 func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
-	if len(req.Platform) == 0 {
-		return "", fmt.Errorf("platform must be set when launching clusters")
-	}
 	job, err := m.resolveToJob(req)
 	if err != nil {
 		return "", err
@@ -909,8 +982,8 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	// matches us (we can do better)
 	var prowJob *prowapiv1.ProwJob
 	selector := labels.Set{"job-env": req.Platform, "job-type": job.Mode}
-	if len(job.InstallVersion) > 0 {
-		if v, err := semver.ParseTolerant(job.InstallVersion); err == nil {
+	if len(job.Inputs[0].Version) > 0 {
+		if v, err := semver.ParseTolerant(job.Inputs[0].Version); err == nil {
 			withRelease := labels.Merge(selector, labels.Set{"job-release": fmt.Sprintf("%d.%d", v.Major, v.Minor)})
 			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(withRelease))
 		}
@@ -922,7 +995,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		return "", fmt.Errorf("configuration error, unable to find prow job matching %s", selector)
 	}
 	job.JobName = prowJob.Spec.Job
-	klog.Infof("Job %q requested by user %q with mode %s prow job %s - %s->%s %s->%s, params=%s", job.Name, req.User, job.Mode, job.JobName, job.InstallVersion, job.UpgradeVersion, job.InstallImage, job.UpgradeImage, paramsToString(job.JobParams))
+	klog.Infof("Job %q requested by user %q with mode %s prow job %s - params=%s, inputs=%#v", job.Name, req.User, job.Mode, job.JobName, paramsToString(job.JobParams), job.Inputs)
 
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -995,7 +1068,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	if job.Mode == "launch" {
 		return "", fmt.Errorf("a cluster is being created - I'll send you the credentials in about ~%d minutes", m.estimateCompletion(req.RequestedAt)/time.Minute)
 	}
-	return "", fmt.Errorf("starting job now")
+	return "", fmt.Errorf("job started, you will be notified on completion")
 }
 
 func (m *jobManager) clusterNameForUser(user string) (string, error) {
@@ -1020,7 +1093,7 @@ func (m *jobManager) TerminateJobForUser(user string) (string, error) {
 	}
 	klog.Infof("user %q requests job %q to be terminated", user, name)
 	if err := m.stopJob(name); err != nil {
-		return "", fmt.Errorf("unable to terminate running cluster: %v", err)
+		klog.Errorf("unable to terminate running cluster %s: %v", name, err)
 	}
 
 	// mark the cluster as failed, clear the request, and allow the user to launch again
@@ -1074,6 +1147,22 @@ func (m *jobManager) SyncJobForUser(user string) (string, error) {
 	return msg, nil
 }
 
+func (m *jobManager) jobIsComplete(job *Job) bool {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	current, ok := m.jobs[job.Name]
+	if !ok {
+		return false
+	}
+	if current.IsComplete() {
+		job.State = current.State
+		job.URL = current.URL
+		job.Complete = current.Complete
+		return true
+	}
+	return false
+}
+
 func (m *jobManager) handleJobStartup(job Job) {
 	if !m.tryJob(job.Name) {
 		klog.Infof("another worker is already running for %s", job.Name)
@@ -1082,8 +1171,12 @@ func (m *jobManager) handleJobStartup(job Job) {
 	defer m.finishJob(job.Name)
 
 	if err := m.launchJob(&job); err != nil {
-		klog.Errorf("Job %q failed to launch: %v", job.Name, err)
-		job.Failure = err.Error()
+		if err == errJobCompleted || strings.Contains(err.Error(), errJobCompleted.Error()) {
+			klog.Infof("Job %q aborted due to detecting completion: %v", job.Name, err)
+		} else {
+			klog.Errorf("Job %q failed to launch: %v", job.Name, err)
+			job.Failure = err.Error()
+		}
 	}
 	m.finishedJob(job)
 }

@@ -47,7 +47,15 @@ func (b *Bot) Start(manager JobManager) error {
 				return
 			}
 
-			image := request.StringParam("image_or_version_or_pr", "")
+			from, err := parseImageInput(request.StringParam("image_or_version_or_pr", ""))
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+			var inputs [][]string
+			if len(from) > 0 {
+				inputs = [][]string{from}
+			}
 
 			platform, params, err := parseOptions(request.StringParam("options", ""))
 			if err != nil {
@@ -56,12 +64,13 @@ func (b *Bot) Start(manager JobManager) error {
 			}
 
 			msg, err := manager.LaunchJobForUser(&JobRequest{
-				OriginalMessage:     request.Event().Text,
-				User:                user,
-				InstallImageVersion: image,
-				Channel:             channel,
-				Platform:            platform,
-				JobParams:           params,
+				OriginalMessage: request.Event().Text,
+				User:            user,
+				Inputs:          inputs,
+				Type:            JobTypeInstall,
+				Channel:         channel,
+				Platform:        platform,
+				JobParams:       params,
 			})
 			if err != nil {
 				response.Reply(err.Error())
@@ -139,12 +148,13 @@ func (b *Bot) Start(manager JobManager) error {
 				response.Reply(err.Error())
 				return
 			}
+			job.RequestedChannel = channel
 			b.notifyJob(slacker.NewResponse(job.RequestedChannel, slack.Client(), slack.RTM()), job)
 		},
 	})
 
 	slack.Command("test upgrade <from> <to> <options>", &slacker.CommandDefinition{
-		Description: "Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://openshift-release.svc.ci.openshift.org",
+		Description: "Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://openshift-release.svc.ci.openshift.org.",
 		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
 			user := request.Event().User
 			channel := request.Event().Channel
@@ -153,8 +163,24 @@ func (b *Bot) Start(manager JobManager) error {
 				return
 			}
 
-			from := request.StringParam("from", "")
-			to := request.StringParam("to", "")
+			from, err := parseImageInput(request.StringParam("from", ""))
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+			if len(from) == 0 {
+				response.Reply("you must specify an image to upgrade from and to")
+				return
+			}
+			to, err := parseImageInput(request.StringParam("to", ""))
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+			// default to to from
+			if len(to) == 0 {
+				to = from
+			}
 
 			platform, params, err := parseOptions(request.StringParam("options", ""))
 			if err != nil {
@@ -163,13 +189,56 @@ func (b *Bot) Start(manager JobManager) error {
 			}
 
 			msg, err := manager.LaunchJobForUser(&JobRequest{
-				OriginalMessage:     request.Event().Text,
-				User:                user,
-				InstallImageVersion: from,
-				UpgradeImageVersion: to,
-				Channel:             channel,
-				Platform:            platform,
-				JobParams:           params,
+				OriginalMessage: request.Event().Text,
+				User:            user,
+				Inputs:          [][]string{from, to},
+				Type:            JobTypeUpgrade,
+				Channel:         channel,
+				Platform:        platform,
+				JobParams:       params,
+			})
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+			response.Reply(msg)
+		},
+	})
+
+	slack.Command("build <from>", &slacker.CommandDefinition{
+		Description: "Create a new release image from one or more pull requests. The successful build location will be sent to you when it completes and then preserved for 12 hours.",
+		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
+			user := request.Event().User
+			channel := request.Event().Channel
+			if !isDirectMessage(channel) {
+				response.Reply("this command is only accepted via direct message")
+				return
+			}
+
+			from, err := parseImageInput(request.StringParam("from", ""))
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+			if len(from) == 0 {
+				response.Reply("you must specify an image to upgrade from and to")
+				return
+			}
+
+			platform, params, err := parseOptions(request.StringParam("options", ""))
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+
+			msg, err := manager.LaunchJobForUser(&JobRequest{
+				OriginalMessage: request.Event().Text,
+				User:            user,
+				Inputs:          [][]string{from},
+				Type:            JobTypeBuild,
+				Channel:         channel,
+				Platform:        platform,
+				JobParams:       params,
 			})
 			if err != nil {
 				response.Reply(err.Error())
@@ -217,11 +286,11 @@ func (b *Bot) notifyJob(response slacker.ResponseWriter, job *Job) {
 	case "launch":
 		switch {
 		case len(job.Failure) > 0 && len(job.URL) > 0:
-			response.Reply(fmt.Sprintf("your cluster failed to launch: %s (see %s for details)", job.Failure, job.URL))
+			response.Reply(fmt.Sprintf("your cluster failed to launch: %s (<%s|logs>)", job.Failure, job.URL))
 		case len(job.Failure) > 0:
 			response.Reply(fmt.Sprintf("your cluster failed to launch: %s", job.Failure))
 		case len(job.Credentials) == 0 && len(job.URL) > 0:
-			response.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago), see %s for details", time.Now().Sub(job.RequestedAt)/time.Minute, job.URL))
+			response.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago, <%s|logs>)", time.Now().Sub(job.RequestedAt)/time.Minute, job.URL))
 		case len(job.Credentials) == 0:
 			response.Reply(fmt.Sprintf("cluster is still starting (launched %d minutes ago)", time.Now().Sub(job.RequestedAt)/time.Minute))
 		default:
@@ -239,20 +308,20 @@ func (b *Bot) notifyJob(response slacker.ResponseWriter, job *Job) {
 
 	if len(job.URL) > 0 {
 		switch job.State {
-		case prowapiv1.FailureState:
-			response.Reply(fmt.Sprintf("your job failed, see %s for details", job.URL))
+		case prowapiv1.FailureState, prowapiv1.AbortedState, prowapiv1.ErrorState:
+			response.Reply(fmt.Sprintf("job <%s|%s> failed", job.URL, job.OriginalMessage))
 			return
 		case prowapiv1.SuccessState:
-			response.Reply(fmt.Sprintf("your job succeeded, see %s for details", job.URL))
+			response.Reply(fmt.Sprintf("job <%s|%s> succeeded", job.URL, job.OriginalMessage))
 			return
 		}
 	} else {
 		switch job.State {
-		case prowapiv1.FailureState:
-			response.Reply("your job failed, no details could be retrieved")
+		case prowapiv1.FailureState, prowapiv1.AbortedState, prowapiv1.ErrorState:
+			response.Reply(fmt.Sprintf("job %s failed, but no details could be retrieved", job.OriginalMessage))
 			return
 		case prowapiv1.SuccessState:
-			response.Reply("your job succeded, but no details could be retrieved")
+			response.Reply(fmt.Sprintf("job %s succeded, but no details could be retrieved", job.OriginalMessage))
 			return
 		}
 	}
@@ -324,6 +393,20 @@ func codeSlice(items []string) []string {
 		code = append(code, fmt.Sprintf("`%s`", item))
 	}
 	return code
+}
+
+func parseImageInput(input string) ([]string, error) {
+	input = strings.TrimSpace(input)
+	if len(input) == 0 {
+		return nil, nil
+	}
+	parts := strings.Split(input, ",")
+	for _, part := range parts {
+		if len(part) == 0 {
+			return nil, fmt.Errorf("image inputs must not contain empty items")
+		}
+	}
+	return parts, nil
 }
 
 func parseOptions(options string) (string, map[string]string, error) {

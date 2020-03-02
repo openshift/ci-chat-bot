@@ -131,6 +131,42 @@ func RemoveEnvVar(c *corev1.Container, names ...string) {
 	}
 }
 
+func RemoveJobEnvVar(spec *prowapiv1.ProwJobSpec, names ...string) {
+	for i := range spec.PodSpec.Containers {
+		c := &spec.PodSpec.Containers[i]
+		changed := make([]corev1.EnvVar, 0, len(c.Env))
+		for _, env := range c.Env {
+			if contains(names, env.Name) {
+				continue
+			}
+			changed = append(changed, env)
+		}
+		c.Env = changed
+	}
+}
+
+func SetJobEnvVar(spec *prowapiv1.ProwJobSpec, name, value string) {
+	for i := range spec.PodSpec.Containers {
+		var hasSet bool
+		c := &spec.PodSpec.Containers[i]
+		for j := range c.Env {
+			if c.Env[j].Name == name {
+				c.Env[j].Value = value
+				c.Env[j].ValueFrom = nil
+				hasSet = true
+			}
+		}
+		if !hasSet {
+			// place variable substitutions at the end, base values at the beginning
+			if strings.Contains(value, "$(") {
+				c.Env = append(c.Env, corev1.EnvVar{Name: name, Value: value})
+			} else {
+				c.Env = append([]corev1.EnvVar{{Name: name, Value: value}}, c.Env...)
+			}
+		}
+	}
+}
+
 func OverrideJobEnvVar(spec *prowapiv1.ProwJobSpec, name, value string) {
 	for i := range spec.PodSpec.Containers {
 		c := &spec.PodSpec.Containers[i]
