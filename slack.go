@@ -221,7 +221,7 @@ func (b *Bot) Start(manager JobManager) error {
 				return
 			}
 			if len(from) == 0 {
-				response.Reply("you must specify an image to upgrade from and to")
+				response.Reply("you must specify at least one pull request to build a release image")
 				return
 			}
 
