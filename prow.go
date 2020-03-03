@@ -6,7 +6,7 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
-	"os"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -33,12 +33,103 @@ import (
 	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 )
 
+var errJobCompleted = fmt.Errorf("job is complete")
+
 // supportedPlatforms requires a job within the release periodics that can launch a
 // cluster that has the label job-env: platform-name.
 var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal"}
 
 // supportedParameters are the allowed parameter keys that can be passed to jobs
 var supportedParameters = []string{"ovn", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv6", "preserve_bootstrap"}
+
+const configInitial = `
+resources:
+  '*':
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 200Mi
+tag_specification:
+  cluster: https://api.ci.openshift.org
+  name: "$(BRANCH)"
+  namespace: ocp
+tests:
+- as: none
+  commands: "true"
+  container:
+    from: src
+`
+
+const configFinal = `
+resources:
+  '*':
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 200Mi
+# set to an empty image stream so we don't import anything
+tag_specification:
+  name: pipeline
+  namespace: $(NAMESPACE)
+tests:
+- as: none
+  commands: "true"
+  container:
+    from: src
+`
+
+const script = `set -euo pipefail
+
+mkdir -p "$(ARTIFACTS)/initial" "$(ARTIFACTS)/final"
+
+if [[ -z "${RELEASE_IMAGE_INITIAL-}" ]]; then
+  unset RELEASE_IMAGE_INITIAL
+fi
+if [[ -z "${RELEASE_IMAGE_LATEST-}" ]]; then
+  unset RELEASE_IMAGE_LATEST
+fi
+
+# import the initial release, if any
+CONFIG_SPEC=$INITIAL ci-operator \
+  --artifact-dir=$(ARTIFACTS)/initial \
+  --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
+  --kubeconfig=/etc/apici/kubeconfig \
+  --namespace=$(NAMESPACE) \
+  --delete-when-idle=$(PRESERVE_DURATION) \
+  --target=[release-inputs]
+
+unset RELEASE_IMAGE_INITIAL
+unset RELEASE_IMAGE_LATEST
+
+# spawn one child ci-operator job per repo type
+for var in "${!CONFIG_SPEC_@}"; do
+  suffix="${var/CONFIG_SPEC_/}"
+  jobvar="JOB_SPEC_$suffix"
+  mkdir -p "$(ARTIFACTS)/$suffix"
+  (
+    set +e
+    echo "Starting $suffix ..."
+    JOB_SPEC="${!jobvar}" CONFIG_SPEC="${!var}" ci-operator \
+      --artifact-dir=$(ARTIFACTS)/$suffix \
+      --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
+      --kubeconfig=/etc/apici/kubeconfig \
+      --namespace=$(NAMESPACE)-${suffix} \
+      --target=[images] -promote >"$(ARTIFACTS)/$suffix/build.log" 2>&1
+    code=$?
+    cat "$(ARTIFACTS)/$suffix/build.log" 1>&2
+    exit $code
+  ) &
+done
+
+# wait for all of them to succeed
+wait
+`
+
+type JobSpec struct {
+	Refs *prowapiv1.Refs `json:"refs"`
+}
 
 func findTargetName(spec *corev1.PodSpec) (string, error) {
 	if spec == nil {
@@ -201,7 +292,7 @@ func (m *jobManager) stopJob(name string) error {
 func (m *jobManager) launchJob(job *Job) error {
 	launchDeadline := 45 * time.Minute
 
-	if len(job.Credentials) > 0 && len(job.PasswordSnippet) > 0 {
+	if job.IsComplete() && len(job.PasswordSnippet) > 0 {
 		return nil
 	}
 
@@ -212,7 +303,15 @@ func (m *jobManager) launchJob(job *Job) error {
 		return err
 	}
 
-	targetPodName, err := findTargetName(pj.Spec.PodSpec)
+	var targetPodName string
+	if job.Mode != "build" {
+		targetPodName, err = findTargetName(pj.Spec.PodSpec)
+		if err != nil {
+			return err
+		}
+	}
+
+	jobInputData, err := json.Marshal(job.Inputs)
 	if err != nil {
 		return err
 	}
@@ -228,10 +327,7 @@ func (m *jobManager) launchJob(job *Job) error {
 			"ci-chat-bot.openshift.io/channel":         job.RequestedChannel,
 			"ci-chat-bot.openshift.io/ns":              namespace,
 			"ci-chat-bot.openshift.io/platform":        job.Platform,
-			"ci-chat-bot.openshift.io/releaseVersion":  job.InstallVersion,
-			"ci-chat-bot.openshift.io/upgradeVersion":  job.UpgradeVersion,
-			"ci-chat-bot.openshift.io/releaseImage":    job.InstallImage,
-			"ci-chat-bot.openshift.io/upgradeImage":    job.UpgradeImage,
+			"ci-chat-bot.openshift.io/jobInputs":       string(jobInputData),
 
 			"prow.k8s.io/job": pj.Spec.Job,
 		},
@@ -243,123 +339,7 @@ func (m *jobManager) launchJob(job *Job) error {
 		},
 	}
 
-	// if the user specified a set of Git coordinates to build from, load the appropriate ci-operator
-	// configuration and inject the appropriate launch job
-	var targetRelease string
-	var targetUpgrade bool
-	var refs *prowapiv1.Refs
-	switch {
-	case job.InstallRefs != nil:
-		refs = job.InstallRefs
-		targetUpgrade = false
-	case job.UpgradeRefs != nil:
-		refs = job.UpgradeRefs
-		targetUpgrade = true
-	}
-	if refs != nil {
-		// budget additional 45m to build anything we need
-		launchDeadline += 45 * time.Minute
-
-		if m := reReleaseVersion.FindStringSubmatch(refs.BaseRef); m != nil {
-			targetRelease = m[2]
-		}
-
-		data, _ := json.Marshal(refs)
-		pj.Annotations["ci-chat-bot.openshift.io/releaseRefs"] = string(data)
-		// TODO: calculate this from the destination cluster
-		image := fmt.Sprintf("registry.svc.ci.openshift.org/%s/release:latest", namespace)
-		if targetUpgrade {
-			job.UpgradeImage = image
-		} else {
-			job.InstallImage = image
-		}
-
-		// find the ci-operator config for the job we will run
-		sourceEnv, _ := firstEnvVar(pj.Spec.PodSpec, "CONFIG_SPEC")
-		if sourceEnv == nil {
-			return fmt.Errorf("the CONFIG_SPEC for the launch job could not be found in the prow job")
-		}
-		sourceConfig, srcNamespace, srcName, err := loadJobConfigSpec(m.coreClient, *sourceEnv, "ci")
-		if err != nil {
-			return fmt.Errorf("the launch job definition could not be loaded: %v", err)
-		}
-		if len(os.Getenv("DEBUG_PROW_JOB")) > 0 {
-			data, _ := json.MarshalIndent(sourceConfig, "", "  ")
-			klog.Infof("Found target job config %s/%s:\n%s", srcNamespace, srcName, string(data))
-		}
-
-		// find the ci-operator config for the repo of the PR
-		configMapSelector := ciOperatorConfigRefForRefs(refs)
-		if configMapSelector == nil {
-			return fmt.Errorf("unable to identify a ci-operator configuration for the provided refs: %#v", refs)
-		}
-		targetConfig, targetNamespace, targetName, err := loadJobConfigSpec(m.coreClient, corev1.EnvVar{ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: configMapSelector}}, "ci")
-		if err != nil {
-			return fmt.Errorf("unable to load ci-operator configuration for the provided refs: %v", err)
-		}
-		if klog.V(2) {
-			data, _ := json.MarshalIndent(targetConfig, "", "  ")
-			klog.Infof("Found target job config %s/%s:\n%s", targetNamespace, targetName, string(data))
-		}
-
-		// check if the referenced PR repo already defines a test for our given cluster type (i.e. launch-aws)
-		tests, _, err := unstructured.NestedSlice(targetConfig.Object, "tests")
-		if err != nil {
-			return fmt.Errorf("invalid ci-operator config definition %v: 'tests' is not a slice", configMapSelector)
-		}
-		var newTests []interface{}
-		for _, test := range tests {
-			obj, ok := test.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if as, _, _ := unstructured.NestedString(obj, "as"); as == targetPodName {
-				newTests = append(newTests, test)
-			}
-		}
-		if len(newTests) > 0 {
-			targetConfig.Object["tests"] = newTests
-		} else {
-			targetConfig.Object["tests"] = sourceConfig.Object["tests"]
-		}
-		jobConfigData, err := yaml.Marshal(targetConfig.Object)
-		if err != nil {
-			return fmt.Errorf("unable to update ci-operator config definition: %v", err)
-		}
-		prow.OverrideJobConfig(&pj.Spec, refs, string(jobConfigData), job.InstallImage)
-
-		if klog.V(2) {
-			data, _ := json.MarshalIndent(pj.Spec, "", "  ")
-			klog.Infof("Job config after override:\n%s", string(data))
-		}
-	}
-
-	// register annotations the release controller can use to assess the success
-	// of this job if it is upgrading between two edges
-	if job.InstallRefs == nil && job.UpgradeRefs == nil && len(job.InstallVersion) > 0 && len(job.UpgradeVersion) > 0 {
-		pj.Labels["release.openshift.io/verify"] = "true"
-		pj.Annotations["release.openshift.io/from-tag"] = job.InstallVersion
-		pj.Annotations["release.openshift.io/tag"] = job.UpgradeVersion
-	}
-
-	pj.Annotations["ci-chat-bot.openshift.io/expires"] = strconv.Itoa(int(m.maxAge.Seconds() + launchDeadline.Seconds()))
-	prow.OverrideJobEnvVar(&pj.Spec, "CLUSTER_DURATION", strconv.Itoa(int(m.maxAge.Seconds())))
-
-	version := job.InstallVersion
-	image := job.InstallImage
-	var initialImage string
-	if len(job.UpgradeImage) > 0 {
-		initialImage = image
-		version = job.UpgradeVersion
-		image = job.UpgradeImage
-	}
-
-	if len(targetRelease) == 0 {
-		if m := reVersion.FindStringSubmatch(version); m != nil {
-			targetRelease = m[1]
-		}
-	}
-
+	// sort the variant inputs
 	var variants []string
 	for k := range job.JobParams {
 		if contains(supportedParameters, k) {
@@ -367,7 +347,161 @@ func (m *jobManager) launchJob(job *Job) error {
 		}
 	}
 	sort.Strings(variants)
+
+	// register annotations the release controller can use to assess the success
+	// of this job if it is upgrading between two edges
+	if len(job.Inputs) == 2 && len(job.Inputs[0].Refs) == 0 && len(job.Inputs[1].Refs) == 0 && len(job.Inputs[0].Version) > 0 && len(job.Inputs[1].Version) > 0 {
+		pj.Labels["release.openshift.io/verify"] = "true"
+		pj.Annotations["release.openshift.io/from-tag"] = job.Inputs[0].Version
+		pj.Annotations["release.openshift.io/tag"] = job.Inputs[1].Version
+	}
+	// set standard annotations and environment variables
+	pj.Annotations["ci-chat-bot.openshift.io/expires"] = strconv.Itoa(int(m.maxAge.Seconds() + launchDeadline.Seconds()))
+	prow.OverrideJobEnvVar(&pj.Spec, "CLUSTER_DURATION", strconv.Itoa(int(m.maxAge.Seconds())))
+	if job.Mode == "build" {
+		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "12h")
+	} else {
+		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "1h")
+	}
+
+	// guess the most recent branch used by an input (taken from the last possible job input)
+	var targetRelease string
+	for _, input := range job.Inputs {
+		if len(input.Version) == 0 {
+			continue
+		}
+		if m := reVersion.FindStringSubmatch(input.Version); m != nil {
+			targetRelease = m[1]
+		}
+	}
+
+	image := job.Inputs[len(job.Inputs)-1].Image
+	var initialImage string
+	if len(job.Inputs) > 1 {
+		initialImage = job.Inputs[0].Image
+	}
 	prow.OverrideJobEnvironment(&pj.Spec, image, initialImage, targetRelease, namespace, variants)
+
+	var hasRefs bool
+	for _, input := range job.Inputs {
+		if len(input.Refs) > 0 {
+			hasRefs = true
+			break
+		}
+	}
+	if hasRefs {
+		launchDeadline += 30 * time.Minute
+
+		// NAMESPACE must be set for this job, and be in the first position, so remove it if set
+		prow.RemoveJobEnvVar(&pj.Spec, "NAMESPACE")
+		prow.SetJobEnvVar(&pj.Spec, "NAMESPACE", namespace)
+
+		switch container := &pj.Spec.PodSpec.Containers[0]; {
+		case reflect.DeepEqual(container.Command, []string{"ci-operator"}):
+			var args []string
+			for _, arg := range container.Args {
+				if strings.HasPrefix(arg, "--namespace") {
+					continue
+				}
+				args = append(args, fmt.Sprintf("%q", arg))
+			}
+			args = append(args, fmt.Sprintf(`"--namespace=$(NAMESPACE)"`))
+
+			container.Command = []string{"/bin/bash", "-c"}
+			if job.Mode == "build" {
+				container.Args = []string{
+					fmt.Sprintf("%s\n\nci-operator %s", script, strings.Join(args, " ")),
+				}
+			} else {
+				container.Args = []string{
+					fmt.Sprintf("%s\n\nci-operator %s", script, strings.Join(args, " ")),
+				}
+			}
+			prow.SetJobEnvVar(&pj.Spec, "INITIAL", configInitial)
+		default:
+			return fmt.Errorf("the prow job %s does not have a recognizable command/args setup and cannot be used with pull request builds", job.JobName)
+		}
+
+		// find the ci-operator config for the job we will run
+		sourceEnv, _ := firstEnvVar(pj.Spec.PodSpec, "CONFIG_SPEC")
+		if sourceEnv == nil {
+			return fmt.Errorf("the CONFIG_SPEC for the launch job could not be found in the prow job %s", job.JobName)
+		}
+		sourceConfig, srcNamespace, srcName, err := loadJobConfigSpec(m.coreClient, *sourceEnv, "ci")
+		if err != nil {
+			return fmt.Errorf("the launch job definition could not be loaded: %v", err)
+		}
+		sourceConfig.Object["tag_specification"] = map[string]interface{}{
+			"name":      "pipeline",
+			"namespace": "$(NAMESPACE)",
+		}
+		if tests, ok := sourceConfig.Object["tests"].([]interface{}); !ok || len(tests) == 0 {
+			sourceConfig.Object["tests"] = []interface{}{
+				map[string]interface{}{
+					"as":       "none",
+					"commands": "true",
+					"container": map[string]interface{}{
+						"from": "src",
+					},
+				},
+			}
+		}
+		data, _ := json.MarshalIndent(sourceConfig, "", "  ")
+		klog.V(2).Infof("Found target job config %s/%s:\n%s", srcNamespace, srcName, string(data))
+		prow.OverrideJobEnvVar(&pj.Spec, "CONFIG_SPEC", string(data))
+
+		index := 0
+		for i, input := range job.Inputs {
+			for _, ref := range input.Refs {
+				// find the ci-operator config for the repo of the PR
+				configMapSelector := ciOperatorConfigRefForRefs(&ref)
+				if configMapSelector == nil {
+					return fmt.Errorf("unable to identify a ci-operator configuration for the provided refs: %#v", ref)
+				}
+				targetConfig, targetNamespace, targetName, err := loadJobConfigSpec(m.coreClient, corev1.EnvVar{ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: configMapSelector}}, "ci")
+				if err != nil {
+					return fmt.Errorf("unable to load ci-operator configuration for the provided refs: %v", err)
+				}
+				if klog.V(2) {
+					data, _ := json.MarshalIndent(targetConfig, "", "  ")
+					klog.Infof("Found target job config %s/%s:\n%s", targetNamespace, targetName, string(data))
+				}
+
+				if i == 0 && len(job.Inputs) > 1 {
+					targetConfig.Object["promotion"] = map[string]interface{}{
+						"name":      "stable-initial",
+						"namespace": "$(NAMESPACE)",
+					}
+					targetConfig.Object["tag_specification"] = map[string]interface{}{
+						"name":      "stable-initial",
+						"namespace": "$(NAMESPACE)",
+					}
+				} else {
+					targetConfig.Object["promotion"] = map[string]interface{}{
+						"name":      "stable",
+						"namespace": "$(NAMESPACE)",
+					}
+					targetConfig.Object["tag_specification"] = map[string]interface{}{
+						"name":      "stable",
+						"namespace": "$(NAMESPACE)",
+					}
+				}
+
+				data, _ := json.MarshalIndent(targetConfig, "", "  ")
+				prow.SetJobEnvVar(&pj.Spec, fmt.Sprintf("CONFIG_SPEC_%d", index), string(data))
+
+				data, _ = json.MarshalIndent(JobSpec{Refs: &ref}, "", "  ")
+				prow.SetJobEnvVar(&pj.Spec, fmt.Sprintf("JOB_SPEC_%d", index), string(data))
+
+				index++
+			}
+		}
+
+		if klog.V(2) {
+			data, _ := json.MarshalIndent(pj.Spec, "", "  ")
+			klog.Infof("Job config after override:\n%s", string(data))
+		}
+	}
 
 	if klog.V(2) {
 		data, _ := json.MarshalIndent(pj, "", "  ")
@@ -386,32 +520,88 @@ func (m *jobManager) launchJob(job *Job) error {
 
 	klog.Infof("Job %q started a prow job that will create pods in namespace %s", job.Name, namespace)
 	err = wait.PollImmediate(10*time.Second, 15*time.Minute, func() (bool, error) {
+		if m.jobIsComplete(job) {
+			return false, errJobCompleted
+		}
 		uns, err := m.prowClient.Namespace(m.prowNamespace).Get(job.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
-		var pj prowapiv1.ProwJob
-		if err := prow.UnstructuredToObject(uns, &pj); err != nil {
+		var latestPJ prowapiv1.ProwJob
+		if err := prow.UnstructuredToObject(uns, &latestPJ); err != nil {
 			return false, err
+		}
+		pj = &latestPJ
+
+		var done bool
+		switch pj.Status.State {
+		case prowapiv1.AbortedState, prowapiv1.ErrorState, prowapiv1.FailureState:
+			job.Failure = "job failed"
+			job.State = pj.Status.State
+			done = true
+		case prowapiv1.SuccessState:
+			job.Failure = ""
+			job.State = pj.Status.State
+			done = true
 		}
 		if len(pj.Status.URL) > 0 {
 			job.URL = pj.Status.URL
-			return true, nil
+			done = true
 		}
-		return false, nil
+		return done, nil
 	})
 	if err != nil {
 		return fmt.Errorf("did not retrieve job url due to an error: %v", err)
 	}
 
+	if job.IsComplete() {
+		if value := pj.Annotations["ci-chat-bot.openshift.io/channel"]; len(value) > 0 {
+			m.clearNotificationAnnotations(job, false, 0)
+		}
+		return nil
+	}
+
 	if job.Mode != "launch" {
-		m.clearNotificationAnnotations(job, false, 0)
 		klog.Infof("Job %s will report results at %s (to %s / %s)", job.Name, job.URL, job.RequestedBy, job.RequestedChannel)
+
+		// loop waiting for job to complete
+		err = wait.PollImmediate(time.Minute, 5*60*time.Minute, func() (bool, error) {
+			if m.jobIsComplete(job) {
+				return false, errJobCompleted
+			}
+			uns, err := m.prowClient.Namespace(m.prowNamespace).Get(job.Name, metav1.GetOptions{})
+			if err != nil {
+				return false, err
+			}
+			var pj prowapiv1.ProwJob
+			if err := prow.UnstructuredToObject(uns, &pj); err != nil {
+				return false, err
+			}
+			switch pj.Status.State {
+			case prowapiv1.AbortedState, prowapiv1.ErrorState, prowapiv1.FailureState:
+				job.Failure = "job failed"
+				job.State = pj.Status.State
+				return true, nil
+			case prowapiv1.SuccessState:
+				job.Failure = ""
+				job.State = pj.Status.State
+				return true, nil
+			}
+			return false, nil
+		})
+		if err != nil {
+			return fmt.Errorf("did not retrieve job completion state due to an error: %v", err)
+		}
+
+		m.clearNotificationAnnotations(job, false, 0)
 		return nil
 	}
 
 	seen := false
 	err = wait.PollImmediate(5*time.Second, 15*time.Minute, func() (bool, error) {
+		if m.jobIsComplete(job) {
+			return false, errJobCompleted
+		}
 		pod, err := m.coreClient.Core().Pods(m.prowNamespace).Get(job.Name, metav1.GetOptions{})
 		if err != nil {
 			if !errors.IsNotFound(err) {
@@ -439,7 +629,10 @@ func (m *jobManager) launchJob(job *Job) error {
 
 	seen = false
 	var lastErr error
-	err = wait.PollImmediate(5*time.Second, launchDeadline, func() (bool, error) {
+	err = wait.PollImmediate(15*time.Second, launchDeadline, func() (bool, error) {
+		if m.jobIsComplete(job) {
+			return false, errJobCompleted
+		}
 		pod, err := m.coreClient.Core().Pods(namespace).Get(targetPodName, metav1.GetOptions{})
 		if err != nil {
 			// pod could not be created or we may not have permission yet
@@ -453,6 +646,9 @@ func (m *jobManager) launchJob(job *Job) error {
 			return false, nil
 		}
 		seen = true
+		if pod.DeletionTimestamp != nil {
+			return false, fmt.Errorf("cluster is being torn down")
+		}
 		if pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed" {
 			return false, fmt.Errorf("cluster has already been torn down")
 		}
@@ -486,6 +682,9 @@ func (m *jobManager) launchJob(job *Job) error {
 
 	var kubeconfig string
 	err = wait.PollImmediate(30*time.Second, 10*time.Minute, func() (bool, error) {
+		if m.jobIsComplete(job) {
+			return false, errJobCompleted
+		}
 		contents, err := commandContents(m.coreClient.Core(), m.coreConfig, namespace, targetPodName, "test", []string{"cat", "/tmp/admin.kubeconfig"})
 		if err != nil {
 			if strings.Contains(err.Error(), "container not found") {
@@ -512,7 +711,7 @@ func (m *jobManager) launchJob(job *Job) error {
 	// once the cluster is reachable, we're ok to send credentials
 	// TODO: better criteria?
 	var waitErr error
-	if err := waitForClusterReachable(kubeconfig); err != nil {
+	if err := waitForClusterReachable(kubeconfig, func() bool { return m.jobIsComplete(job) }); err != nil {
 		klog.Infof("error: Job %q unable to wait for the cluster %s/%s to start: %v", job.Name, namespace, targetPodName, err)
 		job.Credentials = ""
 		waitErr = fmt.Errorf("cluster did not become reachable: %v", err)
@@ -556,7 +755,7 @@ func (m *jobManager) clearNotificationAnnotations(job *Job, created bool, startD
 
 // waitForClusterReachable performs a slow poll, waiting for the cluster to come alive.
 // It returns an error if the cluster doesn't respond within the time limit.
-func waitForClusterReachable(kubeconfig string) error {
+func waitForClusterReachable(kubeconfig string, abortFn func() bool) error {
 	cfg, err := loadKubeconfigContents(kubeconfig)
 	if err != nil {
 		return err
@@ -568,6 +767,9 @@ func waitForClusterReachable(kubeconfig string) error {
 	}
 
 	return wait.PollImmediate(15*time.Second, 30*time.Minute, func() (bool, error) {
+		if abortFn() {
+			return false, errJobCompleted
+		}
 		_, err := client.Core().Namespaces().Get("openshift-apiserver", metav1.GetOptions{})
 		if err == nil {
 			return true, nil
