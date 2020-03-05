@@ -127,6 +127,17 @@ done
 wait
 `
 
+const permissionsScript = `
+# prow doesn't allow init containers or a second container
+export PATH=$PATH:/tmp/bin
+mkdir /tmp/bin
+curl https://mirror.openshift.com/pub/openshift-v4/clients/oc/4.4/linux/oc.tar.gz | tar xvzf - -C /tmp/bin/ oc
+chmod ug+x /tmp/bin/oc
+
+# grant all authenticated users access to the images in this namespace
+oc policy add-role-to-group system:image-puller -n $(NAMESPACE) system:authenticated
+`
+
 type JobSpec struct {
 	Refs *prowapiv1.Refs `json:"refs"`
 }
@@ -410,7 +421,7 @@ func (m *jobManager) launchJob(job *Job) error {
 			container.Command = []string{"/bin/bash", "-c"}
 			if job.Mode == "build" {
 				container.Args = []string{
-					fmt.Sprintf("%s\n\nci-operator %s", script, strings.Join(args, " ")),
+					fmt.Sprintf("%s\n\n%s\nci-operator %s", script, permissionsScript, strings.Join(args, " ")),
 				}
 			} else {
 				container.Args = []string{
