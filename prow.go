@@ -478,6 +478,9 @@ func (m *jobManager) launchJob(job *Job) error {
 					klog.Infof("Found target job config %s/%s:\n%s", targetNamespace, targetName, string(data))
 				}
 
+				// delete sections we don't need
+				delete(targetConfig.Object, "tests")
+
 				if i == 0 && len(job.Inputs) > 1 {
 					targetConfig.Object["promotion"] = map[string]interface{}{
 						"name":      "stable-initial",
