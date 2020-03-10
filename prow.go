@@ -501,10 +501,16 @@ func (m *jobManager) launchJob(job *Job) error {
 					}
 				}
 
-				data, _ := json.MarshalIndent(targetConfig, "", "  ")
+				data, err := json.MarshalIndent(targetConfig, "", "  ")
+				if err != nil {
+					return fmt.Errorf("unable to reformat child job for %#v: %v", ref, err)
+				}
 				prow.SetJobEnvVar(&pj.Spec, fmt.Sprintf("CONFIG_SPEC_%d", index), string(data))
 
-				data, _ = json.MarshalIndent(JobSpec{Refs: &ref}, "", "  ")
+				data, err = json.MarshalIndent(JobSpec{Refs: &ref}, "", "  ")
+				if err != nil {
+					return fmt.Errorf("unable to reformat child job for %#v: %v", ref, err)
+				}
 				prow.SetJobEnvVar(&pj.Spec, fmt.Sprintf("JOB_SPEC_%d", index), string(data))
 
 				index++
