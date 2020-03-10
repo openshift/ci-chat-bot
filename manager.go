@@ -37,11 +37,11 @@ import (
 const (
 	// maxJobsPerUser limits the number of simultaneous jobs a user can launch to prevent
 	// a single user from consuming the infrastructure account.
-	maxJobsPerUser = 10
+	maxJobsPerUser = 23
 
 	// maxTotalClusters limits the number of simultaneous clusters across all users to
 	// prevent saturating the infrastructure account.
-	maxTotalClusters = 15
+	maxTotalClusters = 23
 )
 
 // JobRequest keeps information about the request a user made to create
