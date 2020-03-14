@@ -802,6 +802,7 @@ func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) 
 	if token := os.Getenv("GITHUB_TOKEN"); len(token) > 0 {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
+	req.Header.Add("User-Agent", "ci-chat-bot")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("unable to lookup pull request %s: %v", spec, err)
