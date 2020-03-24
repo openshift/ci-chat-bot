@@ -82,6 +82,8 @@ tests:
 
 const script = `set -euo pipefail
 
+trap 'jobs -p | xargs -r kill || true; exit 0' TERM
+
 mkdir -p "$(ARTIFACTS)/initial" "$(ARTIFACTS)/final"
 
 if [[ -z "${RELEASE_IMAGE_INITIAL-}" ]]; then
@@ -104,6 +106,7 @@ unset RELEASE_IMAGE_INITIAL
 unset RELEASE_IMAGE_LATEST
 
 # spawn one child ci-operator job per repo type
+pids=()
 for var in "${!CONFIG_SPEC_@}"; do
   suffix="${var/CONFIG_SPEC_/}"
   jobvar="JOB_SPEC_$suffix"
@@ -120,11 +123,11 @@ for var in "${!CONFIG_SPEC_@}"; do
     code=$?
     cat "$(ARTIFACTS)/$suffix/build.log" 1>&2
     exit $code
-  ) &
+  ) & pids+=($!)
 done
 
-# wait for all of them to succeed
-wait
+# drain the job results
+for i in ${pids[@]}; do if ! wait $i; then exit 1; fi; done
 `
 
 const permissionsScript = `
