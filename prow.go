@@ -71,6 +71,7 @@ resources:
       memory: 200Mi
 # set to an empty image stream so we don't import anything
 tag_specification:
+  cluster: https://api.ci.openshift.org
   name: pipeline
   namespace: $(NAMESPACE)
 tests:
@@ -446,6 +447,7 @@ func (m *jobManager) launchJob(job *Job) error {
 			return fmt.Errorf("the launch job definition could not be loaded: %v", err)
 		}
 		sourceConfig.Object["tag_specification"] = map[string]interface{}{
+			"cluster":   "https://api.ci.openshift.org",
 			"name":      "pipeline",
 			"namespace": "$(NAMESPACE)",
 		}
@@ -490,6 +492,7 @@ func (m *jobManager) launchJob(job *Job) error {
 						"namespace": "$(NAMESPACE)",
 					}
 					targetConfig.Object["tag_specification"] = map[string]interface{}{
+						"cluster":   "https://api.ci.openshift.org",
 						"name":      "stable-initial",
 						"namespace": "$(NAMESPACE)",
 					}
@@ -499,6 +502,7 @@ func (m *jobManager) launchJob(job *Job) error {
 						"namespace": "$(NAMESPACE)",
 					}
 					targetConfig.Object["tag_specification"] = map[string]interface{}{
+						"cluster":   "https://api.ci.openshift.org",
 						"name":      "stable",
 						"namespace": "$(NAMESPACE)",
 					}
