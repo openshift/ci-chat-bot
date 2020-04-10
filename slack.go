@@ -80,12 +80,15 @@ func (b *Bot) Start(manager JobManager) error {
 		},
 	})
 
-	slack.Command("lookup <image_or_version>", &slacker.CommandDefinition{
+	slack.Command("lookup <image_or_version_or_pr>", &slacker.CommandDefinition{
 		Description: "Get info about a version.",
 		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
-			image := request.StringParam("image_or_version", "")
-
-			msg, err := manager.LookupImageOrVersion(image)
+			from, err := parseImageInput(request.StringParam("image_or_version_or_pr", ""))
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+			msg, err := manager.LookupInputs(from)
 			if err != nil {
 				response.Reply(err.Error())
 				return

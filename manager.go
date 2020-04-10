@@ -87,7 +87,7 @@ type JobManager interface {
 	SyncJobForUser(user string) (string, error)
 	TerminateJobForUser(user string) (string, error)
 	GetLaunchJob(user string) (*Job, error)
-	LookupImageOrVersion(imageOrVersion string) (string, error)
+	LookupInputs(inputs []string) (string, error)
 	ListJobs(users ...string) string
 }
 
@@ -628,11 +628,6 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		imageOrVersion = defaultImageOrVersion
 	}
 
-	// workaround Slack's annoying habit of turning 4.3.0-0.ci into a hyperlink in slackdown
-	if strings.HasPrefix(imageOrVersion, "<") && strings.HasSuffix(imageOrVersion, ">") && strings.Contains(imageOrVersion, "|") {
-		imageOrVersion = imageOrVersion[strings.Index(imageOrVersion, "|")+1 : len(imageOrVersion)-1]
-	}
-
 	unresolved := imageOrVersion
 	if strings.Contains(unresolved, "/") {
 		return unresolved, "", nil
@@ -739,18 +734,83 @@ func findImageStatusTag(is *imagev1.ImageStream, name string) (*imagev1.TagEvent
 	return nil, ""
 }
 
-func (m *jobManager) LookupImageOrVersion(imageOrVersion string) (string, error) {
-	installImage, installVersion, err := m.resolveImageOrVersion(imageOrVersion, "ci")
+func (m *jobManager) LookupInputs(inputs []string) (string, error) {
+	// default install type jobs to "ci"
+	if len(inputs) == 0 {
+		_, version, err := m.resolveImageOrVersion("ci", "")
+		if err != nil {
+			return "", err
+		}
+		inputs = []string{version}
+	}
+	jobInputs, err := m.lookupInputs([][]string{inputs})
 	if err != nil {
 		return "", err
 	}
-	if len(installVersion) == 0 {
-		return fmt.Sprintf("Will launch directly from the image `%s`", installImage), nil
+	var out []string
+	for i, job := range jobInputs {
+		if len(job.Refs) > 0 {
+			out = append(out, fmt.Sprintf("`%s` will build from PRs", inputs[i]))
+			continue
+		}
+		if len(job.Version) == 0 {
+			out = append(out, fmt.Sprintf("`%s` uses a release image at `%s`", inputs[i], job.Image))
+			continue
+		}
+		if len(job.Image) == 0 {
+			out = append(out, fmt.Sprintf("`%s` uses version `%s`", inputs[i], job.Version))
+			continue
+		}
+		out = append(out, fmt.Sprintf("`%s` launches version <https://openshift-release.svc.ci.openshift.org/releasetag/%s|%s>", inputs[i], job.Version, job.Version))
 	}
-	if len(imageOrVersion) == 0 {
-		return fmt.Sprintf("default version <https://openshift-release.svc.ci.openshift.org/releasetag/%s|%s>", installVersion, installVersion), nil
+	return strings.Join(out, "\n"), nil
+}
+
+func (m *jobManager) lookupInputs(inputs [][]string) ([]JobInput, error) {
+	var jobInputs []JobInput
+
+	for _, input := range inputs {
+		var jobInput JobInput
+		for _, part := range input {
+			// if the user provided a pull spec (org/repo#number) we'll build from that
+			pr, err := m.resolveAsPullRequest(part)
+			if err != nil {
+				return nil, err
+			}
+			if pr != nil {
+				var existing bool
+				for i, ref := range jobInput.Refs {
+					if ref.Org == pr.Org && ref.Repo == pr.Repo {
+						jobInput.Refs[i].Pulls = append(jobInput.Refs[i].Pulls, pr.Pulls...)
+						existing = true
+						break
+					}
+				}
+				if !existing {
+					jobInput.Refs = append(jobInput.Refs, *pr)
+				}
+			} else {
+				// otherwise, resolve as a semantic version (as a tag on the release image stream) or as an image
+				image, version, err := m.resolveImageOrVersion(part, "")
+				if err != nil {
+					return nil, err
+				}
+				if len(image) == 0 {
+					return nil, fmt.Errorf("unable to resolve %q to an image", part)
+				}
+				if len(jobInput.Image) > 0 {
+					return nil, fmt.Errorf("only one image or version may be specified in a list of installs")
+				}
+				jobInput.Image = image
+				jobInput.Version = version
+			}
+		}
+		if len(jobInput.Version) == 0 && len(jobInput.Refs) > 0 {
+			jobInput.Version = versionForRefs(&jobInput.Refs[0])
+		}
+		jobInputs = append(jobInputs, jobInput)
 	}
-	return fmt.Sprintf("`%s` launches version <https://openshift-release.svc.ci.openshift.org/releasetag/%s|%s>", imageOrVersion, installVersion, installVersion), nil
+	return jobInputs, nil
 }
 
 type GitHubPullRequest struct {
@@ -898,8 +958,6 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		ExpiresAt: req.RequestedAt.Add(m.maxAge),
 	}
 
-	var jobInputs []JobInput
-
 	// default install type jobs to "ci"
 	if len(req.Inputs) == 0 && req.Type == JobTypeInstall {
 		_, version, err := m.resolveImageOrVersion("ci", "")
@@ -908,47 +966,9 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		}
 		req.Inputs = append(req.Inputs, []string{version})
 	}
-
-	for _, input := range req.Inputs {
-		var jobInput JobInput
-		for _, part := range input {
-			// if the user provided a pull spec (org/repo#number) we'll build from that
-			pr, err := m.resolveAsPullRequest(part)
-			if err != nil {
-				return nil, err
-			}
-			if pr != nil {
-				var existing bool
-				for i, ref := range jobInput.Refs {
-					if ref.Org == pr.Org && ref.Repo == pr.Repo {
-						jobInput.Refs[i].Pulls = append(jobInput.Refs[i].Pulls, pr.Pulls...)
-						existing = true
-						break
-					}
-				}
-				if !existing {
-					jobInput.Refs = append(jobInput.Refs, *pr)
-				}
-			} else {
-				// otherwise, resolve as a semantic version (as a tag on the release image stream) or as an image
-				image, version, err := m.resolveImageOrVersion(part, "")
-				if err != nil {
-					return nil, err
-				}
-				if len(image) == 0 {
-					return nil, fmt.Errorf("unable to resolve %q to an image", part)
-				}
-				if len(jobInput.Image) > 0 {
-					return nil, fmt.Errorf("only one image or version may be specified in a list of installs")
-				}
-				jobInput.Image = image
-				jobInput.Version = version
-			}
-		}
-		if len(jobInput.Version) == 0 && len(jobInput.Refs) > 0 {
-			jobInput.Version = versionForRefs(&jobInput.Refs[0])
-		}
-		jobInputs = append(jobInputs, jobInput)
+	jobInputs, err := m.lookupInputs(req.Inputs)
+	if err != nil {
+		return nil, err
 	}
 
 	switch req.Type {
