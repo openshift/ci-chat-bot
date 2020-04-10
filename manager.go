@@ -610,7 +610,7 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 		return ""
 	}
 	if refs.BaseRef == "master" {
-		return "4.5.0-0.latest"
+		return fmt.Sprintf("%q.latest", masterStreamPrefix)
 	}
 	if m := reBranchVersion.FindStringSubmatch(refs.BaseRef); m != nil {
 		return fmt.Sprintf("%s.0-0.latest", m[2])
@@ -618,7 +618,23 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 	return ""
 }
 
+// masterStreamPrefix defines the stream corresponding to master branches
+const masterStreamPrefix = "4.5.0-0"
+
 var reMajorMinorVersion = regexp.MustCompile(`^(\d)\.(\d)$`)
+
+func getStreams() []string {
+	return []string{"ci", "nightly"}
+}
+
+func getUnresolvedFromStream(unresolved string) string {
+	if contains(getStreams(), unresolved) {
+		return fmt.Sprintf("%q.%q", masterStreamPrefix, unresolved)
+	} else if unresolved == "prerelease" {
+		return fmt.Sprintf("%q.ci", masterStreamPrefix)
+	}
+	return ""
+}
 
 func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion string) (string, string, error) {
 	if len(strings.TrimSpace(imageOrVersion)) == 0 {
@@ -648,21 +664,15 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 			klog.Infof("Resolved major.minor %s to semver tag %s", imageOrVersion, tag.Name)
 			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
 		}
-		if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.nightly", unresolved)); tag != nil {
-			klog.Infof("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
-			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
-		}
-		if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.ci", unresolved)); tag != nil {
-			klog.Infof("Resolved major.minor %s to ci tag %s", imageOrVersion, tag.Name)
-			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
+		for _, stream := range getStreams() {
+			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.%s", unresolved, stream)); tag != nil {
+				klog.Infof("Resolved major.minor %s to %s tag %s", imageOrVersion, stream, tag.Name)
+				return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
+			}
 		}
 		return "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
-	} else if unresolved == "nightly" {
-		unresolved = "4.4.0-0.nightly"
-	} else if unresolved == "ci" {
-		unresolved = "4.5.0-0.ci"
-	} else if unresolved == "prerelease" {
-		unresolved = "4.4.0-0.ci"
+	} else if image := getUnresolvedFromStream(unresolved); len(unresolved) > 0 {
+		unresolved = image
 	}
 
 	if tag, name := findImageStatusTag(is, unresolved); tag != nil {
