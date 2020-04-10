@@ -401,10 +401,19 @@ func parseImageInput(input string) ([]string, error) {
 		return nil, nil
 	}
 	parts := strings.Split(input, ",")
-	for _, part := range parts {
+	for i, part := range parts {
+		// strip slack formatting if applied
+		if strings.HasPrefix(part, "<") {
+			part = part[1:]
+			if index := strings.Index(part, "|"); index != -1 {
+				part = part[index+1:]
+			}
+			part = strings.TrimRight(part, ">")
+		}
 		if len(part) == 0 {
 			return nil, fmt.Errorf("image inputs must not contain empty items")
 		}
+		parts[i] = part
 	}
 	return parts, nil
 }
