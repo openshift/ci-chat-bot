@@ -1,19 +1,28 @@
 package commander
 
 import (
-	"github.com/shomali11/proper"
 	"regexp"
 	"strings"
+
+	"github.com/shomali11/proper"
 )
 
 const (
-	escapeCharacter    = "\\"
-	ignoreCase         = "(?i)"
-	parameterPattern   = "<\\S+>"
-	spacePattern       = "\\s+"
-	inputPattern       = "(.+)"
-	preCommandPattern  = "(\\s|^)"
-	postCommandPattern = "(\\s|$)"
+	escapeCharacter      = "\\"
+	ignoreCase           = "(?i)"
+	parameterPattern     = "<\\S+>"
+	lazyParameterPattern = "<\\S+\\?>"
+	spacePattern         = "\\s+"
+	inputPattern         = "(.+)"
+	lazyInputPattern     = "(.+?)"
+	preCommandPattern    = "(\\s|^)"
+	postCommandPattern   = "(\\s|$)"
+)
+
+const (
+	notParameter = iota
+	greedyParameter
+	lazyParameter
 )
 
 var (
@@ -29,8 +38,12 @@ func NewCommand(format string) *Command {
 
 // Token represents the Token object
 type Token struct {
-	Word        string
-	IsParameter bool
+	Word string
+	Type int
+}
+
+func (t Token) IsParameter() bool {
+	return t.Type != notParameter
 }
 
 // Command represents the Command object
@@ -57,7 +70,7 @@ func (c *Command) Match(text string) (*proper.Properties, bool) {
 		parameters := make(map[string]string)
 		for i := 0; i < len(c.tokens) && valueIndex < len(values); i++ {
 			token := c.tokens[i]
-			if !token.IsParameter {
+			if !token.IsParameter() {
 				continue
 			}
 
@@ -83,13 +96,17 @@ func escape(text string) string {
 
 func tokenize(format string) []*Token {
 	parameterRegex := regexp.MustCompile(parameterPattern)
+	lazyParameterRegex := regexp.MustCompile(lazyParameterPattern)
 	words := strings.Fields(format)
 	tokens := make([]*Token, len(words))
 	for i, word := range words {
-		if parameterRegex.MatchString(word) {
-			tokens[i] = &Token{Word: word[1 : len(word)-1], IsParameter: true}
-		} else {
-			tokens[i] = &Token{Word: word, IsParameter: false}
+		switch {
+		case lazyParameterRegex.MatchString(word):
+			tokens[i] = &Token{Word: word[1 : len(word)-2], Type: lazyParameter}
+		case parameterRegex.MatchString(word):
+			tokens[i] = &Token{Word: word[1 : len(word)-1], Type: greedyParameter}
+		default:
+			tokens[i] = &Token{Word: word, Type: notParameter}
 		}
 	}
 	return tokens
@@ -112,7 +129,7 @@ func generate(tokens []*Token) []*regexp.Regexp {
 func create(tokens []*Token, boundary int) []*Token {
 	newTokens := []*Token{}
 	for i := 0; i < len(tokens); i++ {
-		if !tokens[i].IsParameter || i <= boundary {
+		if !tokens[i].IsParameter() || i <= boundary {
 			newTokens = append(newTokens, tokens[i])
 		}
 	}
@@ -124,22 +141,23 @@ func compile(tokens []*Token) *regexp.Regexp {
 		return nil
 	}
 
-	pattern := preCommandPattern
-	if tokens[0].IsParameter {
-		pattern += inputPattern
-	} else {
-		pattern += escape(tokens[0].Word)
-	}
-
+	pattern := preCommandPattern + getInputPattern(tokens[0])
 	for index := 1; index < len(tokens); index++ {
 		currentToken := tokens[index]
-		if currentToken.IsParameter {
-			pattern += spacePattern + inputPattern
-		} else {
-			pattern += spacePattern + escape(currentToken.Word)
-		}
+		pattern += spacePattern + getInputPattern(currentToken)
 	}
 	pattern += postCommandPattern
 
 	return regexp.MustCompile(ignoreCase + pattern)
+}
+
+func getInputPattern(token *Token) string {
+	switch token.Type {
+	case lazyParameter:
+		return lazyInputPattern
+	case greedyParameter:
+		return inputPattern
+	default:
+		return escape(token.Word)
+	}
 }

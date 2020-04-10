@@ -1,6 +1,6 @@
 # slacker [![Build Status](https://travis-ci.com/shomali11/slacker.svg?branch=master)](https://travis-ci.com/shomali11/slacker) [![Go Report Card](https://goreportcard.com/badge/github.com/shomali11/slacker)](https://goreportcard.com/report/github.com/shomali11/slacker) [![GoDoc](https://godoc.org/github.com/shomali11/slacker?status.svg)](https://godoc.org/github.com/shomali11/slacker) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Built on top of the Slack API [github.com/nlopes/slack](https://github.com/nlopes/slack) with the idea to simplify the Real-Time Messaging feature to easily create Slack Bots, assign commands to them and extract parameters.
+Built on top of the Slack API [github.com/slack-go/slack](https://github.com/slack-go/slack) with the idea to simplify the Real-Time Messaging feature to easily create Slack Bots, assign commands to them and extract parameters.
 
 ## Features
 
@@ -12,12 +12,13 @@ Built on top of the Slack API [github.com/nlopes/slack](https://github.com/nlope
 - Supports authorization
 - Bot responds to mentions and direct messages
 - Handlers run concurrently via goroutines
-- Full access to the Slack API [github.com/nlopes/slack](https://github.com/nlopes/slack)
+- Produces events for executed commands
+- Full access to the Slack API [github.com/slack-go/slack](https://github.com/slack-go/slack)
 
 ## Dependencies
 
 - `commander` [github.com/shomali11/commander](https://github.com/shomali11/commander)
-- `slack` [github.com/nlopes/slack](https://github.com/nlopes/slack)
+- `slack` [github.com/slack-go/slack](https://github.com/slack-go/slack)
 
 # Install
 
@@ -253,7 +254,7 @@ func main() {
 
 ## Example 7
 
-Showcasing the ability to access the [github.com/nlopes/slack](https://github.com/nlopes/slack) API and the Real-Time Messaging Protocol.
+Showcasing the ability to access the [github.com/slack-go/slack](https://github.com/slack-go/slack) API and the Real-Time Messaging Protocol.
 _In this example, we are sending a message using RTM and uploading a file using the Slack API._
 
 ```go
@@ -261,7 +262,7 @@ package main
 
 import (
 	"context"
-	"github.com/nlopes/slack"
+	"github.com/slack-go/slack"
 	"github.com/shomali11/slacker"
 	"log"
 )
@@ -351,7 +352,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/nlopes/slack"
+	"github.com/slack-go/slack"
 	"github.com/shomali11/slacker"
 )
 
@@ -398,7 +399,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/nlopes/slack"
+	"github.com/slack-go/slack"
 	"github.com/shomali11/slacker"
 )
 
@@ -444,7 +445,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nlopes/slack"
+	"github.com/slack-go/slack"
 	"github.com/shomali11/slacker"
 )
 
@@ -640,6 +641,63 @@ func main() {
 	}
 
 	bot.Help(definition)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := bot.Listen(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+## Example 15
+
+Listening to the Commands Events being produced
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"context"
+
+	"github.com/shomali11/slacker"
+)
+
+func printCommandEvents(analyticsChannel <-chan *slacker.CommandEvent) {
+	for event := range analyticsChannel {
+		fmt.Println("Command Events")
+		fmt.Println(event.Timestamp)
+		fmt.Println(event.Command)
+		fmt.Println(event.Parameters)
+		fmt.Println(event.Message)
+		fmt.Println()
+	}
+}
+
+func main() {
+	bot := slacker.NewClient("<YOUR SLACK BOT TOKEN>")
+
+	go printCommandEvents(bot.CommandEvents())
+
+	bot.Command("ping", &slacker.CommandDefinition{
+		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
+			response.Reply("pong")
+		},
+	})
+
+	bot.Command("echo <word>", &slacker.CommandDefinition{
+		Description: "Echo a word!",
+		Example:     "echo hello",
+		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
+			word := request.Param("word")
+			response.Reply(word)
+		},
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

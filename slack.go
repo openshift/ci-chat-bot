@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nlopes/slack"
 	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 	"github.com/shomali11/slacker"
+	"github.com/slack-go/slack"
 	"k8s.io/klog"
 )
 
