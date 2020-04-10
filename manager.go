@@ -782,7 +782,21 @@ type GitHubPullRequestBase struct {
 }
 
 func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) {
-	parts := strings.SplitN(spec, "#", 2)
+	var parts []string
+	switch {
+	case strings.HasPrefix(spec, "https://github.com/"):
+		if u, err := url.Parse(spec); err == nil {
+			path := strings.Trim(u.Path, "/")
+			if segments := strings.Split(path, "/"); len(segments) == 4 && segments[2] == "pull" {
+				parts = []string{
+					strings.Join(segments[:2], "/"),
+					segments[3],
+				}
+			}
+		}
+	case strings.Contains(spec, "#"):
+		parts = strings.SplitN(spec, "#", 2)
+	}
 	if len(parts) != 2 {
 		return nil, nil
 	}

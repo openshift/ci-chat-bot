@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nlopes/slack"
 	"github.com/shomali11/proper"
+	"github.com/slack-go/slack"
 )
 
 const (
@@ -37,8 +37,10 @@ func NewClient(token string, options ...ClientOption) *Slacker {
 
 	client := slack.New(token, slack.OptionDebug(defaults.Debug))
 	slacker := &Slacker{
-		client: client,
-		rtm:    client.NewRTM(),
+		client:            client,
+		rtm:               client.NewRTM(),
+		commandChannel:    make(chan *CommandEvent, 100),
+		unAuthorizedError: unAuthorizedError,
 	}
 	return slacker
 }
@@ -56,6 +58,7 @@ type Slacker struct {
 	defaultMessageHandler func(request Request, response ResponseWriter)
 	defaultEventHandler   func(interface{})
 	unAuthorizedError     error
+	commandChannel        chan *CommandEvent
 }
 
 // BotCommands returns Bot Commands
@@ -118,6 +121,11 @@ func (s *Slacker) Command(usage string, definition *CommandDefinition) {
 	s.botCommands = append(s.botCommands, NewBotCommand(usage, definition))
 }
 
+// CommandEvents returns read only command events channel
+func (s *Slacker) CommandEvents() <-chan *CommandEvent {
+	return s.commandChannel
+}
+
 // Listen receives events from Slack and each is handled as needed
 func (s *Slacker) Listen(ctx context.Context) error {
 	s.prependHelpHandle()
@@ -166,7 +174,6 @@ func (s *Slacker) Listen(ctx context.Context) error {
 			}
 		}
 	}
-	return nil
 }
 
 // GetUserInfo retrieve complete user information
@@ -192,7 +199,7 @@ func (s *Slacker) isDirectMessage(event *slack.MessageEvent) bool {
 	return strings.HasPrefix(event.Channel, directChannelMarker)
 }
 
-func (s *Slacker) handleMessage(ctx context.Context, event *slack.MessageEvent) {
+func (s *Slacker) handleMessage(ctx context.Context, message *slack.MessageEvent) {
 	if s.requestConstructor == nil {
 		s.requestConstructor = NewRequest
 	}
@@ -201,18 +208,24 @@ func (s *Slacker) handleMessage(ctx context.Context, event *slack.MessageEvent) 
 		s.responseConstructor = NewResponse
 	}
 
-	response := s.responseConstructor(event.Channel, s.client, s.rtm)
+	response := s.responseConstructor(message.Channel, s.client, s.rtm)
 
 	for _, cmd := range s.botCommands {
-		parameters, isMatch := cmd.Match(event.Text)
+		parameters, isMatch := cmd.Match(message.Text)
 		if !isMatch {
 			continue
 		}
 
-		request := s.requestConstructor(ctx, event, parameters)
+		request := s.requestConstructor(ctx, message, parameters)
 		if cmd.Definition().AuthorizationFunc != nil && !cmd.Definition().AuthorizationFunc(request) {
-			response.ReportError(unAuthorizedError)
+			response.ReportError(s.unAuthorizedError)
 			return
+		}
+
+		select {
+		case s.commandChannel <- NewCommandEvent(cmd.Usage(), parameters, message):
+		default:
+			// full channel, dropped event
 		}
 
 		cmd.Execute(request, response)
@@ -220,7 +233,7 @@ func (s *Slacker) handleMessage(ctx context.Context, event *slack.MessageEvent) 
 	}
 
 	if s.defaultMessageHandler != nil {
-		request := s.requestConstructor(ctx, event, &proper.Properties{})
+		request := s.requestConstructor(ctx, message, &proper.Properties{})
 		s.defaultMessageHandler(request, response)
 	}
 }
@@ -231,7 +244,7 @@ func (s *Slacker) defaultHelp(request Request, response ResponseWriter) {
 	for _, command := range s.botCommands {
 		tokens := command.Tokenize()
 		for _, token := range tokens {
-			if token.IsParameter {
+			if token.IsParameter() {
 				helpMessage += fmt.Sprintf(codeMessageFormat, token.Word) + space
 			} else {
 				helpMessage += fmt.Sprintf(boldMessageFormat, token.Word) + space

@@ -22,7 +22,7 @@ github.com/google/gofuzz
 github.com/googleapis/gnostic/OpenAPIv2
 github.com/googleapis/gnostic/compiler
 github.com/googleapis/gnostic/extensions
-# github.com/gorilla/websocket v1.4.1
+# github.com/gorilla/websocket v1.4.2
 github.com/gorilla/websocket
 # github.com/gregjones/httpcache v0.0.0-20181110185634-c63ab54fda8f
 github.com/gregjones/httpcache
@@ -56,20 +56,25 @@ github.com/openshift/client-go/project/clientset/versioned/scheme
 github.com/openshift/client-go/project/clientset/versioned/typed/project/v1
 # github.com/peterbourgon/diskv v2.0.1+incompatible
 github.com/peterbourgon/diskv
-# github.com/pkg/errors v0.8.1
+# github.com/pkg/errors v0.9.1
 github.com/pkg/errors
 # github.com/sbstjn/allot v0.0.0-20161025071122-1f2349af5ccd
 github.com/sbstjn/allot
 # github.com/sbstjn/hanu v0.1.0
 github.com/sbstjn/hanu
-# github.com/shomali11/commander v0.0.0-20190608032441-141478e8c069
+# github.com/shomali11/commander v0.0.0-20191122162317-51bc574c29ba
 github.com/shomali11/commander
 # github.com/shomali11/proper v0.0.0-20190608032528-6e70a05688e7
 github.com/shomali11/proper
-# github.com/shomali11/slacker v0.0.0-20191119132102-ddf8aaa561ed
+# github.com/shomali11/slacker v0.0.0-20200408143618-e643843481c1
 github.com/shomali11/slacker
 # github.com/sirupsen/logrus v1.4.1
 github.com/sirupsen/logrus
+# github.com/slack-go/slack v0.6.3
+github.com/slack-go/slack
+github.com/slack-go/slack/internal/errorsx
+github.com/slack-go/slack/internal/timex
+github.com/slack-go/slack/slackutilsx
 # github.com/spf13/pflag v1.0.3
 github.com/spf13/pflag
 # golang.org/x/crypto v0.0.0-20181112202954-3d3f9f413869

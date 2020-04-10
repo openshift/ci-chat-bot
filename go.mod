@@ -12,23 +12,23 @@ require (
 	github.com/google/btree v1.0.0 // indirect
 	github.com/google/gofuzz v0.0.0-20170612174753-24818f796faf // indirect
 	github.com/googleapis/gnostic v0.2.0 // indirect
-	github.com/gorilla/websocket v1.4.1 // indirect
+	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/gregjones/httpcache v0.0.0-20181110185634-c63ab54fda8f // indirect
 	github.com/imdario/mergo v0.3.6 // indirect
 	github.com/json-iterator/go v1.1.5 // indirect
 	github.com/konsorten/go-windows-terminal-sequences v1.0.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742 // indirect
-	github.com/nlopes/slack v0.6.1-0.20191106133607-d06c2a2b3249
 	github.com/openshift/api v3.9.0+incompatible
 	github.com/openshift/client-go v3.9.0+incompatible
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/sbstjn/allot v0.0.0-20161025071122-1f2349af5ccd // indirect
 	github.com/sbstjn/hanu v0.1.0
-	github.com/shomali11/commander v0.0.0-20190608032441-141478e8c069 // indirect
 	github.com/shomali11/proper v0.0.0-20190608032528-6e70a05688e7 // indirect
-	github.com/shomali11/slacker v0.0.0-20191119132102-ddf8aaa561ed
+	github.com/shomali11/slacker v0.0.0-20200408143618-e643843481c1
 	github.com/sirupsen/logrus v1.4.1
+	github.com/slack-go/slack v0.6.3
 	github.com/spf13/pflag v1.0.3
 	golang.org/x/crypto v0.0.0-20181112202954-3d3f9f413869 // indirect
 	golang.org/x/net v0.0.0-20181114220301-adae6a3d119a // indirect
