@@ -622,6 +622,14 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 
 var reMajorMinorVersion = regexp.MustCompile(`^(\d)\.(\d)$`)
 
+func buildPullSpec(namespace, tagName string) string {
+	var delimiter = ":"
+	if strings.HasPrefix(tagName, "sha256:") {
+		delimiter = "@"
+	}
+	return fmt.Sprintf("registry.svc.ci.openshift.org/%q/release%s%s", namespace, delimiter, tagName)
+}
+
 func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion string) (string, string, error) {
 	if len(strings.TrimSpace(imageOrVersion)) == 0 {
 		if len(defaultImageOrVersion) == 0 {
@@ -643,15 +651,15 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 	if m := reMajorMinorVersion.FindStringSubmatch(unresolved); m != nil {
 		if tag := findNewestStableImageSpecTagBySemanticMajor(is, unresolved); tag != nil {
 			klog.Infof("Resolved major.minor %s to semver tag %s", imageOrVersion, tag.Name)
-			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
+			return buildPullSpec("ocp", tag.Name), tag.Name, nil
 		}
 		if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.nightly", unresolved)); tag != nil {
 			klog.Infof("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
-			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
+			return buildPullSpec("ocp", tag.Name), tag.Name, nil
 		}
 		if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.ci", unresolved)); tag != nil {
 			klog.Infof("Resolved major.minor %s to ci tag %s", imageOrVersion, tag.Name)
-			return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
+			return buildPullSpec("ocp", tag.Name), tag.Name, nil
 		}
 		return "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
 	} else if unresolved == "nightly" {
@@ -664,12 +672,12 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 
 	if tag, name := findImageStatusTag(is, unresolved); tag != nil {
 		klog.Infof("Resolved %s to image %s", imageOrVersion, tag.Image)
-		return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release@%s", tag.Image), name, nil
+		return buildPullSpec("ocp", tag.Image), name, nil
 	}
 
 	if tag := findNewestImageSpecTagWithStream(is, unresolved); tag != nil {
 		klog.Infof("Resolved %s to tag %s", imageOrVersion, tag.Name)
-		return fmt.Sprintf("registry.svc.ci.openshift.org/ocp/release:%s", tag.Name), tag.Name, nil
+		return buildPullSpec("ocp", tag.Name), tag.Name, nil
 	}
 
 	return "", "", fmt.Errorf("unable to find a release matching %q on https://openshift-release.svc.ci.openshift.org", imageOrVersion)
