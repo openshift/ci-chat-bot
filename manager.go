@@ -45,6 +45,9 @@ const (
 	maxTotalClusters = 23
 )
 
+// namespaces defines a list of namespaces where release imagestreamtags are looked up
+var namespaces = []string{"ocp", "origin"}
+
 // JobRequest keeps information about the request a user made to create
 // a job. This is reconstructable from a ProwJob.
 type JobRequest struct {
@@ -643,44 +646,46 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		return unresolved, "", nil
 	}
 
-	is, err := m.imageClient.ImageV1().ImageStreams("ocp").Get(context.TODO(), "release", metav1.GetOptions{})
-	if err != nil {
-		return "", "", fmt.Errorf("unable to find release image stream: %v", err)
-	}
-
-	if m := reMajorMinorVersion.FindStringSubmatch(unresolved); m != nil {
-		if tag := findNewestStableImageSpecTagBySemanticMajor(is, unresolved); tag != nil {
-			klog.Infof("Resolved major.minor %s to semver tag %s", imageOrVersion, tag.Name)
-			return buildPullSpec("ocp", tag.Name), tag.Name, nil
+	for _, ns := range namespaces {
+		is, err := m.imageClient.ImageV1().ImageStreams("ocp").Get(context.TODO(), "release", metav1.GetOptions{})
+		if err != nil {
+			continue
 		}
-		if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.nightly", unresolved)); tag != nil {
-			klog.Infof("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
-			return buildPullSpec("ocp", tag.Name), tag.Name, nil
+
+		if m := reMajorMinorVersion.FindStringSubmatch(unresolved); m != nil {
+			if tag := findNewestStableImageSpecTagBySemanticMajor(is, unresolved); tag != nil {
+				klog.Infof("Resolved major.minor %s to semver tag %s", imageOrVersion, tag.Name)
+				return buildPullSpec(ns, tag.Name), tag.Name, nil
+			}
+			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.nightly", unresolved)); tag != nil {
+				klog.Infof("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
+				return buildPullSpec(ns, tag.Name), tag.Name, nil
+			}
+			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.ci", unresolved)); tag != nil {
+				klog.Infof("Resolved major.minor %s to ci tag %s", imageOrVersion, tag.Name)
+				return buildPullSpec(ns, tag.Name), tag.Name, nil
+			}
+			return "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
+		} else if unresolved == "nightly" {
+			unresolved = "4.4.0-0.nightly"
+		} else if unresolved == "ci" {
+			unresolved = "4.5.0-0.ci"
+		} else if unresolved == "prerelease" {
+			unresolved = "4.4.0-0.ci"
 		}
-		if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.ci", unresolved)); tag != nil {
-			klog.Infof("Resolved major.minor %s to ci tag %s", imageOrVersion, tag.Name)
-			return buildPullSpec("ocp", tag.Name), tag.Name, nil
+
+		if tag, name := findImageStatusTag(is, unresolved); tag != nil {
+			klog.Infof("Resolved %s to image %s", imageOrVersion, tag.Image)
+			return buildPullSpec(ns, tag.Image), name, nil
 		}
-		return "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
-	} else if unresolved == "nightly" {
-		unresolved = "4.4.0-0.nightly"
-	} else if unresolved == "ci" {
-		unresolved = "4.5.0-0.ci"
-	} else if unresolved == "prerelease" {
-		unresolved = "4.4.0-0.ci"
+
+		if tag := findNewestImageSpecTagWithStream(is, unresolved); tag != nil {
+			klog.Infof("Resolved %s to tag %s", imageOrVersion, tag.Name)
+			return buildPullSpec(ns, tag.Name), tag.Name, nil
+		}
 	}
 
-	if tag, name := findImageStatusTag(is, unresolved); tag != nil {
-		klog.Infof("Resolved %s to image %s", imageOrVersion, tag.Image)
-		return buildPullSpec("ocp", tag.Image), name, nil
-	}
-
-	if tag := findNewestImageSpecTagWithStream(is, unresolved); tag != nil {
-		klog.Infof("Resolved %s to tag %s", imageOrVersion, tag.Name)
-		return buildPullSpec("ocp", tag.Name), tag.Name, nil
-	}
-
-	return "", "", fmt.Errorf("unable to find a release matching %q on https://openshift-release.svc.ci.openshift.org", imageOrVersion)
+	return "", "", fmt.Errorf("unable to find a release matching %q on https://openshift-release.svc.ci.openshift.org or https://origin-release.svc.ci.openshift.org", imageOrVersion)
 }
 
 func findNewestStableImageSpecTagBySemanticMajor(is *imagev1.ImageStream, majorMinor string) *imagev1.TagReference {
