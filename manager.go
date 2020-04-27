@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -244,7 +245,7 @@ func paramsToString(params map[string]string) string {
 }
 
 func (m *jobManager) sync() error {
-	u, err := m.prowClient.Namespace(m.prowNamespace).List(metav1.ListOptions{
+	u, err := m.prowClient.Namespace(m.prowNamespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: labels.SelectorFromSet(labels.Set{
 			"ci-chat-bot.openshift.io/launch": "true",
 		}).String(),
@@ -633,7 +634,7 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		return unresolved, "", nil
 	}
 
-	is, err := m.imageClient.ImageV1().ImageStreams("ocp").Get("release", metav1.GetOptions{})
+	is, err := m.imageClient.ImageV1().ImageStreams("ocp").Get(context.TODO(), "release", metav1.GetOptions{})
 	if err != nil {
 		return "", "", fmt.Errorf("unable to find release image stream: %v", err)
 	}

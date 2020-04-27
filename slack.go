@@ -152,7 +152,7 @@ func (b *Bot) Start(manager JobManager) error {
 				return
 			}
 			job.RequestedChannel = channel
-			b.notifyJob(slacker.NewResponse(job.RequestedChannel, slack.Client(), slack.RTM()), job)
+			b.notifyJob(slacker.NewResponse(request.Event(), slack.Client(), slack.RTM()), job)
 		},
 	})
 
@@ -262,7 +262,7 @@ func (b *Bot) Start(manager JobManager) error {
 	return slack.Listen(context.Background())
 }
 
-func (b *Bot) jobResponder(slack *slacker.Slacker) func(Job) {
+func (b *Bot) jobResponder(s *slacker.Slacker) func(Job) {
 	return func(job Job) {
 		if len(job.RequestedChannel) == 0 || len(job.RequestedBy) == 0 {
 			klog.Infof("job %q has no requested channel or user, can't notify", job.Name)
@@ -280,7 +280,7 @@ func (b *Bot) jobResponder(slack *slacker.Slacker) func(Job) {
 				return
 			}
 		}
-		b.notifyJob(slacker.NewResponse(job.RequestedChannel, slack.Client(), slack.RTM()), &job)
+		b.notifyJob(slacker.NewResponse(&slack.MessageEvent{Msg: slack.Msg{Channel: job.RequestedChannel}}, s.Client(), s.RTM()), &job)
 	}
 }
 

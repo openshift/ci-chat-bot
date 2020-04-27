@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/json"
@@ -210,7 +211,7 @@ func loadJobConfigSpec(client clientset.Interface, env corev1.EnvVar, namespace 
 		return nil, "", "", fmt.Errorf("only config spec values inline or referenced in config maps may be used")
 	}
 	configMap, keyName := env.ValueFrom.ConfigMapKeyRef.Name, env.ValueFrom.ConfigMapKeyRef.Key
-	cm, err := client.CoreV1().ConfigMaps(namespace).Get(configMap, metav1.GetOptions{})
+	cm, err := client.CoreV1().ConfigMaps(namespace).Get(context.TODO(), configMap, metav1.GetOptions{})
 	if err != nil {
 		return nil, "", "", fmt.Errorf("unable to identify a ci-operator configuration for the provided refs: %v", err)
 	}
@@ -296,7 +297,7 @@ var (
 // cluster. If this method returns nil, it is safe to consider the cluster released.
 func (m *jobManager) stopJob(name string) error {
 	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(name))
-	if err := m.projectClient.ProjectV1().Projects().Delete(namespace, nil); err != nil && !errors.IsNotFound(err) {
+	if err := m.projectClient.ProjectV1().Projects().Delete(context.TODO(), namespace, metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
 		return err
 	}
 	return nil
@@ -537,7 +538,7 @@ func (m *jobManager) launchJob(job *Job) error {
 
 	created := true
 	started := time.Now()
-	_, err = m.prowClient.Namespace(m.prowNamespace).Create(prow.ObjectToUnstructured(pj), metav1.CreateOptions{})
+	_, err = m.prowClient.Namespace(m.prowNamespace).Create(context.TODO(), prow.ObjectToUnstructured(pj), metav1.CreateOptions{})
 	if err != nil {
 		if !errors.IsAlreadyExists(err) {
 			return err
@@ -550,7 +551,7 @@ func (m *jobManager) launchJob(job *Job) error {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
-		uns, err := m.prowClient.Namespace(m.prowNamespace).Get(job.Name, metav1.GetOptions{})
+		uns, err := m.prowClient.Namespace(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
@@ -596,7 +597,7 @@ func (m *jobManager) launchJob(job *Job) error {
 			if m.jobIsComplete(job) {
 				return false, errJobCompleted
 			}
-			uns, err := m.prowClient.Namespace(m.prowNamespace).Get(job.Name, metav1.GetOptions{})
+			uns, err := m.prowClient.Namespace(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
 			if err != nil {
 				return false, err
 			}
@@ -629,7 +630,7 @@ func (m *jobManager) launchJob(job *Job) error {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
-		pod, err := m.coreClient.Core().Pods(m.prowNamespace).Get(job.Name, metav1.GetOptions{})
+		pod, err := m.coreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
 		if err != nil {
 			if !errors.IsNotFound(err) {
 				return false, err
@@ -660,7 +661,7 @@ func (m *jobManager) launchJob(job *Job) error {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
-		pod, err := m.coreClient.Core().Pods(namespace).Get(targetPodName, metav1.GetOptions{})
+		pod, err := m.coreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetPodName, metav1.GetOptions{})
 		if err != nil {
 			// pod could not be created or we may not have permission yet
 			if !errors.IsNotFound(err) && !errors.IsForbidden(err) {
@@ -712,11 +713,11 @@ func (m *jobManager) launchJob(job *Job) error {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
-		contents, err := commandContents(m.coreClient.Core(), m.coreConfig, namespace, targetPodName, "test", []string{"cat", "/tmp/admin.kubeconfig"})
+		contents, err := commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace, targetPodName, "test", []string{"cat", "/tmp/admin.kubeconfig"})
 		if err != nil {
 			if strings.Contains(err.Error(), "container not found") {
 				// periodically check whether the still exists and is not succeeded or failed
-				pod, err := m.coreClient.Core().Pods(namespace).Get(targetPodName, metav1.GetOptions{})
+				pod, err := m.coreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetPodName, metav1.GetOptions{})
 				if errors.IsNotFound(err) || (pod != nil && (pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed")) {
 					return false, fmt.Errorf("pod cannot be found or has been deleted, assume cluster won't come up")
 				}
@@ -745,13 +746,13 @@ func (m *jobManager) launchJob(job *Job) error {
 	}
 
 	lines := int64(2)
-	logs, err := m.coreClient.Core().Pods(namespace).GetLogs(targetPodName, &corev1.PodLogOptions{Container: "setup", TailLines: &lines}).DoRaw()
+	logs, err := m.coreClient.CoreV1().Pods(namespace).GetLogs(targetPodName, &corev1.PodLogOptions{Container: "setup", TailLines: &lines}).DoRaw(context.TODO())
 	if err != nil {
 		klog.Infof("error: Job %q unable to get setup logs: %v", job.Name, err)
 	}
 	job.PasswordSnippet = strings.TrimSpace(reFixLines.ReplaceAllString(string(logs), "$1"))
 
-	password, err := commandContents(m.coreClient.Core(), m.coreConfig, namespace, targetPodName, "test", []string{"cat", "/tmp/artifacts/installer/auth/kubeadmin-password"})
+	password, err := commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace, targetPodName, "test", []string{"cat", "/tmp/artifacts/installer/auth/kubeadmin-password"})
 	if err != nil {
 		klog.Infof("error: Job %q unable to get kubeadmin password: %v", job.Name, err)
 		job.PasswordSnippet = fmt.Sprintf("\nError: Unable to retrieve kubeadmin password, you must use the kubeconfig file to access the cluster: %v", err)
@@ -775,7 +776,7 @@ func (m *jobManager) clearNotificationAnnotations(job *Job, created bool, startD
 	} else {
 		patch = []byte(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":""}}}`)
 	}
-	if _, err := m.prowClient.Namespace(m.prowNamespace).Patch(job.Name, types.MergePatchType, patch, metav1.UpdateOptions{}); err != nil {
+	if _, err := m.prowClient.Namespace(m.prowNamespace).Patch(context.TODO(), job.Name, types.MergePatchType, patch, metav1.PatchOptions{}); err != nil {
 		klog.Infof("error: Job %q unable to clear channel annotation from prow job: %v", job.Name, err)
 	}
 }
@@ -797,7 +798,7 @@ func waitForClusterReachable(kubeconfig string, abortFn func() bool) error {
 		if abortFn() {
 			return false, errJobCompleted
 		}
-		_, err := client.Core().Namespaces().Get("openshift-apiserver", metav1.GetOptions{})
+		_, err := client.CoreV1().Namespaces().Get(context.TODO(), "openshift-apiserver", metav1.GetOptions{})
 		if err == nil {
 			return true, nil
 		}
