@@ -1,4 +1,4 @@
-# slacker [![Build Status](https://travis-ci.com/shomali11/slacker.svg?branch=master)](https://travis-ci.com/shomali11/slacker) [![Go Report Card](https://goreportcard.com/badge/github.com/shomali11/slacker)](https://goreportcard.com/report/github.com/shomali11/slacker) [![GoDoc](https://godoc.org/github.com/shomali11/slacker?status.svg)](https://godoc.org/github.com/shomali11/slacker) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+# slacker [![Build Status](https://travis-ci.com/shomali11/slacker.svg?branch=master)](https://travis-ci.com/shomali11/slacker) [![Go Report Card](https://goreportcard.com/badge/github.com/shomali11/slacker)](https://goreportcard.com/report/github.com/shomali11/slacker) [![GoDoc](https://godoc.org/github.com/shomali11/slacker?status.svg)](https://godoc.org/github.com/shomali11/slacker) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go) 
 
 Built on top of the Slack API [github.com/slack-go/slack](https://github.com/slack-go/slack) with the idea to simplify the Real-Time Messaging feature to easily create Slack Bots, assign commands to them and extract parameters.
 
@@ -9,6 +9,7 @@ Built on top of the Slack API [github.com/slack-go/slack](https://github.com/sla
 - Simple parsing of String, Integer, Float and Boolean parameters
 - Contains support for `context.Context`
 - Built-in `help` command
+- Replies can be new messages or in threads
 - Supports authorization
 - Bot responds to mentions and direct messages
 - Handlers run concurrently via goroutines
@@ -64,7 +65,7 @@ func main() {
 
 ## Example 2
 
-Defining a command with an optional description and example
+Defining a command with an optional description and example. The handler replies to a thread.
 
 ```go
 package main
@@ -82,7 +83,7 @@ func main() {
 		Description: "Ping!",
 		Example:     "ping",
 		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
-			response.Reply("pong")
+			response.Reply("pong", slacker.WithThreadReply(true))
 		},
 	}
 
@@ -178,7 +179,7 @@ func main() {
 
 ## Example 5
 
-Send an error message to the Slack channel
+Defines two commands that display sending errors to the Slack channel. One that replies as a new message. The other replies to the thread.
 
 ```go
 package main
@@ -193,14 +194,22 @@ import (
 func main() {
 	bot := slacker.NewClient("<YOUR SLACK BOT TOKEN>")
 
-	definition := &slacker.CommandDefinition{
-		Description: "Tests errors",
+	messageReplyDefinition := &slacker.CommandDefinition{
+		Description: "Tests errors in new messages",
 		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
 			response.ReportError(errors.New("Oops!"))
 		},
 	}
 
-	bot.Command("test", definition)
+	threadReplyDefinition := &slacker.CommandDefinition{
+		Description: "Tests errors in threads",
+		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
+			response.ReportError(errors.New("Oops!"), slacker.WithThreadError(true))
+		},
+	}
+
+	bot.Command("message", messageReplyDefinition)
+	bot.Command("thread", threadReplyDefinition)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
