@@ -57,7 +57,7 @@ type JobRequest struct {
 	// is necessary then this can be a single build.
 	Inputs [][]string
 
-	// Type is the type of job to run. Allowed types are 'install', 'upgrade', or 'build'. The default is 'build'.
+	// Type is the type of job to run. Allowed types are 'install', 'upgrade', 'test', or 'build'. The default is 'build'.
 	Type JobType
 
 	// An optional string controlling the platform type for jobs that launch clusters. Required for install or upgrade jobs.
@@ -76,6 +76,7 @@ type JobType string
 const (
 	JobTypeBuild   = "build"
 	JobTypeInstall = "install"
+	JobTypeTest    = "test"
 	JobTypeUpgrade = "upgrade"
 )
 
@@ -383,7 +384,7 @@ func (m *jobManager) sync() error {
 
 			m.jobs[job.Name] = j
 			if previous == nil || previous.State != j.State || !previous.IsComplete() {
-				go m.handleJobStartup(*j)
+				go m.handleJobStartup(*j, "sync")
 			}
 		}
 	}
@@ -983,7 +984,7 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		if len(jobInputs) != 1 || prs == 0 {
 			return nil, fmt.Errorf("at least one pull request is required to build a release image")
 		}
-		job.Mode = "build"
+		job.Mode = JobTypeBuild
 	case JobTypeInstall:
 		if len(jobInputs) != 1 {
 			return nil, fmt.Errorf("launching a cluster requires one image, version, or pull request")
@@ -999,7 +1000,21 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		if len(req.Platform) == 0 {
 			return nil, fmt.Errorf("platform must be set when upgrading clusters")
 		}
-		job.Mode = "upgrade"
+		job.Mode = JobTypeUpgrade
+		if len(job.JobParams["test"]) == 0 {
+			return nil, fmt.Errorf("a test type is required for upgrading, default is e2e-upgrade")
+		}
+	case JobTypeTest:
+		if len(jobInputs) != 1 {
+			return nil, fmt.Errorf("launching a cluster requires one image, version, or pull request")
+		}
+		if len(req.Platform) == 0 {
+			return nil, fmt.Errorf("platform must be set when testing clusters")
+		}
+		if len(job.JobParams["test"]) == 0 {
+			return nil, fmt.Errorf("a test type is required for testing, see help")
+		}
+		job.Mode = JobTypeTest
 	default:
 		return nil, fmt.Errorf("unexpected job type: %q", req.Type)
 	}
@@ -1017,7 +1032,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	// try to pick a job that matches the install version, if we can, otherwise use the first that
 	// matches us (we can do better)
 	var prowJob *prowapiv1.ProwJob
-	selector := labels.Set{"job-env": req.Platform, "job-type": job.Mode}
+	selector := labels.Set{"job-env": req.Platform, "job-type": "launch"}
 	if len(job.Inputs[0].Version) > 0 {
 		if v, err := semver.ParseTolerant(job.Inputs[0].Version); err == nil {
 			withRelease := labels.Merge(selector, labels.Set{"job-release": fmt.Sprintf("%d.%d", v.Major, v.Minor)})
@@ -1033,73 +1048,82 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	job.JobName = prowJob.Spec.Job
 	klog.Infof("Job %q requested by user %q with mode %s prow job %s - params=%s, inputs=%#v", job.Name, req.User, job.Mode, job.JobName, paramsToString(job.JobParams), job.Inputs)
 
-	m.lock.Lock()
-	defer m.lock.Unlock()
+	msg, err := func() (string, error) {
+		m.lock.Lock()
+		defer m.lock.Unlock()
 
-	user := req.User
-	if job.Mode == "launch" {
-		existing, ok := m.requests[user]
-		if ok {
-			if len(existing.Name) == 0 {
-				klog.Infof("user %q already requested cluster", user)
-				return "", fmt.Errorf("you have already requested a cluster and it should be ready in ~ %d minutes", m.estimateCompletion(existing.RequestedAt)/time.Minute)
-			}
-			if job, ok := m.jobs[existing.Name]; ok {
-				if len(job.Credentials) > 0 {
-					klog.Infof("user %q cluster is already up", user)
-					return "your cluster is already running, see your credentials again with the 'auth' command", nil
-				}
-				if len(job.Failure) == 0 {
-					klog.Infof("user %q cluster has no credentials yet", user)
+		user := req.User
+		if job.Mode == "launch" {
+			existing, ok := m.requests[user]
+			if ok {
+				if len(existing.Name) == 0 {
+					klog.Infof("user %q already requested cluster", user)
 					return "", fmt.Errorf("you have already requested a cluster and it should be ready in ~ %d minutes", m.estimateCompletion(existing.RequestedAt)/time.Minute)
 				}
+				if job, ok := m.jobs[existing.Name]; ok {
+					if len(job.Credentials) > 0 {
+						klog.Infof("user %q cluster is already up", user)
+						return "your cluster is already running, see your credentials again with the 'auth' command", nil
+					}
+					if len(job.Failure) == 0 {
+						klog.Infof("user %q cluster has no credentials yet", user)
+						return "", fmt.Errorf("you have already requested a cluster and it should be ready in ~ %d minutes", m.estimateCompletion(existing.RequestedAt)/time.Minute)
+					}
 
-				klog.Infof("user %q cluster failed, allowing them to request another", user)
-				delete(m.jobs, existing.Name)
-				delete(m.requests, user)
-			}
-		}
-		m.requests[user] = req
-
-		launchedClusters := 0
-		for _, job := range m.jobs {
-			if job != nil && job.Mode == "launch" && !job.Complete && len(job.Failure) == 0 {
-				launchedClusters++
-			}
-		}
-		if launchedClusters >= m.maxClusters {
-			klog.Infof("user %q is will have to wait", user)
-			var waitUntil time.Time
-			for _, c := range m.jobs {
-				if c == nil || c.Mode != "launch" {
-					continue
-				}
-				if waitUntil.Before(c.ExpiresAt) {
-					waitUntil = c.ExpiresAt
+					klog.Infof("user %q cluster failed, allowing them to request another", user)
+					delete(m.jobs, existing.Name)
+					delete(m.requests, user)
 				}
 			}
-			minutes := waitUntil.Sub(time.Now()).Minutes()
-			if minutes < 1 {
-				return "", fmt.Errorf("no clusters are currently available, unable to estimate when next cluster will be free")
+			m.requests[user] = req
+
+			launchedClusters := 0
+			for _, job := range m.jobs {
+				if job != nil && job.Mode == "launch" && !job.Complete && len(job.Failure) == 0 {
+					launchedClusters++
+				}
 			}
-			return "", fmt.Errorf("no clusters are currently available, next slot available in %d minutes", int(math.Ceil(minutes)))
-		}
-	} else {
-		running := 0
-		for _, job := range m.jobs {
-			if job != nil && job.Mode != "launch" && job.RequestedBy == user {
-				running++
+			if launchedClusters >= m.maxClusters {
+				klog.Infof("user %q is will have to wait", user)
+				var waitUntil time.Time
+				for _, c := range m.jobs {
+					if c == nil || c.Mode != "launch" {
+						continue
+					}
+					if waitUntil.Before(c.ExpiresAt) {
+						waitUntil = c.ExpiresAt
+					}
+				}
+				minutes := waitUntil.Sub(time.Now()).Minutes()
+				if minutes < 1 {
+					return "", fmt.Errorf("no clusters are currently available, unable to estimate when next cluster will be free")
+				}
+				return "", fmt.Errorf("no clusters are currently available, next slot available in %d minutes", int(math.Ceil(minutes)))
+			}
+		} else {
+			running := 0
+			for _, job := range m.jobs {
+				if job != nil && job.Mode != "launch" && job.RequestedBy == user {
+					running++
+				}
+			}
+			if running > maxJobsPerUser {
+				return "", fmt.Errorf("you can't have more than %d running jobs at a time", maxJobsPerUser)
 			}
 		}
-		if running > maxJobsPerUser {
-			return "", fmt.Errorf("you can't have more than %d running jobs at a time", maxJobsPerUser)
-		}
+		m.jobs[job.Name] = job
+		klog.Infof("Job %q starting cluster for %q", job.Name, user)
+		return "", nil
+	}()
+	if err != nil || len(msg) > 0 {
+		return msg, err
 	}
 
-	m.jobs[job.Name] = job
+	if err := m.newJob(job); err != nil {
+		return "", fmt.Errorf("the requested job cannot be started: %v", err)
+	}
 
-	klog.Infof("Job %q starting cluster for %q", job.Name, user)
-	go m.handleJobStartup(*job)
+	go m.handleJobStartup(*job, "start")
 
 	if job.Mode == "launch" {
 		return "", fmt.Errorf("a cluster is being created - I'll send you the credentials in about ~%d minutes", m.estimateCompletion(req.RequestedAt)/time.Minute)
@@ -1178,7 +1202,7 @@ func (m *jobManager) SyncJobForUser(user string) (string, error) {
 	copied := *job
 	copied.Failure = ""
 	klog.Infof("user %q requests job %q to be refreshed", user, copied.Name)
-	go m.handleJobStartup(copied)
+	go m.handleJobStartup(copied, "refresh")
 
 	return msg, nil
 }
@@ -1199,18 +1223,18 @@ func (m *jobManager) jobIsComplete(job *Job) bool {
 	return false
 }
 
-func (m *jobManager) handleJobStartup(job Job) {
+func (m *jobManager) handleJobStartup(job Job, source string) {
 	if !m.tryJob(job.Name) {
-		klog.Infof("another worker is already running for %s", job.Name)
+		klog.Infof("Job %q already has a worker (%s)", job.Name, source)
 		return
 	}
 	defer m.finishJob(job.Name)
 
-	if err := m.launchJob(&job); err != nil {
+	if err := m.waitForJob(&job); err != nil {
 		if err == errJobCompleted || strings.Contains(err.Error(), errJobCompleted.Error()) {
-			klog.Infof("Job %q aborted due to detecting completion: %v", job.Name, err)
+			klog.Infof("Job %q aborted due to detecting completion (%s): %v", job.Name, source, err)
 		} else {
-			klog.Errorf("Job %q failed to launch: %v", job.Name, err)
+			klog.Errorf("Job %q failed to launch (%s): %v", job.Name, source, err)
 			job.Failure = err.Error()
 		}
 	}
@@ -1232,14 +1256,16 @@ func (m *jobManager) finishedJob(job Job) {
 		})
 	}
 
-	m.jobs[job.Name] = &job
-
 	if len(job.RequestedChannel) > 0 && len(job.RequestedBy) > 0 {
 		klog.Infof("Job %q complete, notify %q", job.Name, job.RequestedBy)
 		if m.notifierFn != nil {
 			go m.notifierFn(job)
 		}
 	}
+
+	// ensure we send no further notifications
+	job.RequestedChannel = ""
+	m.jobs[job.Name] = &job
 }
 
 func (m *jobManager) tryJob(name string) bool {

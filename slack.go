@@ -62,6 +62,10 @@ func (b *Bot) Start(manager JobManager) error {
 				response.Reply(err.Error())
 				return
 			}
+			if len(params["test"]) > 0 {
+				response.Reply("Test arguments may not be passed from the launch command")
+				return
+			}
 
 			msg, err := manager.LaunchJobForUser(&JobRequest{
 				OriginalMessage: request.Event().Text,
@@ -157,7 +161,7 @@ func (b *Bot) Start(manager JobManager) error {
 	})
 
 	slack.Command("test upgrade <from> <to> <options>", &slacker.CommandDefinition{
-		Description: "Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://openshift-release.svc.ci.openshift.org.",
+		Description: fmt.Sprintf("Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://openshift-release.svc.ci.openshift.org. You may change the upgrade test by passing `test=NAME` in options with one of %s", strings.Join(codeSlice(supportedUpgradeTests), ", ")),
 		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
 			user := request.Event().User
 			channel := request.Event().Channel
@@ -191,11 +195,78 @@ func (b *Bot) Start(manager JobManager) error {
 				return
 			}
 
+			if v := params["test"]; len(v) == 0 {
+				params["test"] = "e2e-upgrade"
+			}
+			if !strings.Contains(params["test"], "-upgrade") {
+				response.Reply("Only upgrade type tests may be run from this command")
+				return
+			}
+
 			msg, err := manager.LaunchJobForUser(&JobRequest{
 				OriginalMessage: request.Event().Text,
 				User:            user,
 				Inputs:          [][]string{from, to},
 				Type:            JobTypeUpgrade,
+				Channel:         channel,
+				Platform:        platform,
+				JobParams:       params,
+			})
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+			response.Reply(msg)
+		},
+	})
+
+	slack.Command("test <name> <image_or_version_or_pr> <options>", &slacker.CommandDefinition{
+		Description: fmt.Sprintf("Run the requested test suite from an image or release or built PRs. Supported test suites are %s. The from argument may be a pull spec of a release image or tags from https://openshift-release.svc.ci.openshift.org.", strings.Join(codeSlice(supportedTests), ", ")),
+		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
+			user := request.Event().User
+			channel := request.Event().Channel
+			if !isDirectMessage(channel) {
+				response.Reply("this command is only accepted via direct message")
+				return
+			}
+
+			from, err := parseImageInput(request.StringParam("image_or_version_or_pr", ""))
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+			if len(from) == 0 {
+				response.Reply("you must specify what will be tested")
+				return
+			}
+
+			test := request.StringParam("name", "")
+			if len(from) == 0 {
+				response.Reply(fmt.Sprintf("you must specify the name of a test: %s", strings.Join(codeSlice(supportedTests), ", ")))
+			}
+			switch {
+			case contains(supportedTests, test):
+			default:
+				response.Reply(fmt.Sprintf("warning: You are using a custom test name, may not be supported for all platforms: %s", strings.Join(codeSlice(supportedTests), ", ")))
+			}
+
+			platform, params, err := parseOptions(request.StringParam("options", ""))
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+
+			params["test"] = test
+			if strings.Contains(params["test"], "-upgrade") {
+				response.Reply("Upgrade type tests require the 'test upgrade' command")
+				return
+			}
+
+			msg, err := manager.LaunchJobForUser(&JobRequest{
+				OriginalMessage: request.Event().Text,
+				User:            user,
+				Inputs:          [][]string{from},
+				Type:            JobTypeTest,
 				Channel:         channel,
 				Platform:        platform,
 				JobParams:       params,

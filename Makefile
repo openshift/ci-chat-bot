@@ -1,5 +1,5 @@
 build:
-	go build -o ci-chat-bot .
+	go build -mod vendor -o ci-chat-bot .
 .PHONY: build
 
 update-deps:
