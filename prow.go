@@ -658,6 +658,15 @@ func loadKubeconfig() (*rest.Config, string, bool, error) {
 	return clusterConfig, ns, isSet, nil
 }
 
+func loadKubeconfigFromFlagOrDefault(path string, def *rest.Config) (*rest.Config, error) {
+	if path == "" {
+		return def, nil
+	}
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}, &clientcmd.ConfigOverrides{},
+	).ClientConfig()
+}
+
 // loadKubeconfig loads connection configuration
 // for the cluster we're deploying to. We prefer to
 // use in-cluster configuration if possible, but will

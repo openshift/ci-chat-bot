@@ -22,10 +22,11 @@ import (
 const Version = "0.0.1"
 
 type options struct {
-	ProwConfigPath string
-	JobConfigPath  string
-	GithubEndpoint string
-	ForcePROwner   string
+	ProwConfigPath         string
+	JobConfigPath          string
+	GithubEndpoint         string
+	ForcePROwner           string
+	BuildClusterKubeconfig string
 }
 
 func main() {
@@ -44,6 +45,7 @@ func run() error {
 	pflag.StringVar(&opt.JobConfigPath, "job-config", opt.JobConfigPath, "A config file containing the jobs to run against releases.")
 	pflag.StringVar(&opt.GithubEndpoint, "github-endpoint", opt.GithubEndpoint, "An optional proxy for connecting to github.")
 	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
+	pflag.StringVar(&opt.BuildClusterKubeconfig, "build-cluster-kubeconfig", "", "Kubeconfig to use for buildcluster. Defaults to normal kubeconfig if unset.")
 	pflag.CommandLine.AddGoFlag(emptyFlags.Lookup("v"))
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
@@ -53,11 +55,15 @@ func run() error {
 		return fmt.Errorf("the environment variable BOT_TOKEN must be set")
 	}
 
-	config, _, _, err := loadKubeconfig()
+	prowJobKubeconfig, _, _, err := loadKubeconfig()
 	if err != nil {
 		return err
 	}
-	dynamicClient, err := dynamic.NewForConfig(config)
+	config, err := loadKubeconfigFromFlagOrDefault(opt.BuildClusterKubeconfig, prowJobKubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to load prowjob kubeconfig: %w", err)
+	}
+	dynamicClient, err := dynamic.NewForConfig(prowJobKubeconfig)
 	if err != nil {
 		return fmt.Errorf("unable to create prow client: %v", err)
 	}
