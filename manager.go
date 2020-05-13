@@ -630,7 +630,7 @@ func buildPullSpec(namespace, tagName string) string {
 	if strings.HasPrefix(tagName, "sha256:") {
 		delimiter = "@"
 	}
-	return fmt.Sprintf("registry.svc.ci.openshift.org/%q/release%s%s", namespace, delimiter, tagName)
+	return fmt.Sprintf("registry.svc.ci.openshift.org/%s/release%s%s", namespace, delimiter, tagName)
 }
 
 func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion string) (string, string, error) {
