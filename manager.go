@@ -1126,7 +1126,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	go m.handleJobStartup(*job, "start")
 
 	if job.Mode == "launch" {
-		return "", fmt.Errorf("a cluster is being created - I'll send you the credentials in about ~%d minutes", m.estimateCompletion(req.RequestedAt)/time.Minute)
+		return "", fmt.Errorf("a cluster is being created - I'll send you the credentials in about %d minutes", m.estimateCompletion(req.RequestedAt)/time.Minute)
 	}
 	return "", fmt.Errorf("job started, you will be notified on completion")
 }
