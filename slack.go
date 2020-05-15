@@ -322,6 +322,12 @@ func (b *Bot) Start(manager JobManager) error {
 		},
 	})
 
+	slack.Command("memo", &slacker.CommandDefinition{
+		Description: "No effect; use this to leave a reminder for yourself in the slack log",
+		Example: "memo trying to reproduce bz 12345",
+		Handler: func(request slacker.Request, response slacker.ResponseWriter) {},
+	})
+
 	slack.Command("version", &slacker.CommandDefinition{
 		Description: "Report the version of the bot",
 		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
