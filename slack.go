@@ -69,7 +69,7 @@ func (b *Bot) Start(manager JobManager) error {
 			}
 
 			msg, err := manager.LaunchJobForUser(&JobRequest{
-				OriginalMessage: request.Event().Text,
+				OriginalMessage: stripLinks(request.Event().Text),
 				User:            user,
 				Inputs:          inputs,
 				Type:            JobTypeInstall,
@@ -205,7 +205,7 @@ func (b *Bot) Start(manager JobManager) error {
 			}
 
 			msg, err := manager.LaunchJobForUser(&JobRequest{
-				OriginalMessage: request.Event().Text,
+				OriginalMessage: stripLinks(request.Event().Text),
 				User:            user,
 				Inputs:          [][]string{from, to},
 				Type:            JobTypeUpgrade,
@@ -307,7 +307,7 @@ func (b *Bot) Start(manager JobManager) error {
 			}
 
 			msg, err := manager.LaunchJobForUser(&JobRequest{
-				OriginalMessage: request.Event().Text,
+				OriginalMessage: stripLinks(request.Event().Text),
 				User:            user,
 				Inputs:          [][]string{from},
 				Type:            JobTypeBuild,
@@ -475,22 +475,41 @@ func parseImageInput(input string) ([]string, error) {
 	if len(input) == 0 {
 		return nil, nil
 	}
+	input = stripLinks(input)
 	parts := strings.Split(input, ",")
-	for i, part := range parts {
-		// strip slack formatting if applied
-		if strings.HasPrefix(part, "<") {
-			part = part[1:]
-			if index := strings.Index(part, "|"); index != -1 {
-				part = part[index+1:]
-			}
-			part = strings.TrimRight(part, ">")
-		}
+	for _, part := range parts {
 		if len(part) == 0 {
 			return nil, fmt.Errorf("image inputs must not contain empty items")
 		}
-		parts[i] = part
 	}
 	return parts, nil
+}
+
+func stripLinks(input string) string {
+	var b strings.Builder
+	for {
+		open := strings.Index(input, "<")
+		if open == -1 {
+			b.WriteString(input)
+			break
+		}
+		close := strings.Index(input[open:], ">")
+		if close == -1 {
+			b.WriteString(input)
+			break
+		}
+		pipe := strings.Index(input[open:], "|")
+		if pipe == -1 || pipe > close {
+			b.WriteString(input[0:open])
+			b.WriteString(input[open+1 : open+close])
+			input = input[open+close+1:]
+			continue
+		}
+		b.WriteString(input[0:open])
+		b.WriteString(input[open+pipe+1 : open+close])
+		input = input[open+close+1:]
+	}
+	return b.String()
 }
 
 func parseOptions(options string) (string, map[string]string, error) {

@@ -561,11 +561,11 @@ func (m *jobManager) ListJobs(users ...string) string {
 			var details string
 			switch {
 			case len(job.URL) > 0 && len(job.OriginalMessage) > 0:
-				details = fmt.Sprintf("<%s|%s>", job.URL, job.OriginalMessage)
+				details = fmt.Sprintf("<%s|%s>", job.URL, stripLinks(job.OriginalMessage))
 			case len(job.URL) > 0:
 				details = fmt.Sprintf("<%s|%s>", job.URL, job.JobName)
 			case len(job.OriginalMessage) > 0:
-				details = job.OriginalMessage
+				details = stripLinks(job.OriginalMessage)
 			default:
 				details = job.JobName
 			}
