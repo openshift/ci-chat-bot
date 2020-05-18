@@ -322,6 +322,13 @@ func (m *jobManager) newJob(job *Job) error {
 		}
 	}
 
+	// build jobs do not launch contents
+	if job.Mode == JobTypeBuild {
+		if err := replaceTargetArgument(pj.Spec.PodSpec, "launch", "[release:latest]"); err != nil {
+			return fmt.Errorf("unable to configure pod spec to alter launch target: %v", err)
+		}
+	}
+
 	data, _ := json.MarshalIndent(sourceConfig, "", "  ")
 	klog.V(2).Infof("Found target job config %s/%s:\n%s", srcNamespace, srcName, string(data))
 	prow.OverrideJobEnvVar(&pj.Spec, "CONFIG_SPEC", string(data))
@@ -390,20 +397,6 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	started := pj.Status.StartTime.Time
 
-	var targetPodName string
-	switch job.Mode {
-	case JobTypeBuild:
-	default:
-		targetPodName, err = findTargetName(pj.Spec.PodSpec)
-		if err != nil {
-			if klog.V(2) {
-				data, _ := json.MarshalIndent(pj.Spec.PodSpec, "", "  ")
-				klog.Infof("Could not find --target in:\n%s", string(data))
-			}
-			return err
-		}
-	}
-
 	if job.Mode != "launch" {
 		klog.Infof("Job %s will report results at %s (to %s / %s)", job.Name, job.URL, job.RequestedBy, job.RequestedChannel)
 
@@ -438,6 +431,20 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 		m.clearNotificationAnnotations(job, false, 0)
 		return nil
+	}
+
+	var targetPodName string
+	switch job.Mode {
+	case JobTypeBuild:
+	default:
+		targetPodName, err = findTargetName(pj.Spec.PodSpec)
+		if err != nil {
+			if klog.V(2) {
+				data, _ := json.MarshalIndent(pj.Spec.PodSpec, "", "  ")
+				klog.Infof("Could not find --target in:\n%s", string(data))
+			}
+			return err
+		}
 	}
 
 	seen := false
@@ -754,26 +761,6 @@ tests:
     from: src
 `
 
-const configFinal = `
-resources:
-  '*':
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 200Mi
-# set to an empty image stream so we don't import anything
-tag_specification:
-  cluster: https://api.ci.openshift.org
-  name: pipeline
-  namespace: $(NAMESPACE)
-tests:
-- as: none
-  commands: "true"
-  container:
-    from: src
-`
-
 const script = `set -euo pipefail
 
 trap 'jobs -p | xargs -r kill || true; exit 0' TERM
@@ -837,6 +824,30 @@ oc policy add-role-to-group system:image-puller -n $(NAMESPACE) system:authentic
 
 type JobSpec struct {
 	Refs *prowapiv1.Refs `json:"refs"`
+}
+
+func replaceTargetArgument(spec *corev1.PodSpec, from, to string) error {
+	if spec == nil {
+		return fmt.Errorf("prow job has no pod spec, cannot find target pod name")
+	}
+	for i, container := range spec.Containers {
+		if container.Name != "" {
+			continue
+		}
+		var updated []string
+		for _, arg := range container.Args {
+			if strings.HasPrefix(arg, "--target=") {
+				arg = strings.TrimPrefix(arg, "--target=")
+				if arg == from && len(to) > 0 {
+					updated = append(updated, fmt.Sprintf("--target=%s", to))
+				}
+				continue
+			}
+			updated = append(updated, arg)
+		}
+		spec.Containers[i].Args = updated
+	}
+	return nil
 }
 
 func findTargetName(spec *corev1.PodSpec) (string, error) {
