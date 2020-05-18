@@ -19,8 +19,6 @@ import (
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 )
 
-const Version = "0.0.1"
-
 type options struct {
 	ProwConfigPath         string
 	JobConfigPath          string

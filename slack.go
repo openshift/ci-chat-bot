@@ -10,6 +10,7 @@ import (
 	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 	"github.com/shomali11/slacker"
 	"github.com/slack-go/slack"
+	"k8s.io/client-go/pkg/version"
 	"k8s.io/klog"
 )
 
@@ -325,7 +326,7 @@ func (b *Bot) Start(manager JobManager) error {
 	slack.Command("version", &slacker.CommandDefinition{
 		Description: "Report the version of the bot",
 		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
-			response.Reply(fmt.Sprintf("Thanks for asking! I'm running `%s` ( https://github.com/openshift/ci-chat-bot )", Version))
+			response.Reply(fmt.Sprintf("Running `%s` from https://github.com/openshift/ci-chat-bot", version.Get().String()))
 		},
 	})
 
