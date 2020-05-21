@@ -7,6 +7,11 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
@@ -29,6 +34,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/client-go/transport"
 
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
@@ -55,6 +61,71 @@ var (
 	// reVersion detects whether a version appears to correlate to a major.minor release
 	reVersion = regexp.MustCompile(`^(\d+\.\d+)`)
 )
+
+// ConfigResolver finds a ci-operator config for the given tuple of organization, repository,
+// branch, and variant.
+type ConfigResolver interface {
+	Resolve(org, repo, branch, variant string) ([]byte, bool, error)
+}
+
+type URLConfigResolver struct {
+	URL *url.URL
+}
+
+func (r *URLConfigResolver) Resolve(org, repo, branch, variant string) ([]byte, bool, error) {
+	switch r.URL.Scheme {
+	case "http", "https":
+		u := *r.URL
+		v := make(url.Values)
+		v.Add("org", org)
+		v.Add("repo", repo)
+		v.Add("branch", branch)
+		if len(variant) > 0 {
+			v.Add("variant", variant)
+		}
+		u.RawQuery = v.Encode()
+		rt, err := transport.HTTPWrappersForConfig(&transport.Config{}, http.DefaultTransport)
+		if err != nil {
+			return nil, false, fmt.Errorf("url resolve failed: %v", err)
+		}
+		client := http.Client{Transport: rt}
+		resp, err := client.Get(u.String())
+		if err != nil {
+			return nil, false, fmt.Errorf("url resolve failed: %v", err)
+		}
+		defer resp.Body.Close()
+		switch resp.StatusCode {
+		case 200:
+			data, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				return nil, false, fmt.Errorf("url resolve failed to read body: %v", err)
+			}
+			return data, true, nil
+		case 404:
+			return nil, false, nil
+		default:
+			data, _ := ioutil.ReadAll(resp.Body)
+			return nil, false, fmt.Errorf("url resolve failed with status code %d: %s", resp.StatusCode, string(bytes.TrimSpace(data)))
+		}
+	case "file":
+		filename := fmt.Sprintf("%s-%s-%s", org, repo, branch)
+		if len(variant) > 0 {
+			filename = fmt.Sprintf("%s_%s", filename, variant)
+		}
+		path := filepath.Join(r.URL.Path, org, repo, filename+".yaml")
+		klog.V(2).Infof("Attempting to read config from %s", path)
+		data, err := ioutil.ReadFile(path)
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		if err != nil {
+			return nil, false, fmt.Errorf("file resolve failed: %v", err)
+		}
+		return data, true, nil
+	default:
+		return nil, false, fmt.Errorf("unrecognized URL config resolver scheme: %s", r.URL.Scheme)
+	}
+}
 
 // stopJob triggers namespace deletion, which will cause graceful shutdown of the
 // cluster. If this method returns nil, it is safe to consider the cluster released.
@@ -261,18 +332,22 @@ func (m *jobManager) newJob(job *Job) error {
 		index := 0
 		for i, input := range job.Inputs {
 			for _, ref := range input.Refs {
-				// find the ci-operator config for the repo of the PR
-				configMapSelector := ciOperatorConfigRefForRefs(&ref)
-				if configMapSelector == nil {
-					return fmt.Errorf("unable to identify a ci-operator configuration for the provided refs: %#v", ref)
-				}
-				targetConfig, targetNamespace, targetName, err := loadJobConfigSpec(m.coreClient, corev1.EnvVar{ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: configMapSelector}}, "ci")
+				configData, ok, err := m.configResolver.Resolve(ref.Org, ref.Repo, ref.BaseRef, "")
 				if err != nil {
-					return fmt.Errorf("unable to load ci-operator configuration for the provided refs: %v", err)
+					return fmt.Errorf("could not resolve config for %s/%s/%s: %v", ref.Org, ref.Repo, ref.BaseRef, err)
 				}
+				if !ok {
+					return fmt.Errorf("there is no defined configuration for the organization %s with repo %s and branch %s", ref.Org, ref.Repo, ref.BaseRef)
+				}
+
+				var cfg unstructured.Unstructured
+				if err := yaml.Unmarshal([]byte(configData), &cfg.Object); err != nil {
+					return fmt.Errorf("unable to parse ci-operator config definition from resolver: %v", err)
+				}
+				targetConfig := &cfg
 				if klog.V(2) {
 					data, _ := json.MarshalIndent(targetConfig, "", "  ")
-					klog.Infof("Found target job config %s/%s:\n%s", targetNamespace, targetName, string(data))
+					klog.Infof("Found target job config:\n%s", string(data))
 				}
 
 				// delete sections we don't need
