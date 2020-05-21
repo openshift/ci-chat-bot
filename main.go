@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"time"
 
@@ -25,6 +26,7 @@ type options struct {
 	GithubEndpoint         string
 	ForcePROwner           string
 	BuildClusterKubeconfig string
+	ConfigResolver         string
 }
 
 func main() {
@@ -38,7 +40,9 @@ func run() error {
 	klog.InitFlags(emptyFlags)
 	opt := &options{
 		GithubEndpoint: "https://api.github.com",
+		ConfigResolver: "http://ci-operator-configresolver.ci.svc/config",
 	}
+	pflag.StringVar(&opt.ConfigResolver, "config-resolver", opt.ConfigResolver, "A URL pointing to a config resolver for retrieving ci-operator config. You may pass a location on disk with file://<abs_path_to_ci_operator_config>")
 	pflag.StringVar(&opt.ProwConfigPath, "prow-config", opt.ProwConfigPath, "A config file containing the prow configuration.")
 	pflag.StringVar(&opt.JobConfigPath, "job-config", opt.JobConfigPath, "A config file containing the jobs to run against releases.")
 	pflag.StringVar(&opt.GithubEndpoint, "github-endpoint", opt.GithubEndpoint, "An optional proxy for connecting to github.")
@@ -47,6 +51,12 @@ func run() error {
 	pflag.CommandLine.AddGoFlag(emptyFlags.Lookup("v"))
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
+
+	resolverURL, err := url.Parse(opt.ConfigResolver)
+	if err != nil {
+		return fmt.Errorf("--config-resolver is not a valid URL: %v", err)
+	}
+	resolver := &URLConfigResolver{URL: resolverURL}
 
 	botToken := os.Getenv("BOT_TOKEN")
 	if len(botToken) == 0 {
@@ -84,7 +94,7 @@ func run() error {
 		return err
 	}
 
-	manager := NewJobManager(configAgent, prowClient, client, imageClient, projectClient, config, opt.GithubEndpoint, opt.ForcePROwner)
+	manager := NewJobManager(configAgent, resolver, prowClient, client, imageClient, projectClient, config, opt.GithubEndpoint, opt.ForcePROwner)
 	if err := manager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %v", err)
 	}

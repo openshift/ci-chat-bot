@@ -161,6 +161,8 @@ type jobManager struct {
 	githubURL        string
 	forcePROwner     string
 
+	configResolver ConfigResolver
+
 	muJob struct {
 		lock    sync.Mutex
 		running map[string]struct{}
@@ -173,7 +175,16 @@ type jobManager struct {
 // and reflect that state into ProwJobs that launch clusters. It attempts to recreate state on startup
 // by querying prow, but does not guarantee that some notifications to users may not be sent or may be
 // sent twice.
-func NewJobManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynamic.NamespaceableResourceInterface, coreClient clientset.Interface, imageClient imageclientset.Interface, projectClient projectclientset.Interface, config *rest.Config, githubURL, forcePROwner string) *jobManager {
+func NewJobManager(
+	prowConfigLoader prow.ProwConfigLoader,
+	configResolver ConfigResolver,
+	prowClient dynamic.NamespaceableResourceInterface,
+	coreClient clientset.Interface,
+	imageClient imageclientset.Interface,
+	projectClient projectclientset.Interface,
+	config *rest.Config,
+	githubURL, forcePROwner string,
+) *jobManager {
 	m := &jobManager{
 		requests:      make(map[string]*JobRequest),
 		jobs:          make(map[string]*Job),
@@ -190,6 +201,8 @@ func NewJobManager(prowConfigLoader prow.ProwConfigLoader, prowClient dynamic.Na
 		projectClient:    projectClient,
 		prowNamespace:    "ci",
 		forcePROwner:     forcePROwner,
+
+		configResolver: configResolver,
 	}
 	m.muJob.running = make(map[string]struct{})
 	return m
