@@ -647,7 +647,7 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 	}
 
 	for _, ns := range namespaces {
-		is, err := m.imageClient.ImageV1().ImageStreams("ocp").Get(context.TODO(), "release", metav1.GetOptions{})
+		is, err := m.imageClient.ImageV1().ImageStreams(ns).Get(context.TODO(), "release", metav1.GetOptions{})
 		if err != nil {
 			continue
 		}
