@@ -45,9 +45,6 @@ const (
 	maxTotalClusters = 36
 )
 
-// namespaces defines a list of namespaces where release imagestreamtags are looked up
-var namespaces = []string{"ocp", "origin"}
-
 // JobRequest keeps information about the request a user made to create
 // a job. This is reconstructable from a ProwJob.
 type JobRequest struct {
@@ -646,8 +643,8 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		return unresolved, "", nil
 	}
 
-	for _, ns := range namespaces {
-		is, err := m.imageClient.ImageV1().ImageStreams("ocp").Get(context.TODO(), "release", metav1.GetOptions{})
+	for _, ns := range []string{"ocp", "origin"} {
+		is, err := m.imageClient.ImageV1().ImageStreams(ns).Get(context.TODO(), "release", metav1.GetOptions{})
 		if err != nil {
 			continue
 		}
