@@ -241,7 +241,7 @@ func (b *Bot) Start(manager JobManager) error {
 			}
 
 			test := request.StringParam("name", "")
-			if len(from) == 0 {
+			if len(test) == 0 {
 				response.Reply(fmt.Sprintf("you must specify the name of a test: %s", strings.Join(codeSlice(supportedTests), ", ")))
 			}
 			switch {
