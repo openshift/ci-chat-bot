@@ -13,7 +13,7 @@ kubectl --kubeconfig=$tmp_kk config use-context api.ci
 
 kubectl config use-context app.ci
 cd $(dirname $0)/..
-make
+make build
 ./ci-chat-bot \
   --force-pr-owner=system:serviceaccount:ci:ci-chat-bot \
   --job-config ../release/ci-operator/jobs/openshift/release/ \
