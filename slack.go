@@ -162,7 +162,9 @@ func (b *Bot) Start(manager JobManager) error {
 	})
 
 	slack.Command("test upgrade <from> <to> <options>", &slacker.CommandDefinition{
-		Description: fmt.Sprintf("Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://openshift-release.svc.ci.openshift.org. You may change the upgrade test by passing `test=NAME` in options with one of %s", strings.Join(codeSlice(supportedUpgradeTests), ", ")),
+		Description: fmt.Sprintf(
+			"Run the upgrade tests between two release images or to a machine-os-content. The arguments may be a pull spec of a release image or tags from https://openshift-release.svc.ci.openshift.org. to may be a machine-os-content image in a reachable registry. You may change the upgrade test by passing `test=NAME` in options with one of %s",
+			strings.Join(codeSlice(supportedUpgradeTests), ", ")),
 		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
 			user := request.Event().User
 			channel := request.Event().Channel
