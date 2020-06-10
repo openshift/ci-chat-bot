@@ -313,7 +313,6 @@ func (m *jobManager) newJob(job *Job) error {
 		}
 
 		sourceConfig.Object["tag_specification"] = map[string]interface{}{
-			"cluster":   "https://api.ci.openshift.org",
 			"name":      "pipeline",
 			"namespace": "$(NAMESPACE)",
 		}
@@ -359,7 +358,6 @@ func (m *jobManager) newJob(job *Job) error {
 						"namespace": "$(NAMESPACE)",
 					}
 					targetConfig.Object["tag_specification"] = map[string]interface{}{
-						"cluster":   "https://api.ci.openshift.org",
 						"name":      "stable-initial",
 						"namespace": "$(NAMESPACE)",
 					}
@@ -369,7 +367,6 @@ func (m *jobManager) newJob(job *Job) error {
 						"namespace": "$(NAMESPACE)",
 					}
 					targetConfig.Object["tag_specification"] = map[string]interface{}{
-						"cluster":   "https://api.ci.openshift.org",
 						"name":      "stable",
 						"namespace": "$(NAMESPACE)",
 					}
@@ -826,7 +823,6 @@ resources:
       cpu: 100m
       memory: 200Mi
 tag_specification:
-  cluster: https://api.ci.openshift.org
   name: "$(BRANCH)"
   namespace: ocp
 tests:
