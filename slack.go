@@ -535,7 +535,7 @@ func parseOptions(options string) (string, map[string]string, error) {
 		}
 	}
 	if len(platform) == 0 {
-		platform = "aws"
+		platform = "gcp"
 	}
 	return platform, params, nil
 }
