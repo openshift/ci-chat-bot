@@ -50,7 +50,7 @@ var supportedUpgradeTests = []string{"e2e-upgrade", "e2e-upgrade-all", "e2e-upgr
 
 // supportedPlatforms requires a job within the release periodics that can launch a
 // cluster that has the label job-env: platform-name.
-var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal"}
+var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "ovirt", "openstack"}
 
 // supportedParameters are the allowed parameter keys that can be passed to jobs
 var supportedParameters = []string{"ovn", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv6", "preserve-bootstrap", "test"}
