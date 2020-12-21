@@ -176,7 +176,7 @@ func (m *jobManager) newJob(job *Job) error {
 	if job.IsComplete() && len(job.PasswordSnippet) > 0 {
 		return nil
 	}
-	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(job.Name))
+	namespace := namespaceForJob(job.Name)
 
 	launchDeadline := 45 * time.Minute
 
@@ -517,7 +517,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 	if job.IsComplete() && len(job.PasswordSnippet) > 0 {
 		return nil
 	}
-	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(job.Name))
+	namespace := namespaceForJob(job.Name)
 	stepBasedMode := job.TargetType == "steps"
 
 	klog.Infof("Job %q started a prow job that will create pods in namespace %s", job.Name, namespace)
@@ -965,6 +965,10 @@ func containerSuccessful(pod *corev1.Pod, containerName string) (bool, error) {
 		return false, fmt.Errorf("container %s did not succeed, see logs for details", containerName)
 	}
 	return false, nil
+}
+
+func namespaceForJob(jobName string) string {
+	return fmt.Sprintf("ci-ln-%s", namespaceSafeHash(jobName))
 }
 
 func containerTerminated(pod *corev1.Pod, containerName string) bool {

@@ -383,6 +383,12 @@ func (b *Bot) notifyJob(response slacker.ResponseWriter, job *Job) {
 			b.sendKubeconfig(response, job.RequestedChannel, job.Credentials, comment, job.RequestedAt.Format("2006-01-02-150405"))
 		}
 		return
+	case "build":
+		if len(job.URL) > 0 && job.State == prowapiv1.SuccessState {
+			releaseImage := buildPullSpec(job.BuildCluster, namespaceForJob(job.Name), "latest")
+			response.Reply(fmt.Sprintf("job <%s|%s> succeeded; release image is %s", job.URL, job.OriginalMessage, releaseImage))
+			return
+		}
 	}
 
 	if len(job.URL) > 0 {

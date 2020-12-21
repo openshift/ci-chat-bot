@@ -39,6 +39,9 @@ const (
 	// maxTotalClusters limits the number of simultaneous clusters across all users to
 	// prevent saturating the infrastructure account.
 	maxTotalClusters = 48
+
+	// centralCIRegistry is the authoritative registry where CI builds will be pulled from
+	centralCIRegistry = "registry.ci.openshift.org"
 )
 
 // JobRequest keeps information about the request a user made to create
@@ -649,12 +652,12 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 
 var reMajorMinorVersion = regexp.MustCompile(`^(\d)\.(\d)$`)
 
-func buildPullSpec(namespace, tagName string) string {
+func buildPullSpec(cluster, namespace, tagName string) string {
 	var delimiter = ":"
 	if strings.HasPrefix(tagName, "sha256:") {
 		delimiter = "@"
 	}
-	return fmt.Sprintf("registry.ci.openshift.org/%s/release%s%s", namespace, delimiter, tagName)
+	return fmt.Sprintf("%s/%s/release%s%s", cluster, namespace, delimiter, tagName)
 }
 
 func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion string) (string, string, error) {
@@ -679,15 +682,15 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		if m := reMajorMinorVersion.FindStringSubmatch(unresolved); m != nil {
 			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.nightly", unresolved)); tag != nil {
 				klog.Infof("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
-				return buildPullSpec(ns, tag.Name), tag.Name, nil
+				return buildPullSpec(centralCIRegistry, ns, tag.Name), tag.Name, nil
 			}
 			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.ci", unresolved)); tag != nil {
 				klog.Infof("Resolved major.minor %s to ci tag %s", imageOrVersion, tag.Name)
-				return buildPullSpec(ns, tag.Name), tag.Name, nil
+				return buildPullSpec(centralCIRegistry, ns, tag.Name), tag.Name, nil
 			}
 			if tag := findNewestStableImageSpecTagBySemanticMajor(is, unresolved); tag != nil {
 				klog.Infof("Resolved major.minor %s to semver tag %s", imageOrVersion, tag.Name)
-				return buildPullSpec(ns, tag.Name), tag.Name, nil
+				return buildPullSpec(centralCIRegistry, ns, tag.Name), tag.Name, nil
 			}
 			return "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
 		} else if unresolved == "nightly" {
@@ -700,12 +703,12 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 
 		if tag, name := findImageStatusTag(is, unresolved); tag != nil {
 			klog.Infof("Resolved %s to image %s", imageOrVersion, tag.Image)
-			return buildPullSpec(ns, tag.Image), name, nil
+			return buildPullSpec(centralCIRegistry, ns, tag.Image), name, nil
 		}
 
 		if tag := findNewestImageSpecTagWithStream(is, unresolved); tag != nil {
 			klog.Infof("Resolved %s to tag %s", imageOrVersion, tag.Name)
-			return buildPullSpec(ns, tag.Name), tag.Name, nil
+			return buildPullSpec(centralCIRegistry, ns, tag.Name), tag.Name, nil
 		}
 	}
 
