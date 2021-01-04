@@ -21,12 +21,13 @@ import (
 )
 
 type options struct {
-	ProwConfigPath         string
-	JobConfigPath          string
-	GithubEndpoint         string
-	ForcePROwner           string
-	BuildClusterKubeconfig string
-	ConfigResolver         string
+	ProwConfigPath           string
+	JobConfigPath            string
+	GithubEndpoint           string
+	ForcePROwner             string
+	BuildClusterKubeconfig   string
+	ReleaseClusterKubeconfig string
+	ConfigResolver           string
 }
 
 func main() {
@@ -48,6 +49,7 @@ func run() error {
 	pflag.StringVar(&opt.GithubEndpoint, "github-endpoint", opt.GithubEndpoint, "An optional proxy for connecting to github.")
 	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
 	pflag.StringVar(&opt.BuildClusterKubeconfig, "build-cluster-kubeconfig", "", "Kubeconfig to use for buildcluster. Defaults to normal kubeconfig if unset.")
+	pflag.StringVar(&opt.ReleaseClusterKubeconfig, "release-cluster-kubeconfig", "", "Kubeconfig to use for cluster housing the release imagestreams. Defaults to normal kubeconfig if unset.")
 	pflag.CommandLine.AddGoFlag(emptyFlags.Lookup("v"))
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
@@ -80,13 +82,15 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("unable to create client: %v", err)
 	}
-	imageClient, err := imageclientset.NewForConfig(config)
+	// Config and Client to access release images
+	releaseConfig, err := loadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, config)
+	imageClient, err := imageclientset.NewForConfig(releaseConfig)
 	if err != nil {
-		return fmt.Errorf("unable to create client: %v", err)
+		return fmt.Errorf("unable to create image client: %v", err)
 	}
 	projectClient, err := projectclientset.NewForConfig(config)
 	if err != nil {
-		return fmt.Errorf("unable to create client: %v", err)
+		return fmt.Errorf("unable to create project client: %v", err)
 	}
 
 	configAgent := &prowapiv1.Agent{}
