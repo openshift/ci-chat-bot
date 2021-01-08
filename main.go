@@ -83,7 +83,7 @@ func run() error {
 		return fmt.Errorf("unable to create client: %v", err)
 	}
 	// Config and Client to access release images
-	releaseConfig, err := loadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, config)
+	releaseConfig, err := loadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, prowJobKubeconfig)
 	imageClient, err := imageclientset.NewForConfig(releaseConfig)
 	if err != nil {
 		return fmt.Errorf("unable to create image client: %v", err)
