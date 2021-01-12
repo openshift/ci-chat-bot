@@ -548,7 +548,7 @@ func parseOptions(options string) (string, string, map[string]string, error) {
 		platform = "gcp"
 	}
 	if len(architecture) == 0 {
-		platform = "amd64"
+		architecture = "amd64"
 	}
 	return platform, architecture, params, nil
 }
