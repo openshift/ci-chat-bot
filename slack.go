@@ -58,7 +58,7 @@ func (b *Bot) Start(manager JobManager) error {
 				inputs = [][]string{from}
 			}
 
-			platform, params, err := parseOptions(request.StringParam("options", ""))
+			platform, architecture, params, err := parseOptions(request.StringParam("options", ""))
 			if err != nil {
 				response.Reply(err.Error())
 				return
@@ -76,6 +76,7 @@ func (b *Bot) Start(manager JobManager) error {
 				Channel:         channel,
 				Platform:        platform,
 				JobParams:       params,
+				Architecture: architecture,
 			})
 			if err != nil {
 				response.Reply(err.Error())
@@ -190,7 +191,7 @@ func (b *Bot) Start(manager JobManager) error {
 				to = from
 			}
 
-			platform, params, err := parseOptions(request.StringParam("options", ""))
+			platform, architecture, params, err := parseOptions(request.StringParam("options", ""))
 			if err != nil {
 				response.Reply(err.Error())
 				return
@@ -212,6 +213,7 @@ func (b *Bot) Start(manager JobManager) error {
 				Channel:         channel,
 				Platform:        platform,
 				JobParams:       params,
+				Architecture: architecture,
 			})
 			if err != nil {
 				response.Reply(err.Error())
@@ -251,7 +253,7 @@ func (b *Bot) Start(manager JobManager) error {
 				response.Reply(fmt.Sprintf("warning: You are using a custom test name, may not be supported for all platforms: %s", strings.Join(codeSlice(supportedTests), ", ")))
 			}
 
-			platform, params, err := parseOptions(request.StringParam("options", ""))
+			platform, architecture, params, err := parseOptions(request.StringParam("options", ""))
 			if err != nil {
 				response.Reply(err.Error())
 				return
@@ -271,6 +273,7 @@ func (b *Bot) Start(manager JobManager) error {
 				Channel:         channel,
 				Platform:        platform,
 				JobParams:       params,
+				Architecture: architecture,
 			})
 			if err != nil {
 				response.Reply(err.Error())
@@ -300,7 +303,7 @@ func (b *Bot) Start(manager JobManager) error {
 				return
 			}
 
-			platform, params, err := parseOptions(request.StringParam("options", ""))
+			platform, architecture, params, err := parseOptions(request.StringParam("options", ""))
 			if err != nil {
 				response.Reply(err.Error())
 				return
@@ -314,6 +317,7 @@ func (b *Bot) Start(manager JobManager) error {
 				Channel:         channel,
 				Platform:        platform,
 				JobParams:       params,
+				Architecture: architecture,
 			})
 			if err != nil {
 				response.Reply(err.Error())
@@ -512,30 +516,39 @@ func stripLinks(input string) string {
 	return b.String()
 }
 
-func parseOptions(options string) (string, map[string]string, error) {
+func parseOptions(options string) (string, string, map[string]string, error) {
 	params, err := paramsFromAnnotation(options)
 	if err != nil {
-		return "", nil, fmt.Errorf("options could not be parsed: %v", err)
+		return "", "", nil, fmt.Errorf("options could not be parsed: %v", err)
 	}
-	var platform string
+	var platform, architecture string
 	for opt := range params {
 		switch {
 		case contains(supportedPlatforms, opt):
 			if len(platform) > 0 {
-				return "", nil, fmt.Errorf("you may only specify one platform in options")
+				return "", "", nil, fmt.Errorf("you may only specify one platform in options")
 			}
 			platform = opt
+			delete(params, opt)
+		case contains(supportedArchitectures, opt):
+			if len(architecture) > 0 {
+				return "", "", nil, fmt.Errorf("you may only specify one architecture in options")
+			}
+			architecture = opt
 			delete(params, opt)
 		case opt == "":
 			delete(params, opt)
 		case contains(supportedParameters, opt):
 			// do nothing
 		default:
-			return "", nil, fmt.Errorf("unrecognized option: %s", opt)
+			return "", "", nil, fmt.Errorf("unrecognized option: %s", opt)
 		}
 	}
 	if len(platform) == 0 {
 		platform = "gcp"
 	}
-	return platform, params, nil
+	if len(architecture) == 0 {
+		platform = "amd64"
+	}
+	return platform, architecture, params, nil
 }

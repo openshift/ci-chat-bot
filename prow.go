@@ -55,6 +55,9 @@ var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal"}
 // supportedParameters are the allowed parameter keys that can be passed to jobs
 var supportedParameters = []string{"ovn", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv6", "preserve-bootstrap", "test", "rt", "single-node"}
 
+// supportedArchitectures are the allowed architectures that can be passed to jobs
+var supportedArchitectures = []string{"amd64"}
+
 var (
 	// reReleaseVersion detects whether a branch appears to correlate to a release branch
 	reReleaseVersion = regexp.MustCompile(`^(release|openshift)-(\d+\.\d+)`)
@@ -177,6 +180,8 @@ func (m *jobManager) newJob(job *Job) error {
 			"ci-chat-bot.openshift.io/jobInputs":       string(jobInputData),
 
 			"prow.k8s.io/job": pj.Spec.Job,
+
+			"release.openshift.io/architecture": job.Architecture,
 		},
 		Labels: map[string]string{
 			"ci-chat-bot.openshift.io/launch": "true",

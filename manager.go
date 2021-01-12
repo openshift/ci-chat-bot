@@ -69,6 +69,8 @@ type JobRequest struct {
 
 	JobName   string
 	JobParams map[string]string
+
+	Architecture string
 }
 
 type JobType string
@@ -134,6 +136,8 @@ type Job struct {
 	ExpiresAt     time.Time
 	StartDuration time.Duration
 	Complete      bool
+
+	Architecture string
 }
 
 func (j Job) IsComplete() bool {
@@ -294,7 +298,10 @@ func (m *jobManager) sync() error {
 			klog.Infof("No job inputs for %s", job.Name)
 			continue
 		}
-
+		architecture := job.Annotations["release.openshift.io/architecture"]
+		if len(architecture) == 0 {
+			architecture = "amd64"
+		}
 		j := &Job{
 			Name:             job.Name,
 			State:            job.Status.State,
@@ -307,6 +314,7 @@ func (m *jobManager) sync() error {
 			RequestedBy:      job.Annotations["ci-chat-bot.openshift.io/user"],
 			RequestedChannel: job.Annotations["ci-chat-bot.openshift.io/channel"],
 			RequestedAt:      job.CreationTimestamp.Time,
+			Architecture:     architecture,
 		}
 
 		var err error
@@ -390,6 +398,7 @@ func (m *jobManager) sync() error {
 							Inputs:      inputStrings,
 							RequestedAt: job.CreationTimestamp.Time,
 							Channel:     job.Annotations["ci-chat-bot.openshift.io/channel"],
+							Architecture: architecture,
 						}
 					}
 				}
@@ -981,6 +990,8 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		RequestedAt:      req.RequestedAt,
 
 		ExpiresAt: req.RequestedAt.Add(m.maxAge),
+
+		Architecture: req.Architecture,
 	}
 
 	// default install type jobs to "ci"
