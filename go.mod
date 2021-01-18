@@ -2,6 +2,12 @@ module github.com/openshift/ci-chat-bot
 
 go 1.13
 
+replace (
+	k8s.io/api => k8s.io/api v0.19.3
+	k8s.io/apimachinery => k8s.io/apimachinery v0.19.3
+	k8s.io/client-go => k8s.io/client-go v0.19.3
+)
+
 require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/docker/spdystream v0.0.0-20181023171402-6480d4af844c // indirect
@@ -17,10 +23,11 @@ require (
 	github.com/sirupsen/logrus v1.6.0
 	github.com/slack-go/slack v0.6.4
 	github.com/spf13/pflag v1.0.5
+	gopkg.in/fsnotify.v1 v1.4.7
 	k8s.io/api v0.20.2
 	k8s.io/apimachinery v0.20.2
 	k8s.io/client-go v11.0.1-0.20190805182717-6502b5e7b1b5+incompatible
 	k8s.io/klog v1.0.0
-	k8s.io/test-infra v0.0.0-20210118161344-12009a17a8c2 // indirect
+	k8s.io/test-infra v0.0.0-20210118161344-12009a17a8c2
 	sigs.k8s.io/yaml v1.2.0
 )
