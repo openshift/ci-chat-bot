@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"gopkg.in/fsnotify.v1"
-	"k8s.io/test-infra/prow/interrupts"
 	"log"
 	"net/url"
 	"os"
@@ -39,9 +38,6 @@ func main() {
 }
 
 func run() error {
-	// prow registers this on init
-	interrupts.OnInterrupt(func() { os.Exit(0) })
-
 	emptyFlags := flag.NewFlagSet("empty", flag.ContinueOnError)
 	klog.InitFlags(emptyFlags)
 	opt := &options{
@@ -126,7 +122,7 @@ func setupKubeconfigWatches(o *options) error {
 	if err != nil {
 		return fmt.Errorf("failed to set up watcher: %w", err)
 	}
-	for _, candidate := range []string{o.BuildClusterKubeconfig, o.ReleaseClusterKubeconfig, "/var/run/secrets/kubernetes.io/serviceaccount/token"} {
+	for _, candidate := range []string{o.BuildClusterKubeconfig, o.ReleaseClusterKubeconfig} {
 		if _, err := os.Stat(candidate); err != nil {
 			continue
 		}
@@ -142,7 +138,7 @@ func setupKubeconfigWatches(o *options) error {
 				continue
 			}
 			klog.Infof("event: %s, kubeconfig changed, exiting to make the kubelet restart us so we can pick them up", e.String())
-			interrupts.Terminate()
+			os.Exit(0)
 		}
 	}()
 
