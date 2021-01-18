@@ -6,10 +6,7 @@ require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/docker/spdystream v0.0.0-20181023171402-6480d4af844c // indirect
 	github.com/elazarl/goproxy v0.0.0-20200315184450-1f3cb6622dad // indirect
-	github.com/googleapis/gnostic v0.2.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
-	github.com/imdario/mergo v0.3.6 // indirect
-	github.com/konsorten/go-windows-terminal-sequences v1.0.2 // indirect
 	github.com/openshift/api v0.0.0-20200326160804-ecb9283fe820
 	github.com/openshift/client-go v0.0.0-20200326155132-2a6cd50aedd0
 	github.com/pkg/errors v0.9.1 // indirect
@@ -17,12 +14,13 @@ require (
 	github.com/sbstjn/hanu v0.1.0
 	github.com/shomali11/proper v0.0.0-20190608032528-6e70a05688e7 // indirect
 	github.com/shomali11/slacker v0.0.0-20200420173605-4887ab8127b6
-	github.com/sirupsen/logrus v1.4.1
+	github.com/sirupsen/logrus v1.6.0
 	github.com/slack-go/slack v0.6.4
 	github.com/spf13/pflag v1.0.5
-	k8s.io/api v0.18.0
-	k8s.io/apimachinery v0.18.0
-	k8s.io/client-go v0.18.0
+	k8s.io/api v0.20.2
+	k8s.io/apimachinery v0.20.2
+	k8s.io/client-go v11.0.1-0.20190805182717-6502b5e7b1b5+incompatible
 	k8s.io/klog v1.0.0
+	k8s.io/test-infra v0.0.0-20210118161344-12009a17a8c2 // indirect
 	sigs.k8s.io/yaml v1.2.0
 )
