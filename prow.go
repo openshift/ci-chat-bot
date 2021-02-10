@@ -237,7 +237,10 @@ func (m *jobManager) newJob(job *Job) error {
 	// find the ci-operator config for the job we will run
 	sourceEnv, _, ok := firstEnvVar(pj.Spec.PodSpec, "CONFIG_SPEC")
 	if !ok {
-		return fmt.Errorf("the CONFIG_SPEC for the launch job could not be found in the prow job %s", job.JobName)
+		sourceEnv, _, ok = firstEnvVar(pj.Spec.PodSpec, "UNRESOLVED_CONFIG")
+		if !ok {
+			return fmt.Errorf("UNRESOLVED_CONFIG or CONFIG_SPEC for the launch job could not be found in the prow job %s", job.JobName)
+		}
 	}
 	sourceConfig, srcNamespace, srcName, err := loadJobConfigSpec(m.coreClient, sourceEnv, "ci")
 	if err != nil {
@@ -408,7 +411,9 @@ func (m *jobManager) newJob(job *Job) error {
 
 	data, _ := json.MarshalIndent(sourceConfig, "", "  ")
 	klog.V(2).Infof("Found target job config %s/%s:\n%s", srcNamespace, srcName, string(data))
-	prow.OverrideJobEnvVar(&pj.Spec, "CONFIG_SPEC", string(data))
+	// Always use UNRESOLVED_CONFIG to support workflow-based runs
+	prow.OverrideJobEnvVar(&pj.Spec, "UNRESOLVED_CONFIG", string(data))
+	prow.OverrideJobEnvVar(&pj.Spec, "CONFIG_SPEC", "")
 
 	if klog.V(2) {
 		data, _ := json.MarshalIndent(pj, "", "  ")
@@ -851,7 +856,7 @@ if [[ -z "${RELEASE_IMAGE_LATEST-}" ]]; then
 fi
 
 # import the initial release, if any
-CONFIG_SPEC=$INITIAL ci-operator \
+UNRESOLVED_CONFIG=$INITIAL ci-operator \
   --artifact-dir=$(ARTIFACTS)/initial \
   --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
   --kubeconfig=/etc/apici/kubeconfig \
@@ -871,7 +876,7 @@ for var in "${!CONFIG_SPEC_@}"; do
   (
     set +e
     echo "Starting $suffix ..."
-    JOB_SPEC="${!jobvar}" CONFIG_SPEC="${!var}" ci-operator \
+    JOB_SPEC="${!jobvar}" UNRESOLVED_CONFIG="${!var}" ci-operator \
       --artifact-dir=$(ARTIFACTS)/$suffix \
       --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
       --kubeconfig=/etc/apici/kubeconfig \
