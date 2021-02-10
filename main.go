@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"gopkg.in/fsnotify.v1"
 	"log"
 	"net/url"
 	"os"
@@ -53,6 +54,10 @@ func run() error {
 	pflag.CommandLine.AddGoFlag(emptyFlags.Lookup("v"))
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
+
+	if err := setupKubeconfigWatches(opt); err != nil {
+		klog.Warningf("failed to set up kubeconfig watches: %v", err)
+	}
 
 	resolverURL, err := url.Parse(opt.ConfigResolver)
 	if err != nil {
@@ -110,4 +115,32 @@ func run() error {
 		}
 		time.Sleep(5 * time.Second)
 	}
+}
+
+func setupKubeconfigWatches(o *options) error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to set up watcher: %w", err)
+	}
+	for _, candidate := range []string{o.BuildClusterKubeconfig, o.ReleaseClusterKubeconfig} {
+		if _, err := os.Stat(candidate); err != nil {
+			continue
+		}
+		if err := watcher.Add(candidate); err != nil {
+			return fmt.Errorf("failed to watch %s: %w", candidate, err)
+		}
+	}
+
+	go func() {
+		for e := range watcher.Events {
+			if e.Op == fsnotify.Chmod {
+				// For some reason we get frequent chmod events from Openshift
+				continue
+			}
+			klog.Infof("event: %s, kubeconfig changed, exiting to make the kubelet restart us so we can pick them up", e.String())
+			os.Exit(0)
+		}
+	}()
+
+	return nil
 }
