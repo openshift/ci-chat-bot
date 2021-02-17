@@ -132,21 +132,39 @@ func (r *URLConfigResolver) Resolve(org, repo, branch, variant string) ([]byte, 
 
 // stopJob triggers graceful cluster teardown. If this method returns nil,
 // it is safe to consider the cluster released.
-func (m *jobManager) stopJob(name string) error {
-	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(name))
-	if _, err := m.coreClient.CoreV1().Secrets(namespace).Get(context.TODO(), "launch", metav1.GetOptions{}); err == nil {
-		// If launch secret exists, this is a step registry based test implementation (vs template based).
+func (m *jobManager) stopJob(job *Job) error {
+	// TODO: Replace all this logic with a simple deletion of the associated prowjob in the ci namespace
+	// once https://bugzilla.redhat.com/show_bug.cgi?id=1937523 is fixed on the build farms.
+	// For step-based jobs, until this bug is fixed, deleting the prowjob will SIGKILL (instead of SIGINT) the running
+	// test container. This prevents it from sharing key data with the post steps.
+	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(job.Name))
 
-		//We need to terminate the workload and let post steps complete gracefully for successful cleanup. The "wait" step in the
-		// launch step must be terminated.
-		workloadPodName := "launch-wait"
-		_, err := commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace,  workloadPodName, "test", []string{"pkill", "-9", "-P", "1"})
-		if err != nil && !errors.IsNotFound(err) {
-			klog.Infof("Job %s result of workload termination attempt in %s/%s: %v", name, namespace, workloadPodName, err)
+	if job.TargetType == "steps" {
+		// We need to terminate the workload and let post steps complete gracefully for successful cleanup.
+		pods, err := m.coreClient.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to stop installation process: %v", err)
 		}
+		for _, pod := range pods.Items {
+			if strings.Contains(pod.Name, "delete") { // Don't interrupt clean-up that is already in progress
+				// Heuristic based until https://bugzilla.redhat.com/show_bug.cgi?id=1937523 is fixed.
+				continue
+			}
+			for _, c := range pod.Status.ContainerStatuses {
+				if c.Name == "test" && c.State.Running != nil {
+					_, err := commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace, pod.ObjectMeta.Name, "test", []string{"pkill", "-9", "-P", "1"})
+					if err != nil {
+						klog.Infof("error: Job %q unable to SIGKILL %s pod/%s test container to terminate installation", job.Name, namespace, pod.ObjectMeta.Name)
+					} else {
+						klog.Infof("Job %q SIGKILLed %s pod/%s to terminate test container installation", job.Name, namespace, pod.ObjectMeta.Name)
+					}
+					break
+				}
+			}
+		}
+		return nil
 	} else {
-		// If launch secret does not exist, then assume this is a template based deployment. Deleting the
-		// project will trigger the teardown container.
+		// Template based target. Deleting the project will trigger the teardown container.
 		if err := m.projectClient.ProjectV1().Projects().Delete(context.TODO(), namespace, metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
 			return err
 		}
@@ -273,39 +291,40 @@ func (m *jobManager) newJob(job *Job) error {
 		return fmt.Errorf("the launch job definition could not be loaded: %v", err)
 	}
 
-	// for a test job, find a matching test definition in the launch template - the template
-	// must use "launch" as the target and have the correct mappings, then we will select the
-	// appropriate sub test
+	// Which target in the ci-operator config are we going to run?
+	targetName := "launch"
 	if testName, ok := job.JobParams["test"]; ok {
-		var matchedTest map[string]interface{}
-		if tests, ok := sourceConfig.Object["tests"].([]interface{}); ok {
-			for _, testObj := range tests {
-				if test, ok := testObj.(map[string]interface{}); ok {
-					name, _, _ := unstructured.NestedString(test, "as")
-					if name == testName {
-						matchedTest = test
-						break
-					}
+		targetName = testName
+	}
+
+	var matchedTarget map[string]interface{}
+	if tests, ok := sourceConfig.Object["tests"].([]interface{}); ok {
+		for _, testObj := range tests {
+			if test, ok := testObj.(map[string]interface{}); ok {
+				name, _, _ := unstructured.NestedString(test, "as")
+				if name == targetName {
+					matchedTarget = test
+					break
 				}
 			}
 		}
-		if matchedTest == nil {
-			return fmt.Errorf("no test definition matched the expected name %q", testName)
-		}
+	}
+	if matchedTarget == nil {
+		return fmt.Errorf("no test definition matched the expected name %q", targetName)
+	}
+	commands, _, _ := unstructured.NestedString(matchedTarget, "commands")
+	stepBasedTarget := len(commands) == 0 // if commands are specified, this is a template based target
 
-		commands, _, _ := unstructured.NestedString(matchedTest, "commands")
-		if len(commands) == 0 {
-			return fmt.Errorf("cannot run job because bot does not support step registry yet")
-		}
-
-		// TODO: this should not be necessary once we move to step registry, because the definition
-		// would be internal
+	if !stepBasedTarget {
+		// TODO: Remove once all launch jobs are step based
 		prow.SetJobEnvVar(&pj.Spec, "TEST_COMMAND", commands)
+	}
 
-		// jobs are expected to have name as "launch", set the one we matched to that name and
-		// then remove other tests
-		matchedTest["as"] = "launch"
-		sourceConfig.Object["tests"] = []interface{}{matchedTest}
+	if targetName != "launch" {
+		// launch jobs always target 'launch'. If we have selected a different target, rename
+		// it in the configuration so that it will be run.
+		matchedTarget["as"] = "launch"
+		sourceConfig.Object["tests"] = []interface{}{matchedTarget}
 	}
 
 	var hasRefs bool
@@ -438,6 +457,13 @@ func (m *jobManager) newJob(job *Job) error {
 		}
 	}
 
+	if stepBasedTarget {
+		job.TargetType = "steps"
+	} else {
+		job.TargetType = "template"
+	}
+	pj.Annotations["ci-chat-bot.openshift.io/targetType"] = job.TargetType
+
 	// build jobs do not launch contents
 	if job.Mode == JobTypeBuild {
 		if err := replaceTargetArgument(pj.Spec.PodSpec, "launch", "[release:latest]"); err != nil {
@@ -468,6 +494,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 		return nil
 	}
 	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(job.Name))
+	stepBasedMode := job.TargetType == "steps"
 
 	klog.Infof("Job %q started a prow job that will create pods in namespace %s", job.Name, namespace)
 	var pj *prowapiv1.ProwJob
@@ -551,12 +578,11 @@ func (m *jobManager) waitForJob(job *Job) error {
 		return nil
 	}
 
-	var stepBasedMode bool
 	var targetName string
 	switch job.Mode {
 	case JobTypeBuild:
 	default:
-		targetName, stepBasedMode, err = findTarget(pj.Spec.PodSpec)
+		targetName, err = findTargetName(pj.Spec.PodSpec)
 		if err != nil {
 			if klog.V(2) {
 				data, _ := json.MarshalIndent(pj.Spec.PodSpec, "", "  ")
@@ -594,38 +620,16 @@ func (m *jobManager) waitForJob(job *Job) error {
 		return fmt.Errorf("unable to check launch status: %v", err)
 	}
 
-	if stepBasedMode {
-		klog.Infof("Job %q waiting for step secret %s/%s to be populated", job.Name, namespace, targetName)
-	} else {
-		klog.Infof("Job %q waiting for setup container in pod %s/%s to complete", job.Name, namespace, targetName)
-	}
+	klog.Infof("Job %q waiting for setup container in pod %s to complete", job.Name, namespace)
 
 	seen = false
 	var lastErr error
 	err = wait.PollImmediate(15*time.Second, 60*time.Minute, func() (bool, error) {
+		if m.jobIsComplete(job) {
+			return false, errJobCompleted
+		}
+
 		if stepBasedMode {
-			if m.jobIsComplete(job) {
-				// The goal here is to interrupt the installation pod or any other step involved in
-				// setting up the environment. Find any pod with a test step and send it a signal.
-				pods, err := m.coreClient.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
-				if err != nil {
-					return false, fmt.Errorf("unable to stop installation process: %v", err)
-				}
-				for _, pod := range pods.Items {
-					for _, c := range pod.Status.ContainerStatuses {
-						if c.Name == "test" && c.State.Running != nil {
-							_, err := commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace,  pod.ObjectMeta.Name, "test", []string{"pkill", "-9", "-P", "1"})
-							if err != nil {
-								klog.Infof("error: Job %q unable to SIGKILL %s pod/%s test container to terminate installation", job.Name, namespace, pod.ObjectMeta.Name)
-							} else {
-								klog.Infof("Job %q SIGKILLed %s pod/%s to terminate test container installation", job.Name, namespace, pod.ObjectMeta.Name)
-							}
-							break
-						}
-					}
-				}
-				return false, errJobCompleted
-			}
 			prowJobPod, err := m.coreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
 			if err != nil {
 				return false, err
@@ -646,9 +650,6 @@ func (m *jobManager) waitForJob(job *Job) error {
 			return false, nil
 		} else {
 			// Execute in template based mode where actual installation pod is monitored.
-			if m.jobIsComplete(job) {
-				return false, errJobCompleted
-			}
 			pod, err := m.coreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 			if err != nil {
 				// pod could not be created or we may not have permission yet
@@ -775,7 +776,6 @@ func (m *jobManager) waitForJob(job *Job) error {
 	} else {
 		job.PasswordSnippet = fmt.Sprintf("\nError: Unable to retrieve kubeadmin password, you must use the kubeconfig file to access the cluster")
 	}
-
 
 	created := len(pj.Annotations["ci-chat-bot.openshift.io/expires"]) == 0
 	startDuration := time.Now().Sub(started)
@@ -1052,14 +1052,11 @@ func replaceTargetArgument(spec *corev1.PodSpec, from, to string) error {
 	return nil
 }
 
-// Returns the name of the --target in the ci-operator config as well as whether this
-// is a step based job.
-func findTarget(spec *corev1.PodSpec) (string, bool, error) {
+// Returns the name of the --target in the ci-operator invocation.
+func findTargetName(spec *corev1.PodSpec) (string, error) {
 	if spec == nil {
-		return "", false, fmt.Errorf("prow job has no pod spec, cannot find target pod name")
+		return "", fmt.Errorf("prow job has no pod spec, cannot find target pod name")
 	}
-	isStepBased := true
-	var targetName string
 	for _, container := range spec.Containers {
 		if container.Name != "" {
 			continue
@@ -1070,23 +1067,14 @@ func findTarget(spec *corev1.PodSpec) (string, bool, error) {
 				if len(value) > 0 {
 					value := (&resolvedEnvironment{env: container.Env}).Resolve(value)
 					if len(value) == 0 {
-						return "", false, fmt.Errorf("bug in resolving %s", value)
+						return "", fmt.Errorf("bug in resolving %s", value)
 					}
-					targetName = value
+					return value, nil
 				}
-			}
-			if strings.HasPrefix(arg, "--template") {
-				isStepBased = false
 			}
 		}
 	}
-
-	if len(targetName) > 0 {
-		return targetName, isStepBased, nil
-	} else {
-		return "", false, fmt.Errorf("could not find argument --target=X in prow job pod spec to identify target pod name")
-	}
-
+	return "", fmt.Errorf("could not find argument --target=X in prow job pod spec to identify target pod name")
 }
 
 func ciOperatorConfigRefForRefs(refs *prowapiv1.Refs) *corev1.ConfigMapKeySelector {

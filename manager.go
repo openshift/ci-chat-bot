@@ -121,7 +121,8 @@ type Job struct {
 	Platform  string
 	JobParams map[string]string
 
-	Mode string
+	TargetType string
+	Mode       string
 
 	Inputs []JobInput
 
@@ -318,6 +319,14 @@ func (m *jobManager) sync() error {
 			RequestedChannel: job.Annotations["ci-chat-bot.openshift.io/channel"],
 			RequestedAt:      job.CreationTimestamp.Time,
 			Architecture:     architecture,
+		}
+
+		// This is a new annotation and there may be a brief window where not all
+		// prowjobs possess the annotation.
+		if targetType, ok := job.Annotations["ci-chat-bot.openshift.io/targetType"]; ok {
+			j.TargetType = targetType
+		} else {
+			j.TargetType = "template"
 		}
 
 		var err error
@@ -1188,24 +1197,26 @@ func (m *jobManager) TerminateJobForUser(user string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
 	klog.Infof("user %q requests job %q to be terminated", user, name)
-	if err := m.stopJob(name); err != nil {
-		klog.Errorf("unable to terminate running cluster %s: %v", name, err)
+	if job, ok := m.jobs[name]; ok {
+		if err := m.stopJob(job); err != nil {
+			klog.Errorf("unable to terminate running cluster %s: %v", name, err)
+		}
+		job.Failure = "deletion requested"
+		job.ExpiresAt = time.Now().Add(15 * time.Minute)
+		job.Complete = true
 	}
 
 	// mark the cluster as failed, clear the request, and allow the user to launch again
-	m.lock.Lock()
-	defer m.lock.Unlock()
 	existing, ok := m.requests[user]
 	if !ok || existing.Name != name {
 		return "", fmt.Errorf("another cluster was launched while trying to stop this cluster")
 	}
 	delete(m.requests, user)
-	if job, ok := m.jobs[name]; ok {
-		job.Failure = "deletion requested"
-		job.ExpiresAt = time.Now().Add(15 * time.Minute)
-		job.Complete = true
-	}
 	return "the cluster was flagged for shutdown, you may now launch another", nil
 }
 
