@@ -651,6 +651,9 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	password, err := commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace, targetPodName, "test", []string{"cat", "/tmp/artifacts/installer/auth/kubeadmin-password"})
 	if err != nil {
+		password, err = commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace, targetPodName, "test", []string{"cat", "/tmp/shared/installer/auth/kubeadmin-password"})
+	}
+	if err != nil {
 		klog.Infof("error: Job %q unable to get kubeadmin password: %v", job.Name, err)
 		job.PasswordSnippet = fmt.Sprintf("\nError: Unable to retrieve kubeadmin password, you must use the kubeconfig file to access the cluster: %v", err)
 	} else {
