@@ -363,7 +363,7 @@ func (m *jobManager) sync() error {
 			j.State = prowapiv1.PendingState
 			j.Failure = ""
 
-			if j.Mode == "launch" {
+			if j.Mode == "launch" && (previous != nil && !previous.Complete) {
 				if user := j.RequestedBy; len(user) > 0 {
 					if _, ok := m.requests[user]; !ok {
 						var inputStrings [][]string
