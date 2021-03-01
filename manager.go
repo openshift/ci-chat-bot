@@ -390,14 +390,14 @@ func (m *jobManager) sync() error {
 						m.requests[user] = &JobRequest{
 							OriginalMessage: job.Annotations["ci-chat-bot.openshift.io/originalMessage"],
 
-							User:        user,
-							Name:        job.Name,
-							JobName:     job.Spec.Job,
-							Platform:    job.Annotations["ci-chat-bot.openshift.io/platform"],
-							JobParams:   params,
-							Inputs:      inputStrings,
-							RequestedAt: job.CreationTimestamp.Time,
-							Channel:     job.Annotations["ci-chat-bot.openshift.io/channel"],
+							User:         user,
+							Name:         job.Name,
+							JobName:      job.Spec.Job,
+							Platform:     job.Annotations["ci-chat-bot.openshift.io/platform"],
+							JobParams:    params,
+							Inputs:       inputStrings,
+							RequestedAt:  job.CreationTimestamp.Time,
+							Channel:      job.Annotations["ci-chat-bot.openshift.io/channel"],
 							Architecture: architecture,
 						}
 					}
@@ -686,11 +686,11 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 			}
 			return "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
 		} else if unresolved == "nightly" {
-			unresolved = "4.7.0-0.nightly"
+			unresolved = "4.8.0-0.nightly"
 		} else if unresolved == "ci" {
-			unresolved = "4.7.0-0.ci"
+			unresolved = "4.8.0-0.ci"
 		} else if unresolved == "prerelease" {
-			unresolved = "4.7.0-0.ci"
+			unresolved = "4.8.0-0.ci"
 		}
 
 		if tag, name := findImageStatusTag(is, unresolved); tag != nil {
