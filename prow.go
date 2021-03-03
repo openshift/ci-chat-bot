@@ -859,7 +859,6 @@ fi
 UNRESOLVED_CONFIG=$INITIAL ci-operator \
   --artifact-dir=$(ARTIFACTS)/initial \
   --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
-  --kubeconfig=/etc/apici/kubeconfig \
   --namespace=$(NAMESPACE) \
   --delete-when-idle=$(PRESERVE_DURATION) \
   --target=[release-inputs]
@@ -879,7 +878,6 @@ for var in "${!CONFIG_SPEC_@}"; do
     JOB_SPEC="${!jobvar}" UNRESOLVED_CONFIG="${!var}" ci-operator \
       --artifact-dir=$(ARTIFACTS)/$suffix \
       --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
-      --kubeconfig=/etc/apici/kubeconfig \
       --namespace=$(NAMESPACE)-${suffix} \
       --target=[images] -promote >"$(ARTIFACTS)/$suffix/build.log" 2>&1
     code=$?
