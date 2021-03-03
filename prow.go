@@ -50,10 +50,10 @@ var supportedUpgradeTests = []string{"e2e-upgrade", "e2e-upgrade-all", "e2e-upgr
 
 // supportedPlatforms requires a job within the release periodics that can launch a
 // cluster that has the label job-env: platform-name.
-var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal"}
+var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "osd"}
 
 // supportedParameters are the allowed parameter keys that can be passed to jobs
-var supportedParameters = []string{"ovn", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv6", "preserve-bootstrap", "test", "rt", "single-node"}
+var supportedParameters = []string{"ovn", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv6", "preserve-bootstrap", "test", "rt", "single-node", "osd-aws"}
 
 // supportedArchitectures are the allowed architectures that can be passed to jobs
 var supportedArchitectures = []string{"amd64"}
@@ -235,6 +235,13 @@ func (m *jobManager) newJob(job *Job) error {
 	for _, input := range job.Inputs {
 		if len(input.Version) == 0 {
 			continue
+		}
+		// OSD needs to resolve the pullspec itself from cluster version, so include it
+		// in the env vars.
+		// TODO: this needs to be reconciled with a longer term strategy
+		prow.SetJobEnvVar(&pj.Spec, "OSD_CLUSTER_VERSION_INITIAL", input.Version)
+		if m := reVersion.FindStringSubmatch(input.Version); m != nil {
+			targetRelease = m[1]
 		}
 	}
 
