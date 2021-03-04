@@ -132,44 +132,37 @@ func (r *URLConfigResolver) Resolve(org, repo, branch, variant string) ([]byte, 
 
 // stopJob triggers graceful cluster teardown. If this method returns nil,
 // it is safe to consider the cluster released.
-func (m *jobManager) stopJob(job *Job) error {
-	// TODO: Replace all this logic with a simple deletion of the associated prowjob in the ci namespace
-	// once https://bugzilla.redhat.com/show_bug.cgi?id=1937523 is fixed on the build farms.
-	// For step-based jobs, until this bug is fixed, deleting the prowjob will SIGKILL (instead of SIGINT) the running
-	// test container. This prevents it from sharing key data with the post steps.
-	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(job.Name))
-
-	if job.TargetType == "steps" {
-		// We need to terminate the workload and let post steps complete gracefully for successful cleanup.
-		pods, err := m.coreClient.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
-		if err != nil {
-			return fmt.Errorf("unable to stop installation process: %v", err)
+func (m *jobManager) stopJob(name string) error {
+	uns, err := m.prowClient.Namespace(m.prowNamespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// There may have been an issue creating the prowjob; treat as success
+			return nil
 		}
-		for _, pod := range pods.Items {
-			if strings.Contains(pod.Name, "delete") { // Don't interrupt clean-up that is already in progress
-				// Heuristic based until https://bugzilla.redhat.com/show_bug.cgi?id=1937523 is fixed.
-				continue
-			}
-			for _, c := range pod.Status.ContainerStatuses {
-				if c.Name == "test" && c.State.Running != nil {
-					_, err := commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace, pod.ObjectMeta.Name, "test", []string{"pkill", "-9", "-P", "1"})
-					if err != nil {
-						klog.Infof("error: Job %q unable to SIGKILL %s pod/%s test container to terminate installation", job.Name, namespace, pod.ObjectMeta.Name)
-					} else {
-						klog.Infof("Job %q SIGKILLed %s pod/%s to terminate test container installation", job.Name, namespace, pod.ObjectMeta.Name)
-					}
-					break
-				}
-			}
-		}
-		return nil
-	} else {
-		// Template based target. Deleting the project will trigger the teardown container.
-		if err := m.projectClient.ProjectV1().Projects().Delete(context.TODO(), namespace, metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
-			return err
-		}
+		return err
 	}
-	return nil
+	var pj prowapiv1.ProwJob
+	if err := prow.UnstructuredToObject(uns, &pj); err != nil {
+		return err
+	}
+
+	_, err = m.coreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			if pj.Status.State == prowapiv1.TriggeredState {
+				return fmt.Errorf("original request is still initializing -- please try again in a few minutes")
+			}
+			// Since prowjob State != Triggered, pod creation should have been attempted.
+			// If it is not here, there's nothing to stop
+			return nil
+		}
+		return err
+	}
+
+	// Deleting the prowjob pod will gracefully terminate template or step based jobs. In the case of
+	// steps, this includes running post steps.
+	klog.Infof("ProwJob pod for job %q will be deleted", name)
+	return m.coreClient.CoreV1().Pods(m.prowNamespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
 }
 
 // newJob creates a ProwJob for running the provided job and exits.

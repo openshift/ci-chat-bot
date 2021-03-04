@@ -1198,14 +1198,15 @@ func (m *jobManager) TerminateJobForUser(user string) (string, error) {
 		return "", err
 	}
 
+	if err := m.stopJob(name); err != nil {
+		return "", fmt.Errorf("unable to terminate: %v", err)
+	}
+
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
 	klog.Infof("user %q requests job %q to be terminated", user, name)
 	if job, ok := m.jobs[name]; ok {
-		if err := m.stopJob(job); err != nil {
-			klog.Errorf("unable to terminate running cluster %s: %v", name, err)
-		}
 		job.Failure = "deletion requested"
 		job.ExpiresAt = time.Now().Add(15 * time.Minute)
 		job.Complete = true
