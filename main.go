@@ -42,7 +42,7 @@ func run() error {
 	klog.InitFlags(emptyFlags)
 	opt := &options{
 		GithubEndpoint: "https://api.github.com",
-		ConfigResolver: "http://ci-operator-configresolver.ci.svc/config",
+		ConfigResolver: "http://config.ci.openshift.org/config",
 	}
 	pflag.StringVar(&opt.ConfigResolver, "config-resolver", opt.ConfigResolver, "A URL pointing to a config resolver for retrieving ci-operator config. You may pass a location on disk with file://<abs_path_to_ci_operator_config>")
 	pflag.StringVar(&opt.ProwConfigPath, "prow-config", opt.ProwConfigPath, "A config file containing the prow configuration.")

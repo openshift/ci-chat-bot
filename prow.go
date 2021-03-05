@@ -856,8 +856,7 @@ if [[ -z "${RELEASE_IMAGE_LATEST-}" ]]; then
 fi
 
 # import the initial release, if any
-UNRESOLVED_CONFIG=$INITIAL ci-operator \
-  --artifact-dir=$(ARTIFACTS)/initial \
+UNRESOLVED_CONFIG=$INITIAL ARTIFACTS=$(ARTIFACTS)/initial ci-operator \
   --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
   --namespace=$(NAMESPACE) \
   --delete-when-idle=$(PRESERVE_DURATION) \
@@ -875,8 +874,7 @@ for var in "${!CONFIG_SPEC_@}"; do
   (
     set +e
     echo "Starting $suffix ..."
-    JOB_SPEC="${!jobvar}" UNRESOLVED_CONFIG="${!var}" ci-operator \
-      --artifact-dir=$(ARTIFACTS)/$suffix \
+    JOB_SPEC="${!jobvar}" ARTIFACTS=$(ARTIFACTS)/$suffix UNRESOLVED_CONFIG="${!var}" ci-operator \
       --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
       --namespace=$(NAMESPACE)-${suffix} \
       --target=[images] -promote >"$(ARTIFACTS)/$suffix/build.log" 2>&1
