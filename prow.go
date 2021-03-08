@@ -227,10 +227,22 @@ func (m *jobManager) newJob(job *Job) error {
 		}
 	}
 
-	image := job.Inputs[len(job.Inputs)-1].Image
+	// Identify the images to be placed in RELEASE_IMAGE_INITIAL and RELEASE_IMAGE_LATEST,
+	// depending on whether this is an upgrade job or not. Create env var definitions for
+	// use with the final step job (if we build, we unset both variables before the images
+	// are built and need to restore them for the last step).
+	var restoreImageVariableScript []string
+	lastJobInput := len(job.Inputs)-1
+	image := job.Inputs[lastJobInput].Image
 	var initialImage string
 	if len(job.Inputs) > 1 {
 		initialImage = job.Inputs[0].Image
+		if len(job.Inputs[0].Refs) == 0 && len(initialImage) > 0 {
+			restoreImageVariableScript = append(restoreImageVariableScript, fmt.Sprintf("RELEASE_IMAGE_INITIAL=%s", initialImage))
+		}
+		if len(job.Inputs[lastJobInput].Refs) == 0 && len(image) > 0 {
+			restoreImageVariableScript = append(restoreImageVariableScript, fmt.Sprintf("RELEASE_IMAGE_LATEST=%s", image))
+		}
 	}
 	prow.OverrideJobEnvironment(&pj.Spec, image, initialImage, targetRelease, namespace, variants)
 
@@ -286,7 +298,6 @@ func (m *jobManager) newJob(job *Job) error {
 	for _, input := range job.Inputs {
 		if len(input.Refs) > 0 {
 			hasRefs = true
-			break
 		}
 	}
 	if hasRefs {
@@ -307,11 +318,12 @@ func (m *jobManager) newJob(job *Job) error {
 			}
 			args = append(args, fmt.Sprintf(`--namespace=$(NAMESPACE)`))
 
+			envPrefix := strings.Join(restoreImageVariableScript, " ")
 			container.Command = []string{"/bin/bash", "-c"}
 			if job.Mode == "build" {
-				container.Command = append(container.Command, fmt.Sprintf("%s\n\n%s\nci-operator $@", script, permissionsScript), "")
+				container.Command = append(container.Command, fmt.Sprintf("%s\n\n%s\n%s ci-operator $@", script, permissionsScript, envPrefix), "")
 			} else {
-				container.Command = append(container.Command, fmt.Sprintf("%s\n\nci-operator $@", script), "")
+				container.Command = append(container.Command, fmt.Sprintf("%s\n\n%s ci-operator $@", script, envPrefix), "")
 			}
 			container.Args = args
 
