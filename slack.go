@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 	"github.com/shomali11/slacker"
 	"github.com/slack-go/slack"
 	"k8s.io/client-go/pkg/version"
 	"k8s.io/klog"
+	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 )
 
 type Bot struct {
@@ -76,7 +76,7 @@ func (b *Bot) Start(manager JobManager) error {
 				Channel:         channel,
 				Platform:        platform,
 				JobParams:       params,
-				Architecture: architecture,
+				Architecture:    architecture,
 			})
 			if err != nil {
 				response.Reply(err.Error())
@@ -213,7 +213,7 @@ func (b *Bot) Start(manager JobManager) error {
 				Channel:         channel,
 				Platform:        platform,
 				JobParams:       params,
-				Architecture: architecture,
+				Architecture:    architecture,
 			})
 			if err != nil {
 				response.Reply(err.Error())
@@ -273,7 +273,7 @@ func (b *Bot) Start(manager JobManager) error {
 				Channel:         channel,
 				Platform:        platform,
 				JobParams:       params,
-				Architecture: architecture,
+				Architecture:    architecture,
 			})
 			if err != nil {
 				response.Reply(err.Error())
@@ -317,7 +317,7 @@ func (b *Bot) Start(manager JobManager) error {
 				Channel:         channel,
 				Platform:        platform,
 				JobParams:       params,
-				Architecture: architecture,
+				Architecture:    architecture,
 			})
 			if err != nil {
 				response.Reply(err.Error())

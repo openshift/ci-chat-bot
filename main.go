@@ -16,9 +16,9 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 
-	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
+	prowapiv1 "k8s.io/test-infra/prow/config"
 )
 
 type options struct {
