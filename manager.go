@@ -30,9 +30,9 @@ import (
 
 	imagev1 "github.com/openshift/api/image/v1"
 	"github.com/openshift/ci-chat-bot/pkg/prow"
-	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
+	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 )
 
 const (

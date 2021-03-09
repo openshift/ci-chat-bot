@@ -3,6 +3,7 @@ package prow
 import (
 	"bytes"
 	"fmt"
+	"github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -11,11 +12,12 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
+	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
+	"k8s.io/test-infra/prow/config"
 )
 
 type ProwConfigLoader interface {
-	Config() *prowapiv1.Config
+	Config() *config.Config
 }
 
 func JobForLabels(prowConfigLoader ProwConfigLoader, selector labels.Selector) (*prowapiv1.ProwJob, error) {
@@ -23,12 +25,12 @@ func JobForLabels(prowConfigLoader ProwConfigLoader, selector labels.Selector) (
 	if config == nil {
 		return nil, fmt.Errorf("cannot locate prow job: no prow jobs have been defined")
 	}
-	periodicConfig, ok := prowapiv1.HasProwJobWithLabels(config, selector)
+	periodicConfig, ok := apiv1.HasProwJobWithLabels(config, selector)
 	if !ok {
 		return nil, fmt.Errorf("no prow job matches the label selector %s", selector.String())
 	}
 
-	spec := prowapiv1.ProwSpecForPeriodicConfig(periodicConfig)
+	spec := apiv1.ProwSpecForPeriodicConfig(periodicConfig)
 
 	pj := &prowapiv1.ProwJob{
 		TypeMeta: metav1.TypeMeta{APIVersion: "prow.k8s.io/v1", Kind: "ProwJob"},
@@ -46,12 +48,12 @@ func JobForConfig(prowConfigLoader ProwConfigLoader, jobName string) (*prowapiv1
 	if config == nil {
 		return nil, fmt.Errorf("the prow job %s is not valid: no prow jobs have been defined", jobName)
 	}
-	periodicConfig, ok := prowapiv1.HasProwJob(config, jobName)
+	periodicConfig, ok := apiv1.HasProwJob(config, jobName)
 	if !ok {
 		return nil, fmt.Errorf("the prow job %s is not valid: no job with that name", jobName)
 	}
 
-	spec := prowapiv1.ProwSpecForPeriodicConfig(periodicConfig)
+	spec := apiv1.ProwSpecForPeriodicConfig(periodicConfig)
 
 	pj := &prowapiv1.ProwJob{
 		TypeMeta: metav1.TypeMeta{APIVersion: "prow.k8s.io/v1", Kind: "ProwJob"},

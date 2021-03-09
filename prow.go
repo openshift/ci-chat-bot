@@ -37,7 +37,7 @@ import (
 	"k8s.io/client-go/transport"
 
 	"github.com/openshift/ci-chat-bot/pkg/prow"
-	prowapiv1 "github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
+	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 )
 
 var errJobCompleted = fmt.Errorf("job is complete")
@@ -232,7 +232,7 @@ func (m *jobManager) newJob(job *Job) error {
 	// use with the final step job (if we build, we unset both variables before the images
 	// are built and need to restore them for the last step).
 	var restoreImageVariableScript []string
-	lastJobInput := len(job.Inputs)-1
+	lastJobInput := len(job.Inputs) - 1
 	image := job.Inputs[lastJobInput].Image
 	var initialImage string
 	if len(job.Inputs) > 1 {
