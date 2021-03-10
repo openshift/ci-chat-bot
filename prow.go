@@ -870,6 +870,7 @@ fi
 # import the initial release, if any
 UNRESOLVED_CONFIG=$INITIAL ARTIFACTS=$(ARTIFACTS)/initial ci-operator \
   --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
+  --image-mirror-push-secret=/etc/push-secret/.dockerconfigjson \
   --namespace=$(NAMESPACE) \
   --delete-when-idle=$(PRESERVE_DURATION) \
   --target=[release-inputs]
@@ -888,6 +889,7 @@ for var in "${!CONFIG_SPEC_@}"; do
     echo "Starting $suffix ..."
     JOB_SPEC="${!jobvar}" ARTIFACTS=$(ARTIFACTS)/$suffix UNRESOLVED_CONFIG="${!var}" ci-operator \
       --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
+      --image-mirror-push-secret=/etc/push-secret/.dockerconfigjson \
       --namespace=$(NAMESPACE)-${suffix} \
       --target=[images] -promote >"$(ARTIFACTS)/$suffix/build.log" 2>&1
     code=$?
