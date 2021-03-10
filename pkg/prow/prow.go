@@ -3,7 +3,7 @@ package prow
 import (
 	"bytes"
 	"fmt"
-	"github.com/openshift/ci-chat-bot/pkg/prow/apiv1"
+	"k8s.io/test-infra/prow/pjutil"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -25,12 +25,12 @@ func JobForLabels(prowConfigLoader ProwConfigLoader, selector labels.Selector) (
 	if config == nil {
 		return nil, fmt.Errorf("cannot locate prow job: no prow jobs have been defined")
 	}
-	periodicConfig, ok := apiv1.HasProwJobWithLabels(config, selector)
+	periodicConfig, ok := hasProwJobWithLabels(config, selector)
 	if !ok {
 		return nil, fmt.Errorf("no prow job matches the label selector %s", selector.String())
 	}
 
-	spec := apiv1.ProwSpecForPeriodicConfig(periodicConfig)
+	spec := prowSpecForPeriodicConfig(periodicConfig)
 
 	pj := &prowapiv1.ProwJob{
 		TypeMeta: metav1.TypeMeta{APIVersion: "prow.k8s.io/v1", Kind: "ProwJob"},
@@ -48,12 +48,12 @@ func JobForConfig(prowConfigLoader ProwConfigLoader, jobName string) (*prowapiv1
 	if config == nil {
 		return nil, fmt.Errorf("the prow job %s is not valid: no prow jobs have been defined", jobName)
 	}
-	periodicConfig, ok := apiv1.HasProwJob(config, jobName)
+	periodicConfig, ok := hasProwJob(config, jobName)
 	if !ok {
 		return nil, fmt.Errorf("the prow job %s is not valid: no job with that name", jobName)
 	}
 
-	spec := apiv1.ProwSpecForPeriodicConfig(periodicConfig)
+	spec := prowSpecForPeriodicConfig(periodicConfig)
 
 	pj := &prowapiv1.ProwJob{
 		TypeMeta: metav1.TypeMeta{APIVersion: "prow.k8s.io/v1", Kind: "ProwJob"},
@@ -205,4 +205,29 @@ func OverrideJobConfig(spec *prowapiv1.ProwJobSpec, refs *prowapiv1.Refs, value 
 			c.Env = append(c.Env, corev1.EnvVar{Name: "RELEASE_IMAGE_INITIAL", Value: installImage})
 		}
 	}
+}
+
+func prowSpecForPeriodicConfig(config *config.Periodic) *prowapiv1.ProwJobSpec {
+	spec := pjutil.PeriodicSpec(*config)
+	isTrue := true
+	spec.DecorationConfig.SkipCloning = &isTrue
+	return &spec
+}
+
+func hasProwJob(config *config.Config, name string) (*config.Periodic, bool) {
+	for i := range config.Periodics {
+		if config.Periodics[i].Name == name {
+			return &config.Periodics[i], true
+		}
+	}
+	return nil, false
+}
+
+func hasProwJobWithLabels(config *config.Config, selector labels.Selector) (*config.Periodic, bool) {
+	for i := range config.Periodics {
+		if selector.Matches(labels.Set(config.Periodics[i].Labels)) {
+			return &config.Periodics[i], true
+		}
+	}
+	return nil, false
 }
