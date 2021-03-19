@@ -3,11 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"gopkg.in/fsnotify.v1"
 	"log"
 	"net/url"
 	"os"
 	"time"
+
+	"gopkg.in/fsnotify.v1"
 
 	"github.com/spf13/pflag"
 
@@ -87,6 +88,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("unable to create client: %v", err)
 	}
+	targetImageClient, err := imageclientset.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("unable to create image client: %v", err)
+	}
+
 	// Config and Client to access release images
 	releaseConfig, err := loadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, prowJobKubeconfig)
 	imageClient, err := imageclientset.NewForConfig(releaseConfig)
@@ -103,7 +109,7 @@ func run() error {
 		return err
 	}
 
-	manager := NewJobManager(configAgent, resolver, prowClient, client, imageClient, projectClient, config, opt.GithubEndpoint, opt.ForcePROwner)
+	manager := NewJobManager(configAgent, resolver, prowClient, client, imageClient, targetImageClient, projectClient, config, opt.GithubEndpoint, opt.ForcePROwner)
 	if err := manager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %v", err)
 	}

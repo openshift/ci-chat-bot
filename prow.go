@@ -303,6 +303,12 @@ func (m *jobManager) newJob(job *Job) error {
 	if hasRefs {
 		launchDeadline += 30 * time.Minute
 
+		is, err := m.targetImageClient.ImageV1().ImageStreams("openshift").Get(context.TODO(), "cli", metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to lookup registry URL for job")
+		}
+		registryHost := strings.SplitN(is.Status.PublicDockerImageRepository, "/", 2)[0]
+
 		// NAMESPACE must be set for this job, and be in the first position, so remove it if set
 		prow.RemoveJobEnvVar(&pj.Spec, "NAMESPACE")
 		prow.SetJobEnvVar(&pj.Spec, "NAMESPACE", namespace)
@@ -321,9 +327,9 @@ func (m *jobManager) newJob(job *Job) error {
 			envPrefix := strings.Join(restoreImageVariableScript, " ")
 			container.Command = []string{"/bin/bash", "-c"}
 			if job.Mode == "build" {
-				container.Command = append(container.Command, fmt.Sprintf("%s\n\n%s\n%s ci-operator $@", script, permissionsScript, envPrefix), "")
+				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n\n%s\n%s ci-operator $@", registryHost, script, permissionsScript, envPrefix), "")
 			} else {
-				container.Command = append(container.Command, fmt.Sprintf("%s\n\n%s ci-operator $@", script, envPrefix), "")
+				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n\n%s ci-operator $@", registryHost, script, envPrefix), "")
 			}
 			container.Args = args
 
@@ -374,8 +380,9 @@ func (m *jobManager) newJob(job *Job) error {
 
 				if i == 0 && len(job.Inputs) > 1 {
 					targetConfig.Object["promotion"] = map[string]interface{}{
-						"name":      "stable-initial",
-						"namespace": "$(NAMESPACE)",
+						"name":              "stable-initial",
+						"namespace":         "$(NAMESPACE)",
+						"registry_override": registryHost,
 					}
 					targetConfig.Object["tag_specification"] = map[string]interface{}{
 						"name":      "stable-initial",
@@ -383,8 +390,9 @@ func (m *jobManager) newJob(job *Job) error {
 					}
 				} else {
 					targetConfig.Object["promotion"] = map[string]interface{}{
-						"name":      "stable",
-						"namespace": "$(NAMESPACE)",
+						"name":              "stable",
+						"namespace":         "$(NAMESPACE)",
+						"registry_override": registryHost,
 					}
 					targetConfig.Object["tag_specification"] = map[string]interface{}{
 						"name":      "stable",
@@ -858,6 +866,9 @@ const script = `set -euo pipefail
 
 trap 'jobs -p | xargs -r kill || true; exit 0' TERM
 
+encoded_token="$( echo -n "serviceaccount:$( cat /var/run/secrets/kubernetes.io/serviceaccount/token )" | base64 -w 0 - )"
+echo "{\"auths\":{\"${registry_host}\":{\"auth\":\"${encoded_token}\"}}}" > /tmp/push-auth
+
 mkdir -p "$(ARTIFACTS)/initial" "$(ARTIFACTS)/final"
 
 if [[ -z "${RELEASE_IMAGE_INITIAL-}" ]]; then
@@ -870,7 +881,7 @@ fi
 # import the initial release, if any
 UNRESOLVED_CONFIG=$INITIAL ARTIFACTS=$(ARTIFACTS)/initial ci-operator \
   --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
-  --image-mirror-push-secret=/etc/push-secret/.dockerconfigjson \
+  --image-mirror-push-secret=/tmp/push-auth \
   --namespace=$(NAMESPACE) \
   --delete-when-idle=$(PRESERVE_DURATION) \
   --target=[release-inputs]
@@ -889,7 +900,7 @@ for var in "${!CONFIG_SPEC_@}"; do
     echo "Starting $suffix ..."
     JOB_SPEC="${!jobvar}" ARTIFACTS=$(ARTIFACTS)/$suffix UNRESOLVED_CONFIG="${!var}" ci-operator \
       --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
-      --image-mirror-push-secret=/etc/push-secret/.dockerconfigjson \
+      --image-mirror-push-secret=/tmp/push-auth \
       --namespace=$(NAMESPACE)-${suffix} \
       --target=[images] -promote >"$(ARTIFACTS)/$suffix/build.log" 2>&1
     code=$?

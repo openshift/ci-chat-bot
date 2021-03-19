@@ -155,15 +155,16 @@ type jobManager struct {
 	maxClusters   int
 	maxAge        time.Duration
 
-	prowConfigLoader prow.ProwConfigLoader
-	prowClient       dynamic.NamespaceableResourceInterface
-	coreClient       clientset.Interface
-	imageClient      imageclientset.Interface
-	projectClient    projectclientset.Interface
-	coreConfig       *rest.Config
-	prowNamespace    string
-	githubURL        string
-	forcePROwner     string
+	prowConfigLoader  prow.ProwConfigLoader
+	prowClient        dynamic.NamespaceableResourceInterface
+	coreClient        clientset.Interface
+	imageClient       imageclientset.Interface
+	targetImageClient imageclientset.Interface
+	projectClient     projectclientset.Interface
+	coreConfig        *rest.Config
+	prowNamespace     string
+	githubURL         string
+	forcePROwner      string
 
 	configResolver ConfigResolver
 
@@ -185,6 +186,7 @@ func NewJobManager(
 	prowClient dynamic.NamespaceableResourceInterface,
 	coreClient clientset.Interface,
 	imageClient imageclientset.Interface,
+	targetImageClient imageclientset.Interface,
 	projectClient projectclientset.Interface,
 	config *rest.Config,
 	githubURL, forcePROwner string,
@@ -197,14 +199,15 @@ func NewJobManager(
 		maxAge:        3 * time.Hour,
 		githubURL:     githubURL,
 
-		prowConfigLoader: prowConfigLoader,
-		prowClient:       prowClient,
-		coreClient:       coreClient,
-		coreConfig:       config,
-		imageClient:      imageClient,
-		projectClient:    projectClient,
-		prowNamespace:    "ci",
-		forcePROwner:     forcePROwner,
+		prowConfigLoader:  prowConfigLoader,
+		prowClient:        prowClient,
+		coreClient:        coreClient,
+		coreConfig:        config,
+		imageClient:       imageClient,
+		targetImageClient: targetImageClient,
+		projectClient:     projectClient,
+		prowNamespace:     "ci",
+		forcePROwner:      forcePROwner,
 
 		configResolver: configResolver,
 	}
