@@ -380,9 +380,10 @@ func (m *jobManager) newJob(job *Job) error {
 
 				if i == 0 && len(job.Inputs) > 1 {
 					targetConfig.Object["promotion"] = map[string]interface{}{
-						"name":              "stable-initial",
-						"namespace":         "$(NAMESPACE)",
-						"registry_override": registryHost,
+						"name":                "stable-initial",
+						"namespace":           "$(NAMESPACE)",
+						"registry_override":   registryHost,
+						"disable_build_cache": true,
 					}
 					targetConfig.Object["tag_specification"] = map[string]interface{}{
 						"name":      "stable-initial",
@@ -390,9 +391,10 @@ func (m *jobManager) newJob(job *Job) error {
 					}
 				} else {
 					targetConfig.Object["promotion"] = map[string]interface{}{
-						"name":              "stable",
-						"namespace":         "$(NAMESPACE)",
-						"registry_override": registryHost,
+						"name":                "stable",
+						"namespace":           "$(NAMESPACE)",
+						"registry_override":   registryHost,
+						"disable_build_cache": true,
 					}
 					targetConfig.Object["tag_specification"] = map[string]interface{}{
 						"name":      "stable",
