@@ -105,7 +105,7 @@ func run() error {
 	}
 
 	configAgent := &prowapiv1.Agent{}
-	if err := configAgent.Start(opt.ProwConfigPath, opt.JobConfigPath); err != nil {
+	if err := configAgent.Start(opt.ProwConfigPath, opt.JobConfigPath, []string{}); err != nil {
 		return err
 	}
 
