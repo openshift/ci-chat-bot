@@ -461,10 +461,12 @@ func (r RepoUpdateRequest) Defined() bool {
 // repo. At most one of the booleans here should be true.
 type RepoPermissions struct {
 	// Pull is equivalent to "Read" permissions in the web UI
-	Pull bool `json:"pull"`
+	Pull   bool `json:"pull"`
+	Triage bool `json:"triage"`
 	// Push is equivalent to "Edit" permissions in the web UI
-	Push  bool `json:"push"`
-	Admin bool `json:"admin"`
+	Push     bool `json:"push"`
+	Maintain bool `json:"maintain"`
+	Admin    bool `json:"admin"`
 }
 
 // RepoPermissionLevel is admin, write, read or none.
@@ -472,11 +474,20 @@ type RepoPermissions struct {
 // See https://developer.github.com/v3/repos/collaborators/#review-a-users-permission-level
 type RepoPermissionLevel string
 
+// For more information on access levels, see:
+// https://docs.github.com/en/github/setting-up-and-managing-organizations-and-teams/repository-permission-levels-for-an-organization
 const (
 	// Read allows pull but not push
 	Read RepoPermissionLevel = "read"
+	// Triage allows Read and managing issues
+	// pull requests but not push
+	Triage RepoPermissionLevel = "triage"
 	// Write allows Read plus push
 	Write RepoPermissionLevel = "write"
+	// Maintain allows Write along with managing
+	// repository without access to sensitive or
+	// destructive instructions.
+	Maintain RepoPermissionLevel = "maintain"
 	// Admin allows Write plus change others' rights.
 	Admin RepoPermissionLevel = "admin"
 	// None disallows everything
@@ -484,10 +495,12 @@ const (
 )
 
 var repoPermissionLevels = map[RepoPermissionLevel]bool{
-	Read:  true,
-	Write: true,
-	Admin: true,
-	None:  true,
+	Read:     true,
+	Triage:   true,
+	Write:    true,
+	Maintain: true,
+	Admin:    true,
+	None:     true,
 }
 
 // MarshalText returns the byte representation of the permission
@@ -508,9 +521,11 @@ func (l *RepoPermissionLevel) UnmarshalText(text []byte) error {
 type TeamPermission string
 
 const (
-	RepoPull  TeamPermission = "pull"
-	RepoPush  TeamPermission = "push"
-	RepoAdmin TeamPermission = "admin"
+	RepoPull     TeamPermission = "pull"
+	RepoTriage   TeamPermission = "triage"
+	RepoMaintain TeamPermission = "maintain"
+	RepoPush     TeamPermission = "push"
+	RepoAdmin    TeamPermission = "admin"
 )
 
 // Branch contains general branch information.
@@ -1061,6 +1076,58 @@ type OrgInvitation struct {
 	TeamMember
 	Email   string     `json:"email"`
 	Inviter TeamMember `json:"inviter"`
+}
+
+// UserRepoInvitation is returned by repo invitation obtained by user.
+type UserRepoInvitation struct {
+	InvitationID int                 `json:"id"`
+	Repository   *Repo               `json:"repository,omitempty"`
+	Permission   RepoPermissionLevel `json:"permissions"`
+}
+
+// OrgPermissionLevel is admin, and member
+//
+// See https://docs.github.com/en/rest/reference/orgs#set-organization-membership-for-a-user
+type OrgPermissionLevel string
+
+const (
+	// OrgMember is the member
+	OrgMember OrgPermissionLevel = "member"
+	// OrgAdmin manages the org
+	OrgAdmin OrgPermissionLevel = "admin"
+)
+
+var orgPermissionLevels = map[OrgPermissionLevel]bool{
+	OrgMember: true,
+	OrgAdmin:  true,
+}
+
+// MarshalText returns the byte representation of the permission
+func (l OrgPermissionLevel) MarshalText() ([]byte, error) {
+	return []byte(l), nil
+}
+
+// UnmarshalText validates the text is a valid string
+func (l *OrgPermissionLevel) UnmarshalText(text []byte) error {
+	v := OrgPermissionLevel(text)
+	if _, ok := orgPermissionLevels[v]; !ok {
+		return fmt.Errorf("bad repo permission: %s not in %v", v, orgPermissionLevels)
+	}
+	*l = v
+	return nil
+}
+
+// UserOrganization contains info consumed by UserOrgInvitation.
+type UserOrganization struct {
+	// Login is the name of org
+	Login string `json:"login"`
+}
+
+// UserOrgInvitation is returned by org invitation obtained by user.
+type UserOrgInvitation struct {
+	State string             `json:"state"`
+	Role  OrgPermissionLevel `json:"role"`
+	Org   UserOrganization   `json:"organization"`
 }
 
 // GenericCommentEventAction coerces multiple actions into its generic equivalent.

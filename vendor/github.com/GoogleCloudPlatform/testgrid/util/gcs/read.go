@@ -21,20 +21,114 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/url"
+	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
 	"cloud.google.com/go/storage"
 	"github.com/fvbommel/sortorder"
 	"google.golang.org/api/iterator"
+	core "k8s.io/api/core/v1"
 
 	"github.com/GoogleCloudPlatform/testgrid/metadata"
 	"github.com/GoogleCloudPlatform/testgrid/metadata/junit"
 )
+
+// PodInfo holds podinfo.json (data about the pod).
+type PodInfo struct {
+	Pod *core.Pod `json:"pod,omitempty"`
+	// ignore unused events
+}
+
+const (
+	// MissingPodInfo appears when builds complete without a podinfo.json report.
+	MissingPodInfo = "podinfo.json not found, please install prow's GCS reporter"
+	// NoPodUtils appears when builds run without decoration.
+	NoPodUtils = "not using decoration, please set decorate: true on prowjob"
+)
+
+func truncate(s string, max int) string {
+	if max <= 0 {
+		return s
+	}
+	l := len(s)
+	if l < max {
+		return s
+	}
+	h := max / 2
+	return s[:h] + "..." + s[l-h:]
+}
+
+func checkContainerStatus(status core.ContainerStatus) (bool, string) {
+	name := status.Name
+	if status.State.Waiting != nil {
+		return false, fmt.Sprintf("%s still waiting: %s", name, status.State.Waiting.Message)
+	}
+	if status.State.Running != nil {
+		return false, fmt.Sprintf("%s still running", name)
+	}
+	if status.State.Terminated != nil && status.State.Terminated.ExitCode != 0 {
+		return false, fmt.Sprintf("%s exited %d: %s", name, status.State.Terminated.ExitCode, truncate(status.State.Terminated.Message, 140))
+	}
+	return true, ""
+}
+
+// Summarize returns if the pod completed successfully and a diagnostic message.
+func (pi PodInfo) Summarize() (bool, string) {
+	if pi.Pod == nil {
+		return false, MissingPodInfo
+	}
+
+	if pi.Pod.Status.Phase == core.PodSucceeded {
+		return true, ""
+	}
+
+	conditions := make(map[core.PodConditionType]core.PodCondition, len(pi.Pod.Status.Conditions))
+
+	for _, cond := range pi.Pod.Status.Conditions {
+		conditions[cond.Type] = cond
+	}
+
+	if cond, ok := conditions[core.PodScheduled]; ok && cond.Status != core.ConditionTrue {
+		return false, fmt.Sprintf("pod did not schedule: %s", cond.Message)
+	}
+
+	if cond, ok := conditions[core.PodInitialized]; ok && cond.Status != core.ConditionTrue {
+		return false, fmt.Sprintf("pod could not initialize: %s", cond.Message)
+	}
+
+	for _, status := range pi.Pod.Status.InitContainerStatuses {
+		if pass, msg := checkContainerStatus(status); !pass {
+			return pass, fmt.Sprintf("init container %s", msg)
+		}
+	}
+
+	var foundSidecar bool
+	for _, status := range pi.Pod.Status.ContainerStatuses {
+		if status.Name == "sidecar" {
+			foundSidecar = true
+		}
+		pass, msg := checkContainerStatus(status)
+		if pass {
+			continue
+		}
+		if status.Name == "sidecar" {
+			return pass, msg
+		}
+		if status.State.Terminated == nil {
+			return pass, msg
+		}
+	}
+
+	if !foundSidecar {
+		return true, NoPodUtils
+	}
+	return true, ""
+}
 
 // Started holds started.json data.
 type Started struct {
@@ -53,23 +147,83 @@ type Finished struct {
 // Build points to a build stored under a particular gcs prefix.
 type Build struct {
 	Path              Path
-	originalPrefix    string
+	baseName          string
 	suitesConcurrency int // override the max number of concurrent suite downloads
+}
+
+func (build Build) object() string {
+	o := build.Path.Object()
+	if strings.HasSuffix(o, "/") {
+		return o[0 : len(o)-1]
+	}
+	return o
+}
+
+// Build is the unique invocation id of the job.
+func (build Build) Build() string {
+	return path.Base(build.object())
+}
+
+// Job is the name of the job for this build
+func (build Build) Job() string {
+	return path.Base(path.Dir(build.object()))
 }
 
 func (build Build) String() string {
 	return build.Path.String()
 }
 
+func readLink(objAttrs *storage.ObjectAttrs) string {
+	if link, ok := objAttrs.Metadata["x-goog-meta-link"]; ok {
+		return link
+	}
+	if link, ok := objAttrs.Metadata["link"]; ok {
+		return link
+	}
+	return ""
+}
+
+// Sort the builds by monotonically increasing original prefix base name.
+//
+// In other words,
+//   gs://c/10
+//   gs://a/5
+//   gs://b/1
+// becomes:
+//   gs://b/1
+//   gs://a/5
+//   gs://c/10
+func Sort(builds []Build) {
+	sort.SliceStable(builds, func(i, j int) bool {
+		return !sortorder.NaturalLess(builds[i].baseName, builds[j].baseName)
+	})
+}
+
+// hackOffset handles tot's sequential names, which GCS handles poorly
+// AKA asking GCS to return results after 6 will never find 10
+// So we always have to list everything for these types of numbers.
+func hackOffset(offset *string) string {
+	if *offset == "" {
+		return ""
+	}
+	offsetBaseName := path.Base(*offset)
+	const first = 1000000000000000000
+	if n, err := strconv.Atoi(offsetBaseName); err == nil && n < first {
+		*offset = path.Join(path.Dir(*offset), "0")
+	}
+	return offsetBaseName
+}
+
 // ListBuilds returns the array of builds under path, sorted in monotonically decreasing order.
-func ListBuilds(parent context.Context, lister Lister, path Path, after *Path) ([]Build, error) {
+func ListBuilds(parent context.Context, lister Lister, gcsPath Path, after *Path) ([]Build, error) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	var offset string
 	if after != nil {
 		offset = after.Object()
 	}
-	it := lister.Objects(ctx, path, "/", offset)
+	offsetBaseName := hackOffset(&offset)
+	it := lister.Objects(ctx, gcsPath, "/", offset)
 	var all []Build
 	for {
 		objAttrs, err := it.Next()
@@ -84,7 +238,7 @@ func ListBuilds(parent context.Context, lister Lister, path Path, after *Path) (
 		// This is used for PR type jobs which we store in a PR specific prefix.
 		// The directory prefix contains a link header to the result
 		// under the PR specific prefix.
-		if link := objAttrs.Metadata["x-goog-meta-link"]; len(link) > 0 {
+		if link := readLink(objAttrs); link != "" {
 			// links created by bootstrap.py have a space
 			link = strings.TrimSpace(link)
 			u, err := url.Parse(link)
@@ -99,8 +253,8 @@ func ListBuilds(parent context.Context, lister Lister, path Path, after *Path) (
 				return nil, fmt.Errorf("bad %s link path %s: %w", objAttrs.Name, u, err)
 			}
 			all = append(all, Build{
-				Path:           linkPath,
-				originalPrefix: objAttrs.Name,
+				Path:     linkPath,
+				baseName: path.Base(objAttrs.Name),
 			})
 			continue
 		}
@@ -109,33 +263,29 @@ func ListBuilds(parent context.Context, lister Lister, path Path, after *Path) (
 			continue // not a symlink to a directory
 		}
 
-		loc := "gs://" + path.Bucket() + "/" + objAttrs.Prefix
-		path, err := NewPath(loc)
+		loc := "gs://" + gcsPath.Bucket() + "/" + objAttrs.Prefix
+		gcsPath, err := NewPath(loc)
 		if err != nil {
 			return nil, fmt.Errorf("bad path %q: %w", loc, err)
 		}
 
 		all = append(all, Build{
-			Path:           *path,
-			originalPrefix: objAttrs.Prefix,
+			Path:     *gcsPath,
+			baseName: path.Base(objAttrs.Prefix),
 		})
 	}
 
-	sort.SliceStable(all, func(i, j int) bool {
-		// ! because we want the latest (aka largest) items first.
-		return !sortorder.NaturalLess(all[i].originalPrefix, all[j].originalPrefix)
-	})
+	Sort(all)
 
-	if offset != "" {
+	if offsetBaseName != "" {
 		// GCS will return 200 2000 30 for a prefix of 100
 		// testgrid expects this as 2000 200 (dropping 30)
 		for i, b := range all {
-			if sortorder.NaturalLess(b.originalPrefix, offset) {
+			if sortorder.NaturalLess(b.baseName, offsetBaseName) {
 				return all[:i], nil
 			}
 		}
 	}
-
 	return all, nil
 }
 
@@ -192,6 +342,23 @@ func readJSON(ctx context.Context, opener Opener, p Path, i interface{}) error {
 		return fmt.Errorf("close: %w", err)
 	}
 	return nil
+}
+
+// PodInfo parses the build's pod state.
+func (build Build) PodInfo(ctx context.Context, opener Opener) (*PodInfo, error) {
+	path, err := build.Path.ResolveReference(&url.URL{Path: "podinfo.json"})
+	if err != nil {
+		return nil, fmt.Errorf("resolve: %w", err)
+	}
+	var podInfo PodInfo
+	err = readJSON(ctx, opener, *path, &podInfo)
+	if errors.Is(err, storage.ErrObjectNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+	return &podInfo, nil
 }
 
 // Started parses the build's started metadata.
@@ -263,15 +430,11 @@ func readSuites(ctx context.Context, opener Opener, p Path) (*junit.Suites, erro
 		return nil, fmt.Errorf("open: %w", err)
 	}
 	defer r.Close()
-	buf, err := ioutil.ReadAll(r)
-	if err != nil {
-		return nil, fmt.Errorf("read: %w", err)
-	}
-	suitesMeta, err := junit.Parse(buf)
+	suitesMeta, err := junit.ParseStream(r)
 	if err != nil {
 		return nil, fmt.Errorf("parse: %w", err)
 	}
-	return &suitesMeta, nil
+	return suitesMeta, nil
 }
 
 // Suites takes a channel of artifact names, parses those representing junit suites, writing the result to the suites channel.
