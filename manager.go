@@ -527,7 +527,7 @@ func (m *jobManager) ListJobs(users ...string) string {
 			}
 			switch {
 			case len(jobInput.Version) > 0:
-				inputParts = append(inputParts, fmt.Sprintf("<https://openshift-release.svc.ci.openshift.org/releasetag/%s|%s>", url.PathEscape(jobInput.Version), jobInput.Version))
+				inputParts = append(inputParts, fmt.Sprintf("<https://amd64.ocp.releases.ci.openshift.org/releasetag/%s|%s>", url.PathEscape(jobInput.Version), jobInput.Version))
 			case len(jobInput.Image) > 0:
 				inputParts = append(inputParts, "(image)")
 			}
@@ -707,7 +707,7 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		}
 	}
 
-	return "", "", fmt.Errorf("unable to find a release matching %q on https://openshift-release.svc.ci.openshift.org or https://origin-release.svc.ci.openshift.org", imageOrVersion)
+	return "", "", fmt.Errorf("unable to find a release matching %q on https://amd64.ocp.releases.ci.openshift.org or https://origin-release.svc.ci.openshift.org", imageOrVersion)
 }
 
 func findNewestStableImageSpecTagBySemanticMajor(is *imagev1.ImageStream, majorMinor string) *imagev1.TagReference {
@@ -798,7 +798,7 @@ func (m *jobManager) LookupInputs(inputs []string) (string, error) {
 			out = append(out, fmt.Sprintf("`%s` uses version `%s`", inputs[i], job.Version))
 			continue
 		}
-		out = append(out, fmt.Sprintf("`%s` launches version <https://openshift-release.svc.ci.openshift.org/releasetag/%s|%s>", inputs[i], job.Version, job.Version))
+		out = append(out, fmt.Sprintf("`%s` launches version <https://amd64.ocp.releases.ci.openshift.org/releasetag/%s|%s>", inputs[i], job.Version, job.Version))
 	}
 	return strings.Join(out, "\n"), nil
 }
