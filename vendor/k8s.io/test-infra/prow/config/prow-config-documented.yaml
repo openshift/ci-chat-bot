@@ -422,6 +422,10 @@ github_reporter:
     # defaults to both presubmit and postsubmit jobs.
     job_types_to_report:
       - ""
+horologium:
+    # TickInterval is the interval in which we check if new jobs need to be
+    # created. Defaults to one minute.
+    tick_interval: 0s
 in_repo_config:
     # AllowedClusters is a list of allowed clusternames that can be used for jobs on
     # a given repo. All clusters that are allowed for the specific repo, its org or
@@ -481,16 +485,29 @@ managed_webhooks:
     respect_legacy_global_token: false
 
 
-# OwnersDirBlacklist is used to configure regular expressions matching directories
-# to ignore when searching for OWNERS{,_ALIAS} files in a repo.
+# OwnersDirBlacklist is deprecated, use OwnersDirDenylist instead
 owners_dir_blacklist:
-    # Default configures a default blacklist for all repos (or orgs).
+    # Default configures a default denylist for all repos (or orgs).
     # Some directories like ".git", "_output" and "vendor/.*/OWNERS"
-    # are already preconfigured to be blacklisted, and need not be included here.
+    # are already preconfigured to be denylisted, and need not be included here.
     default:
       - ""
 
-    # Repos configures a directory blacklist per repo (or org)
+    # Repos configures a directory denylist per repo (or org)
+    repos:
+        "": null
+
+
+# OwnersDirDenylist is used to configure regular expressions matching directories
+# to ignore when searching for OWNERS{,_ALIAS} files in a repo.
+owners_dir_denylist:
+    # Default configures a default denylist for all repos (or orgs).
+    # Some directories like ".git", "_output" and "vendor/.*/OWNERS"
+    # are already preconfigured to be denylisted, and need not be included here.
+    default:
+      - ""
+
+    # Repos configures a directory denylist per repo (or org)
     repos:
         "": null
 plank:
@@ -511,9 +528,38 @@ plank:
         # by sequentially merging with later entries overriding fields from earlier
         # entries.
         config:
-            # CensorSecrets determines if the sidecar should be instructed to censor
-            # secret data that is otherwise mounted to the ProwJob Pod
+            # CensorSecrets enables censoring output logs and artifacts.
             censor_secrets: false
+
+            # CensoringOptions exposes options for censoring output logs and artifacts.
+            censoring_options:
+                # CensoringBufferSize is the size in bytes of the buffer allocated for every file
+                # being censored. We want to keep as little of the file in memory as possible in
+                # order for censoring to be reasonably performant in space. However, to guarantee
+                # that we censor every instance of every secret, our buffer size must be at least
+                # two times larger than the largest secret we are about to censor. While that size
+                # is the smallest possible buffer we could use, if the secrets being censored are
+                # small, censoring will not be performant as the number of I/O actions per file
+                # would increase. If unset, defaults to 10MiB.
+                censoring_buffer_size: 0
+
+                # CensoringConcurrency is the maximum number of goroutines that should be censoring
+                # artifacts and logs at any time. If unset, defaults to 10.
+                censoring_concurrency: 0
+
+                # ExcludeDirectories are directories which should not have their content censored. If
+                # present, content in these directories will not be censored even if the directory also
+                # matches a glob in IncludeDirectories. Entries in this list are relative to $ARTIFACTS,
+                # and are parsed with the go-zglob library, allowing for globbed matches.
+                exclude_directories:
+                  - ""
+
+                # IncludeDirectories are directories which should have their content censored. If
+                # present, only content in these directories will be censored. Entries in this list
+                # are relative to $ARTIFACTS and are parsed with the go-zglob library, allowing for
+                # globbed matches.
+                include_directories:
+                  - ""
 
             # CookieFileSecret is the name of a kubernetes secret that contains
             # a git http.cookiefile, which should be used during the cloning process.
@@ -655,9 +701,38 @@ plank:
     # This field is mutually exclusive with the DefaultDecorationConfigEntries field.
     default_decoration_configs:
         "":
-            # CensorSecrets determines if the sidecar should be instructed to censor
-            # secret data that is otherwise mounted to the ProwJob Pod
+            # CensorSecrets enables censoring output logs and artifacts.
             censor_secrets: false
+
+            # CensoringOptions exposes options for censoring output logs and artifacts.
+            censoring_options:
+                # CensoringBufferSize is the size in bytes of the buffer allocated for every file
+                # being censored. We want to keep as little of the file in memory as possible in
+                # order for censoring to be reasonably performant in space. However, to guarantee
+                # that we censor every instance of every secret, our buffer size must be at least
+                # two times larger than the largest secret we are about to censor. While that size
+                # is the smallest possible buffer we could use, if the secrets being censored are
+                # small, censoring will not be performant as the number of I/O actions per file
+                # would increase. If unset, defaults to 10MiB.
+                censoring_buffer_size: 0
+
+                # CensoringConcurrency is the maximum number of goroutines that should be censoring
+                # artifacts and logs at any time. If unset, defaults to 10.
+                censoring_concurrency: 0
+
+                # ExcludeDirectories are directories which should not have their content censored. If
+                # present, content in these directories will not be censored even if the directory also
+                # matches a glob in IncludeDirectories. Entries in this list are relative to $ARTIFACTS,
+                # and are parsed with the go-zglob library, allowing for globbed matches.
+                exclude_directories:
+                  - ""
+
+                # IncludeDirectories are directories which should have their content censored. If
+                # present, only content in these directories will be censored. Entries in this list
+                # are relative to $ARTIFACTS and are parsed with the go-zglob library, allowing for
+                # globbed matches.
+                include_directories:
+                  - ""
 
             # CookieFileSecret is the name of a kubernetes secret that contains
             # a git http.cookiefile, which should be used during the cloning process.
@@ -894,8 +969,7 @@ slack_reporter_configs:
 status_error_link: ' '
 tide:
     # BatchSizeLimitMap is a key/value pair of an org or org/repo as the key and
-    # integer batch size limit as the value. The empty string key can be used as
-    # a global default.
+    # integer batch size limit as the value. Use "*" as key to set a global default.
     # Special values:
     # 0 => unlimited batch size
     # -1 => batch merging disabled :(
@@ -994,6 +1068,14 @@ tide:
     # mapped by org or org/repo level.
     pr_status_base_urls:
         "": ""
+
+    # PrioritizeExistingBatches configures on org or org/repo level if Tide should continue
+    # testing pre-existing batches instead of immediately including new PRs as they become
+    # eligible. Continuing on an old batch allows to re-use all existing test results whereas
+    # starting a new one requires to start new instances of all tests.
+    # Use '*' as key to set this globally. Defaults to true.
+    prioritize_existing_batches:
+        "": false
 
     # Priority is an ordered list of sets of labels that would be prioritized before other PRs
     # PRs should match all labels contained in a set to be prioritized. The first entry has

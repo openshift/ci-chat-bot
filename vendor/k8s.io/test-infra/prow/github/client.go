@@ -395,7 +395,13 @@ type throttlerDelegate struct {
 }
 
 func (t *throttler) Wait() {
+	start := time.Now()
 	log := logrus.WithFields(logrus.Fields{"client": "github", "throttled": true})
+	defer func() {
+		if waitTime := time.Since(start); waitTime > time.Minute {
+			log.WithField("throttle-duration", waitTime.String()).Warn("Throttled clientside for more than a minute")
+		}
+	}()
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 	var more bool
@@ -896,7 +902,7 @@ func (c *client) requestRetry(method, path, accept, org string, body interface{}
 
 					want := sets.NewString(strings.Split(acceptedScopes, ",")...)
 					got := strings.Split(authorizedScopes, ",")
-					if !want.HasAny(got...) {
+					if len(want) > 0 && !want.HasAny(got...) {
 						err = fmt.Errorf("the account is using %s oauth scopes, please make sure you are using at least one of the following oauth scopes: %s", authorizedScopes, acceptedScopes)
 					} else {
 						body, _ := ioutil.ReadAll(resp.Body)
