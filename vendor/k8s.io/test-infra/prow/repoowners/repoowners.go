@@ -143,7 +143,6 @@ func (entry cacheEntry) fullyLoaded() bool {
 
 // Interface is an interface to work with OWNERS files.
 type Interface interface {
-	LoadRepoAliases(org, repo, base string) (RepoAliases, error)
 	LoadRepoOwners(org, repo, base string) (RepoOwner, error)
 
 	WithFields(fields logrus.Fields) Interface
@@ -163,10 +162,10 @@ type Client struct {
 type delegate struct {
 	git git.ClientFactory
 
-	mdYAMLEnabled      func(org, repo string) bool
-	skipCollaborators  func(org, repo string) bool
-	ownersDirBlacklist func() prowConf.OwnersDirBlacklist
-	filenames          ownersconfig.Resolver
+	mdYAMLEnabled     func(org, repo string) bool
+	skipCollaborators func(org, repo string) bool
+	ownersDirDenylist func() *prowConf.OwnersDirDenylist
+	filenames         ownersconfig.Resolver
 
 	cache *cache
 }
@@ -196,7 +195,7 @@ func NewClient(
 	ghc github.Client,
 	mdYAMLEnabled func(org, repo string) bool,
 	skipCollaborators func(org, repo string) bool,
-	ownersDirBlacklist func() prowConf.OwnersDirBlacklist,
+	ownersDirDenylist func() *prowConf.OwnersDirDenylist,
 	filenames ownersconfig.Resolver,
 ) *Client {
 	return &Client{
@@ -206,10 +205,10 @@ func NewClient(
 			git:   gc,
 			cache: newCache(),
 
-			mdYAMLEnabled:      mdYAMLEnabled,
-			skipCollaborators:  skipCollaborators,
-			ownersDirBlacklist: ownersDirBlacklist,
-			filenames:          filenames,
+			mdYAMLEnabled:     mdYAMLEnabled,
+			skipCollaborators: skipCollaborators,
+			ownersDirDenylist: ownersDirDenylist,
+			filenames:         filenames,
 		},
 	}
 }
@@ -249,7 +248,7 @@ type RepoOwners struct {
 
 	baseDir      string
 	enableMDYAML bool
-	dirBlacklist []*regexp.Regexp
+	dirDenylist  []*regexp.Regexp
 	filenames    ownersconfig.Filenames
 
 	log *logrus.Entry
@@ -257,40 +256,6 @@ type RepoOwners struct {
 
 func (r *RepoOwners) Filenames() ownersconfig.Filenames {
 	return r.filenames
-}
-
-// LoadRepoAliases returns an up-to-date RepoAliases struct for the specified repo.
-// If the repo does not have an aliases file then an empty alias map is returned with no error.
-// Note: The returned RepoAliases should be treated as read only.
-func (c *Client) LoadRepoAliases(org, repo, base string) (RepoAliases, error) {
-	log := c.logger.WithFields(logrus.Fields{"org": org, "repo": repo, "base": base})
-	cloneRef := fmt.Sprintf("%s/%s", org, repo)
-	fullName := fmt.Sprintf("%s:%s", cloneRef, base)
-
-	sha, err := c.ghc.GetRef(org, repo, fmt.Sprintf("heads/%s", base))
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current SHA for %s: %v", fullName, err)
-	}
-
-	entry, ok, entryLock := c.cache.getEntry(fullName)
-	defer entryLock.Unlock()
-	if !ok || entry.sha != sha {
-		// entry is non-existent or stale.
-		gitRepo, err := c.git.ClientFor(org, repo)
-		if err != nil {
-			return nil, fmt.Errorf("failed to clone %s: %v", cloneRef, err)
-		}
-		defer gitRepo.Clean()
-		if err := gitRepo.Checkout(base); err != nil {
-			return nil, err
-		}
-
-		entry.aliases = loadAliasesFrom(gitRepo.Directory(), c.filenames(org, repo).OwnersAliases, log)
-		entry.sha = sha
-		c.cache.setEntry(fullName, entry)
-	}
-
-	return entry.aliases, nil
 }
 
 // LoadRepoOwners returns an up-to-date RepoOwners struct for the specified repo.
@@ -394,12 +359,12 @@ func (c *Client) cacheEntryFor(org, repo, base, cloneRef, fullName, sha string, 
 			log.WithField("duration", time.Since(start).String()).Debugf("Completed loadAliasesFrom(%s, log)", gitRepo.Directory())
 
 			start = time.Now()
-			ignoreDirPatterns := c.ownersDirBlacklist().ListIgnoredDirs(org, repo)
+			ignoreDirPatterns := c.ownersDirDenylist().ListIgnoredDirs(org, repo)
 			var dirIgnorelist []*regexp.Regexp
 			for _, pattern := range ignoreDirPatterns {
 				re, err := regexp.Compile(pattern)
 				if err != nil {
-					log.WithError(err).Errorf("Invalid OWNERS dir blacklist regexp %q.", pattern)
+					log.WithError(err).Errorf("Invalid OWNERS dir denylist regexp %q.", pattern)
 					continue
 				}
 				dirIgnorelist = append(dirIgnorelist, re)
@@ -489,7 +454,7 @@ func loadOwnersFrom(baseDir string, mdYaml bool, aliases RepoAliases, dirIgnorel
 		labels:            make(map[string]map[*regexp.Regexp]sets.String),
 		options:           make(map[string]dirOptions),
 
-		dirBlacklist: dirIgnorelist,
+		dirDenylist: dirIgnorelist,
 	}
 
 	return o, filepath.Walk(o.baseDir, o.walkFunc)
@@ -520,7 +485,7 @@ func (o *RepoOwners) walkFunc(path string, info os.FileInfo, err error) error {
 	relPathDir := canonicalize(filepath.Dir(relPath))
 
 	if info.Mode().IsDir() {
-		for _, re := range o.dirBlacklist {
+		for _, re := range o.dirDenylist {
 			if re.MatchString(relPath) {
 				return filepath.SkipDir
 			}
@@ -589,7 +554,7 @@ func (o *RepoOwners) walkFunc(path string, info os.FileInfo, err error) error {
 func (o *RepoOwners) ParseFullConfig(path string) (FullConfig, error) {
 	// if path is in an ignored directory, ignore it
 	dir := filepath.Dir(path)
-	for _, re := range o.dirBlacklist {
+	for _, re := range o.dirDenylist {
 		if re.MatchString(dir) {
 			return FullConfig{}, filepath.SkipDir
 		}
@@ -608,7 +573,7 @@ func (o *RepoOwners) ParseFullConfig(path string) (FullConfig, error) {
 func (o *RepoOwners) ParseSimpleConfig(path string) (SimpleConfig, error) {
 	// if path is in a an ignored directory, ignore it
 	dir := filepath.Dir(path)
-	for _, re := range o.dirBlacklist {
+	for _, re := range o.dirDenylist {
 		if re.MatchString(dir) {
 			return SimpleConfig{}, filepath.SkipDir
 		}

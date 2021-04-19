@@ -54,7 +54,6 @@ import (
 	"k8s.io/test-infra/prow/git/v2"
 	"k8s.io/test-infra/prow/github"
 	"k8s.io/test-infra/prow/kube"
-	"k8s.io/test-infra/prow/logrusutil"
 	"k8s.io/test-infra/prow/pod-utils/decorate"
 	"k8s.io/test-infra/prow/pod-utils/downwardapi"
 )
@@ -120,6 +119,7 @@ type ProwConfig struct {
 	BranchProtection BranchProtection `json:"branch-protection"`
 	Gerrit           Gerrit           `json:"gerrit"`
 	GitHubReporter   GitHubReporter   `json:"github_reporter"`
+	Horologium       Horologium       `json:"horologium"`
 	// Deprecated: this option will be removed in May 2020.
 	SlackReporter        *SlackReporter       `json:"slack_reporter,omitempty"`
 	SlackReporterConfigs SlackReporterConfigs `json:"slack_reporter_configs,omitempty"`
@@ -152,9 +152,13 @@ type ProwConfig struct {
 	// PushGateway is a prometheus push gateway.
 	PushGateway PushGateway `json:"push_gateway,omitempty"`
 
-	// OwnersDirBlacklist is used to configure regular expressions matching directories
+	// OwnersDirDenylist is used to configure regular expressions matching directories
 	// to ignore when searching for OWNERS{,_ALIAS} files in a repo.
-	OwnersDirBlacklist OwnersDirBlacklist `json:"owners_dir_blacklist,omitempty"`
+	OwnersDirDenylist *OwnersDirDenylist `json:"owners_dir_denylist,omitempty"`
+
+	// OwnersDirBlacklist is deprecated, use OwnersDirDenylist instead
+	// TODO(chaodaiG, November 2021): Removed after October 2021
+	OwnersDirBlacklist *OwnersDirDenylist `json:"owners_dir_blacklist,omitempty"`
 
 	// Pub/Sub Subscriptions that we want to listen to
 	PubSubSubscriptions PubsubSubscriptions `json:"pubsub_subscriptions,omitempty"`
@@ -377,35 +381,35 @@ func (c *Config) GetPostsubmits(gc git.ClientFactory, identifier string, baseSHA
 	return append(c.PostsubmitsStatic[identifier], prowYAML.Postsubmits...), nil
 }
 
-// OwnersDirBlacklist is used to configure regular expressions matching directories
+// OwnersDirDenylist is used to configure regular expressions matching directories
 // to ignore when searching for OWNERS{,_ALIAS} files in a repo.
-type OwnersDirBlacklist struct {
-	// Repos configures a directory blacklist per repo (or org)
+type OwnersDirDenylist struct {
+	// Repos configures a directory denylist per repo (or org)
 	Repos map[string][]string `json:"repos,omitempty"`
-	// Default configures a default blacklist for all repos (or orgs).
+	// Default configures a default denylist for all repos (or orgs).
 	// Some directories like ".git", "_output" and "vendor/.*/OWNERS"
-	// are already preconfigured to be blacklisted, and need not be included here.
+	// are already preconfigured to be denylisted, and need not be included here.
 	Default []string `json:"default,omitempty"`
 	// By default, some directories like ".git", "_output" and "vendor/.*/OWNERS"
-	// are preconfigured to be blacklisted.
+	// are preconfigured to be denylisted.
 	// If set, IgnorePreconfiguredDefaults will not add these preconfigured directories
-	// to the blacklist.
+	// to the denylist.
 	IgnorePreconfiguredDefaults bool `json:"ignore_preconfigured_defaults,omitempty"`
 }
 
 // ListIgnoredDirs returns regular expressions matching directories to ignore when
 // searching for OWNERS{,_ALIAS} files in a repo.
-func (ownersDirBlacklist OwnersDirBlacklist) ListIgnoredDirs(org, repo string) (ignorelist []string) {
-	ignorelist = append(ignorelist, ownersDirBlacklist.Default...)
-	if bl, ok := ownersDirBlacklist.Repos[org]; ok {
+func (o OwnersDirDenylist) ListIgnoredDirs(org, repo string) (ignorelist []string) {
+	ignorelist = append(ignorelist, o.Default...)
+	if bl, ok := o.Repos[org]; ok {
 		ignorelist = append(ignorelist, bl...)
 	}
-	if bl, ok := ownersDirBlacklist.Repos[org+"/"+repo]; ok {
+	if bl, ok := o.Repos[org+"/"+repo]; ok {
 		ignorelist = append(ignorelist, bl...)
 	}
 
 	preconfiguredDefaults := []string{"\\.git$", "_output$", "vendor/.*/.*"}
-	if !ownersDirBlacklist.IgnorePreconfiguredDefaults {
+	if !o.IgnorePreconfiguredDefaults {
 		ignorelist = append(ignorelist, preconfiguredDefaults...)
 	}
 	return
@@ -636,19 +640,8 @@ func (p *Plank) FinalizeDefaultDecorationConfigs() error {
 }
 
 // GetJobURLPrefix gets the job url prefix from the config
-// for the given refs. As we're deprecating the "gcs/" suffix
-// (to allow using multiple storageProviders within a repo)
-// we always trim the suffix here. Thus, every caller can assume
-// the job url prefix does not have a storageProvider suffix.
+// for the given refs.
 func (p Plank) GetJobURLPrefix(pj *prowapi.ProwJob) string {
-	jobURLPrefix := p.getJobURLPrefix(pj)
-	if strings.HasSuffix(jobURLPrefix, "gcs/") {
-		return strings.TrimSuffix(jobURLPrefix, "gcs/")
-	}
-	return strings.TrimSuffix(jobURLPrefix, "gcs")
-}
-
-func (p Plank) getJobURLPrefix(pj *prowapi.ProwJob) string {
 	if pj.Spec.DecorationConfig != nil && pj.Spec.DecorationConfig.GCSConfiguration != nil && pj.Spec.DecorationConfig.GCSConfiguration.JobURLPrefix != "" {
 		return pj.Spec.DecorationConfig.GCSConfiguration.JobURLPrefix
 	}
@@ -684,6 +677,13 @@ type Gerrit struct {
 	// DeckURL is the root URL of Deck. This is used to construct links to
 	// job runs for a given CL.
 	DeckURL string `json:"deck_url,omitempty"`
+}
+
+// Horologium is config for the Horologium.
+type Horologium struct {
+	// TickInterval is the interval in which we check if new jobs need to be
+	// created. Defaults to one minute.
+	TickInterval *metav1.Duration `json:"tick_interval,omitempty"`
 }
 
 // JenkinsOperator is config for the jenkins-operator controller.
@@ -862,7 +862,7 @@ type Deck struct {
 
 // Validate performs validation and sanitization on the Deck object.
 func (d *Deck) Validate() error {
-	if len(d.AdditionalAllowedBuckets) > 0 && !d.ShouldValidateStorageBuckets() {
+	if len(d.AdditionalAllowedBuckets) > 0 && !d.shouldValidateStorageBuckets() {
 		return fmt.Errorf("deck.skip_storage_path_validation is enabled despite deck.additional_allowed_buckets being configured: %v", d.AdditionalAllowedBuckets)
 	}
 
@@ -889,24 +889,13 @@ func (d *Deck) Validate() error {
 	return nil
 }
 
-var warnInRepoStorageBucketValidation time.Time
-
 // ValidateStorageBucket validates a storage bucket (unless the `Deck.SkipStoragePathValidation` field is true).
 // The bucket name must be included in any of the following:
 //    1) Any job's `.DecorationConfig.GCSConfiguration.Bucket` (except jobs defined externally via InRepoConfig)
 //    2) `Plank.DefaultDecorationConfigs.GCSConfiguration.Bucket`
 //    3) `Deck.AdditionalAllowedBuckets`
 func (c *Config) ValidateStorageBucket(bucketName string) error {
-	if len(c.InRepoConfig.Enabled) > 0 && len(c.Deck.AdditionalAllowedBuckets) == 0 {
-		logrusutil.ThrottledWarnf(&warnInRepoStorageBucketValidation, 1*time.Hour,
-			"skipping storage-path validation because `in_repo_config` is enabled, but `deck.additional_allowed_buckets` empty. "+
-				"(Note: Validation will be enabled by default in January 2021. "+
-				"To disable this message, populate `deck.additional_allowed_buckets` with at least one storage bucket. "+
-				"When `deck.additional_allowed_buckets` is populated, this message will be disabled.)")
-		return nil
-	}
-
-	if !c.Deck.ShouldValidateStorageBuckets() {
+	if !c.Deck.shouldValidateStorageBuckets() {
 		return nil
 	}
 
@@ -916,12 +905,11 @@ func (c *Config) ValidateStorageBucket(bucketName string) error {
 	return nil
 }
 
-// ShouldValidateStorageBuckets returns whether or not the Deck's storage path should be validated.
-// Validation could be either disabled by default or explicitly turned off.
-func (d *Deck) ShouldValidateStorageBuckets() bool {
+// shouldValidateStorageBuckets returns whether or not the Deck's storage path should be validated.
+// Validation could be either enabled by default or explicitly turned off.
+func (d *Deck) shouldValidateStorageBuckets() bool {
 	if d.SkipStoragePathValidation == nil {
-		// TODO(e-blackwelder): validate storage paths by default (~Jan 2021)
-		return false
+		return true
 	}
 	return !*d.SkipStoragePathValidation
 }
@@ -1091,14 +1079,14 @@ func (cfg *SlackReporter) DefaultAndValidate() error {
 }
 
 // Load loads and parses the config at path.
-func Load(prowConfig, jobConfig string, supplementalProwConfigDirs []string, additionals ...func(*Config) error) (c *Config, err error) {
+func Load(prowConfig, jobConfig string, supplementalProwConfigDirs []string, supplementalProwConfigsFileName string, additionals ...func(*Config) error) (c *Config, err error) {
 	// we never want config loading to take down the prow components
 	defer func() {
 		if r := recover(); r != nil {
 			c, err = nil, fmt.Errorf("panic loading config: %v\n%s", r, string(debug.Stack()))
 		}
 	}()
-	c, err = loadConfig(prowConfig, jobConfig, supplementalProwConfigDirs)
+	c, err = loadConfig(prowConfig, jobConfig, supplementalProwConfigDirs, supplementalProwConfigsFileName)
 	if err != nil {
 		return nil, err
 	}
@@ -1187,7 +1175,7 @@ func ReadJobConfig(jobConfig string) (JobConfig, error) {
 }
 
 // loadConfig loads one or multiple config files and returns a config object.
-func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string) (*Config, error) {
+func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string, supplementalProwConfigsFileName string) (*Config, error) {
 	stat, err := os.Stat(prowConfig)
 	if err != nil {
 		return nil, err
@@ -1220,7 +1208,7 @@ func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string)
 				return nil
 			}
 
-			if info.IsDir() || (filepath.Ext(path) != ".yaml" && filepath.Ext(path) != ".yml") {
+			if info.IsDir() || (filepath.Base(path) != supplementalProwConfigsFileName) {
 				return nil
 			}
 
@@ -1530,14 +1518,6 @@ func (c *Config) validateComponentConfig() error {
 	for k, v := range c.Plank.JobURLPrefixConfig {
 		if _, err := url.Parse(v); err != nil {
 			return fmt.Errorf(`Invalid value for Planks job_url_prefix_config["%s"]: %v`, k, err)
-		}
-		// TODO(@sbueringer): Remove in September 2020
-		if strings.HasSuffix(v, "gcs/") {
-			logrus.Warning(strings.Join([]string{
-				"configuring the 'gcs/' storage provider suffix in the job url prefix is now deprecated, ",
-				"please configure the job url prefix without the suffix as it's now appended automatically. Handling of the old ",
-				"configuration will be removed in September 2020",
-			}, ""))
 		}
 	}
 	if c.Gerrit.DeckURL != "" {
@@ -2529,10 +2509,90 @@ func StringsToOrgRepos(vs []string) []OrgRepo {
 
 // mergeFrom merges two prow configs. It must be called _before_ doing any
 // defaulting.
+// If you extend this, please also extend HasConfigFor accordingly.
 func (pc *ProwConfig) mergeFrom(additional *ProwConfig) error {
 	emptyReference := &ProwConfig{BranchProtection: additional.BranchProtection}
 	if diff := cmp.Diff(additional, emptyReference); diff != "" {
 		return fmt.Errorf("only 'branch-protection' may be set via additional config, all other fields have no merging logic yet. Diff: %s", diff)
 	}
 	return pc.BranchProtection.merge(&additional.BranchProtection)
+}
+
+// ContextDescriptionWithBaseSha is used by the GitHub reporting to store the baseSHA of a context
+// in the status context description. Tide will read this if present using the BaseSHAFromContextDescription
+// func. Storing the baseSHA in the status context allows us to store job results pretty much forever,
+// instead of having to rerun everything after sinker cleaned up the ProwJobs.
+func ContextDescriptionWithBaseSha(humanReadable, baseSHA string) string {
+	var suffix string
+	if baseSHA != "" {
+		suffix = contextDescriptionBaseSHADelimiter + baseSHA
+		// Leftpad the baseSHA suffix so its shown at a stable position on the right side in the GitHub UI.
+		// The GitHub UI will also trim it on the right side and replace some part of it with '...'. The
+		// API always returns the full string.
+		if len(humanReadable+suffix) < contextDescriptionMaxLen {
+			for i := 0; i < contextDescriptionMaxLen-len(humanReadable+suffix); i++ {
+				// This looks like a standard space but is U+2001, because GitHub seems to deduplicate normal
+				// spaces in their frontend.
+				suffix = " " + suffix
+			}
+		}
+	}
+	return truncate(humanReadable, contextDescriptionMaxLen-len(suffix)) + suffix
+}
+
+// BaseSHAFromContextDescription is used by Tide to decode a baseSHA from a github status context
+// description created via ContextDescriptionWithBaseSha. It will return an empty string if no
+// valid sha was found.
+func BaseSHAFromContextDescription(description string) string {
+	split := strings.Split(description, contextDescriptionBaseSHADelimiter)
+	// SHA1s are always 40 digits long
+	if len(split) != 2 || len(split[1]) != 40 {
+		// Fallback to deprecated one if available
+		if split = strings.Split(description, contextDescriptionBaseSHADelimiterDeprecated); len(split) == 2 && len(split[1]) == 40 {
+			return split[1]
+		}
+		return ""
+	}
+	return split[1]
+}
+
+const (
+	contextDescriptionBaseSHADelimiter           = " BaseSHA:"
+	contextDescriptionBaseSHADelimiterDeprecated = " Basesha:"
+	contextDescriptionMaxLen                     = 140 // https://developer.github.com/v3/repos/deployments/#parameters-2
+	elide                                        = " ... "
+)
+
+// truncate converts "really long messages" into "really ... messages".
+func truncate(in string, maxLen int) string {
+	half := (maxLen - len(elide)) / 2
+	if len(in) <= maxLen {
+		return in
+	}
+	return in[:half] + elide + in[len(in)-half:]
+}
+
+func (pc *ProwConfig) HasConfigFor() (global bool, orgs sets.String, repos sets.String) {
+	global = pc.hasGlobalConfig()
+	orgs = sets.String{}
+	repos = sets.String{}
+
+	for org, orgConfig := range pc.BranchProtection.Orgs {
+		if isPolicySet(orgConfig.Policy) {
+			orgs.Insert(org)
+		}
+		for repo := range orgConfig.Repos {
+			repos.Insert(org + "/" + repo)
+		}
+	}
+
+	return global, orgs, repos
+}
+
+func (pc *ProwConfig) hasGlobalConfig() bool {
+	if pc.BranchProtection.ProtectTested != nil || pc.BranchProtection.AllowDisabledPolicies != nil || pc.BranchProtection.AllowDisabledJobPolicies != nil || isPolicySet(pc.BranchProtection.Policy) {
+		return true
+	}
+	emptyReference := &ProwConfig{BranchProtection: pc.BranchProtection}
+	return cmp.Diff(pc, emptyReference) != ""
 }

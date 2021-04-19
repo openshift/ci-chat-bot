@@ -16,15 +16,14 @@ import (
 	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
+	configflagutil "k8s.io/test-infra/prow/flagutil/config"
 
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
-	prowapiv1 "k8s.io/test-infra/prow/config"
 )
 
 type options struct {
-	ProwConfigPath           string
-	JobConfigPath            string
+	prowconfig               configflagutil.ConfigOptions
 	GithubEndpoint           string
 	ForcePROwner             string
 	BuildClusterKubeconfig   string
@@ -42,17 +41,20 @@ func run() error {
 	emptyFlags := flag.NewFlagSet("empty", flag.ContinueOnError)
 	klog.InitFlags(emptyFlags)
 	opt := &options{
+		prowconfig: configflagutil.ConfigOptions{
+			ConfigPathFlagName:    "prow-config",
+			JobConfigPathFlagName: "job-config",
+		},
 		GithubEndpoint: "https://api.github.com",
 		ConfigResolver: "http://config.ci.openshift.org/config",
 	}
 	pflag.StringVar(&opt.ConfigResolver, "config-resolver", opt.ConfigResolver, "A URL pointing to a config resolver for retrieving ci-operator config. You may pass a location on disk with file://<abs_path_to_ci_operator_config>")
-	pflag.StringVar(&opt.ProwConfigPath, "prow-config", opt.ProwConfigPath, "A config file containing the prow configuration.")
-	pflag.StringVar(&opt.JobConfigPath, "job-config", opt.JobConfigPath, "A config file containing the jobs to run against releases.")
 	pflag.StringVar(&opt.GithubEndpoint, "github-endpoint", opt.GithubEndpoint, "An optional proxy for connecting to github.")
 	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
 	pflag.StringVar(&opt.BuildClusterKubeconfig, "build-cluster-kubeconfig", "", "Kubeconfig to use for buildcluster. Defaults to normal kubeconfig if unset.")
 	pflag.StringVar(&opt.ReleaseClusterKubeconfig, "release-cluster-kubeconfig", "", "Kubeconfig to use for cluster housing the release imagestreams. Defaults to normal kubeconfig if unset.")
-	pflag.CommandLine.AddGoFlag(emptyFlags.Lookup("v"))
+	opt.prowconfig.AddFlags(emptyFlags)
+	pflag.CommandLine.AddGoFlagSet(emptyFlags)
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
 
@@ -104,8 +106,8 @@ func run() error {
 		return fmt.Errorf("unable to create project client: %v", err)
 	}
 
-	configAgent := &prowapiv1.Agent{}
-	if err := configAgent.Start(opt.ProwConfigPath, opt.JobConfigPath, []string{}); err != nil {
+	configAgent, err := opt.prowconfig.ConfigAgent()
+	if err != nil {
 		return err
 	}
 
