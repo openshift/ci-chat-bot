@@ -381,7 +381,9 @@ func (b *Bot) notifyJob(response slacker.ResponseWriter, job *Job) {
 				comment += "\n" + job.PasswordSnippet
 			}
 			b.sendKubeconfig(response, job.RequestedChannel, job.Credentials, comment, job.RequestedAt.Format("2006-01-02-150405"))
+			return
 		}
+		b.sendKubeconfig(response, job.RequestedChannel, job.Credentials, "kubeconfig:", job.RequestedAt.Format("2006-01-02-150405"))
 		return
 	}
 
