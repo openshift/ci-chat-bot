@@ -111,17 +111,15 @@ type JobConfig struct {
 // ProwConfig is config for all prow controllers
 type ProwConfig struct {
 	// The git sha from which this config was generated
-	ConfigVersionSHA string           `json:"config_version_sha,omitempty"`
-	Tide             Tide             `json:"tide,omitempty"`
-	Plank            Plank            `json:"plank,omitempty"`
-	Sinker           Sinker           `json:"sinker,omitempty"`
-	Deck             Deck             `json:"deck,omitempty"`
-	BranchProtection BranchProtection `json:"branch-protection"`
-	Gerrit           Gerrit           `json:"gerrit"`
-	GitHubReporter   GitHubReporter   `json:"github_reporter"`
-	Horologium       Horologium       `json:"horologium"`
-	// Deprecated: this option will be removed in May 2020.
-	SlackReporter        *SlackReporter       `json:"slack_reporter,omitempty"`
+	ConfigVersionSHA     string               `json:"config_version_sha,omitempty"`
+	Tide                 Tide                 `json:"tide,omitempty"`
+	Plank                Plank                `json:"plank,omitempty"`
+	Sinker               Sinker               `json:"sinker,omitempty"`
+	Deck                 Deck                 `json:"deck,omitempty"`
+	BranchProtection     BranchProtection     `json:"branch-protection"`
+	Gerrit               Gerrit               `json:"gerrit"`
+	GitHubReporter       GitHubReporter       `json:"github_reporter"`
+	Horologium           Horologium           `json:"horologium"`
 	SlackReporterConfigs SlackReporterConfigs `json:"slack_reporter_configs,omitempty"`
 	InRepoConfig         InRepoConfig         `json:"in_repo_config"`
 
@@ -838,10 +836,6 @@ type Deck struct {
 	Branding *Branding `json:"branding,omitempty"`
 	// GoogleAnalytics, if specified, include a Google Analytics tracking code on each page.
 	GoogleAnalytics string `json:"google_analytics,omitempty"`
-	// Deprecated: RerunAuthConfig specifies who is able to trigger job reruns if that feature is enabled.
-	// The permissions here apply to all jobs.
-	// This option will be removed in favor of RerunAuthConfigs in July 2020.
-	RerunAuthConfig *prowapi.RerunAuthConfig `json:"rerun_auth_config,omitempty"`
 	// RerunAuthConfigs is a map of configs that specify who is able to trigger job reruns. The field
 	// accepts a key of: `org/repo`, `org` or `*` (wildcard) to define what GitHub org (or repo) a particular
 	// config applies to and a value of: `RerunAuthConfig` struct to define the users/groups authorized to rerun jobs.
@@ -864,17 +858,6 @@ type Deck struct {
 func (d *Deck) Validate() error {
 	if len(d.AdditionalAllowedBuckets) > 0 && !d.shouldValidateStorageBuckets() {
 		return fmt.Errorf("deck.skip_storage_path_validation is enabled despite deck.additional_allowed_buckets being configured: %v", d.AdditionalAllowedBuckets)
-	}
-
-	// TODO(@clarketm): Remove "rerun_auth_config" validation in July 2020
-	if d.RerunAuthConfig != nil {
-		logrus.Warning("rerun_auth_config will be deprecated in July 2020, and it will be replaced with rerun_auth_configs['*'].")
-
-		if d.RerunAuthConfigs != nil {
-			return errors.New("rerun_auth_config and rerun_auth_configs['*'] are mutually exclusive")
-		}
-
-		d.RerunAuthConfigs = RerunAuthConfigs{"*": *d.RerunAuthConfig}
 	}
 
 	// Note: The RerunAuthConfigs logic isn't deprecated, only the above RerunAuthConfig stuff is
@@ -1536,17 +1519,6 @@ func (c *Config) validateComponentConfig() error {
 		if len(validationErrs) > 0 {
 			return utilerrors.NewAggregate(validationErrs)
 		}
-	}
-
-	// TODO(@clarketm): Remove in May 2020
-	if c.SlackReporter != nil {
-		logrus.Warning("slack_reporter will be deprecated on May 2020, and it will be replaced with slack_reporter_configs['*'].")
-
-		if c.SlackReporterConfigs != nil {
-			return errors.New("slack_reporter and slack_reporter_configs['*'] are mutually exclusive")
-		}
-
-		c.SlackReporterConfigs = SlackReporterConfigs{"*": *c.SlackReporter}
 	}
 
 	if c.SlackReporterConfigs != nil {
