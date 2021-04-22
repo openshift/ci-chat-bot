@@ -398,8 +398,12 @@ func (t *throttler) Wait() {
 	start := time.Now()
 	log := logrus.WithFields(logrus.Fields{"client": "github", "throttled": true})
 	defer func() {
-		if waitTime := time.Since(start); waitTime > time.Minute {
-			log.WithField("throttle-duration", waitTime.String()).Warn("Throttled clientside for more than a minute")
+		waitTime := time.Since(start)
+		switch {
+		case waitTime > 15*time.Minute:
+			log.WithField("throttle-duration", waitTime.String()).Warn("Throttled clientside for more than 15 minutes")
+		case waitTime > time.Minute:
+			log.WithField("throttle-duration", waitTime.String()).Debug("Throttled clientside for more than a minute")
 		}
 	}()
 	t.lock.RLock()
@@ -902,7 +906,7 @@ func (c *client) requestRetry(method, path, accept, org string, body interface{}
 
 					want := sets.NewString(strings.Split(acceptedScopes, ",")...)
 					got := strings.Split(authorizedScopes, ",")
-					if len(want) > 0 && !want.HasAny(got...) {
+					if acceptedScopes != "" && !want.HasAny(got...) {
 						err = fmt.Errorf("the account is using %s oauth scopes, please make sure you are using at least one of the following oauth scopes: %s", authorizedScopes, acceptedScopes)
 					} else {
 						body, _ := ioutil.ReadAll(resp.Body)
@@ -1433,7 +1437,7 @@ func (c *client) ListCurrentUserOrgInvitations() ([]UserOrgInvitation, error) {
 		func(obj interface{}) {
 			for _, uoi := range *(obj.(*[]UserOrgInvitation)) {
 				if uoi.State == "pending" {
-					ret = append(ret, *(obj.(*[]UserOrgInvitation))...)
+					ret = append(ret, uoi)
 				}
 			}
 		},
@@ -1454,8 +1458,8 @@ func (c *client) AcceptUserOrgInvitation(org string) error {
 		method:      http.MethodPatch,
 		path:        fmt.Sprintf("/user/memberships/orgs/%s", org),
 		org:         org,
-		requestBody: &struct{ state string }{state: "active"},
-		exitCodes:   []int{204},
+		requestBody: map[string]string{"state": "active"},
+		exitCodes:   []int{200},
 	}, nil)
 
 	return err
