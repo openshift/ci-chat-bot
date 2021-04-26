@@ -753,7 +753,7 @@ k8s.io/klog
 k8s.io/klog/v2
 # k8s.io/kube-openapi v0.0.0-20201113171705-d219536bb9fd
 k8s.io/kube-openapi/pkg/util/proto
-# k8s.io/test-infra v0.0.0-20210424161459-0607c2ae321e
+# k8s.io/test-infra v0.0.0-20210426133502-071b792e9a76
 k8s.io/test-infra/ghproxy/ghcache
 k8s.io/test-infra/ghproxy/ghmetrics
 k8s.io/test-infra/pkg/genyaml
@@ -786,6 +786,7 @@ k8s.io/test-infra/prow/kube
 k8s.io/test-infra/prow/labels
 k8s.io/test-infra/prow/logrusutil
 k8s.io/test-infra/prow/pjutil
+k8s.io/test-infra/prow/pjutil/pprof
 k8s.io/test-infra/prow/pkg/layeredsets
 k8s.io/test-infra/prow/pluginhelp
 k8s.io/test-infra/prow/plugins
