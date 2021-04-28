@@ -873,11 +873,19 @@ echo "{\"auths\":{\"${registry_host}\":{\"auth\":\"${encoded_token}\"}}}" > /tmp
 
 mkdir -p "$(ARTIFACTS)/initial" "$(ARTIFACTS)/final"
 
+targets=()
 if [[ -z "${RELEASE_IMAGE_INITIAL-}" ]]; then
   unset RELEASE_IMAGE_INITIAL
+else
+  targets+=("--target=[release:initial]")
 fi
 if [[ -z "${RELEASE_IMAGE_LATEST-}" ]]; then
   unset RELEASE_IMAGE_LATEST
+else
+  targets+=("--target=[release:latest]")
+fi
+if [[ -z "${targets}" ]]; then
+	targets+=("--target=[images]")
 fi
 
 # import the initial release, if any
@@ -886,7 +894,7 @@ UNRESOLVED_CONFIG=$INITIAL ARTIFACTS=$(ARTIFACTS)/initial ci-operator \
   --image-mirror-push-secret=/tmp/push-auth \
   --namespace=$(NAMESPACE) \
   --delete-when-idle=$(PRESERVE_DURATION) \
-  --target=[release-inputs]
+  "${targets[@]}"
 
 unset RELEASE_IMAGE_INITIAL
 unset RELEASE_IMAGE_LATEST
