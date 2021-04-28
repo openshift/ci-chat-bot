@@ -872,6 +872,28 @@ func (d *Deck) Validate() error {
 	return nil
 }
 
+type notAllowedBucketError struct {
+	err error
+}
+
+func (ne notAllowedBucketError) Error() string {
+	return fmt.Sprintf("bucket not in allowed list; you may allow it by including it in `deck.additional_allowed_buckets`: %s", ne.err.Error())
+}
+
+func (notAllowedBucketError) Is(err error) bool {
+	_, ok := err.(notAllowedBucketError)
+	return ok
+}
+
+// NotAllowedBucketError wraps an error and return a notAllowedBucketError error
+func NotAllowedBucketError(err error) error {
+	return &notAllowedBucketError{err: err}
+}
+
+func IsNotAllowedBucketError(err error) bool {
+	return errors.Is(err, notAllowedBucketError{})
+}
+
 // ValidateStorageBucket validates a storage bucket (unless the `Deck.SkipStoragePathValidation` field is true).
 // The bucket name must be included in any of the following:
 //    1) Any job's `.DecorationConfig.GCSConfiguration.Bucket` (except jobs defined externally via InRepoConfig)
@@ -883,7 +905,7 @@ func (c *Config) ValidateStorageBucket(bucketName string) error {
 	}
 
 	if !c.Deck.AllKnownStorageBuckets.Has(bucketName) {
-		return fmt.Errorf("bucket %q not in allowed list (%v); you may allow it by including it in `deck.additional_allowed_buckets`", bucketName, c.Deck.AllKnownStorageBuckets.List())
+		return NotAllowedBucketError(fmt.Errorf("bucket %q not in allowed list (%v)", bucketName, c.Deck.AllKnownStorageBuckets.List()))
 	}
 	return nil
 }
@@ -1245,7 +1267,8 @@ func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string,
 		nc.InRepoConfig.AllowedClusters = map[string][]string{}
 	}
 
-	if len(nc.InRepoConfig.AllowedClusters["*"]) == 0 {
+	// Respect `"*": []`, which disabled default global cluster
+	if nc.InRepoConfig.AllowedClusters["*"] == nil {
 		nc.InRepoConfig.AllowedClusters["*"] = []string{kube.DefaultClusterAlias}
 	}
 
@@ -1303,8 +1326,7 @@ func yamlToConfig(path string, nc interface{}) error {
 		}
 	}
 
-	var fix func(*Periodic)
-	fix = func(job *Periodic) {
+	fix := func(job *Periodic) {
 		job.SourcePath = path
 	}
 	for i := range jc.Periodics {
@@ -2490,11 +2512,23 @@ func StringsToOrgRepos(vs []string) []OrgRepo {
 // defaulting.
 // If you extend this, please also extend HasConfigFor accordingly.
 func (pc *ProwConfig) mergeFrom(additional *ProwConfig) error {
-	emptyReference := &ProwConfig{BranchProtection: additional.BranchProtection}
-	if diff := cmp.Diff(additional, emptyReference); diff != "" {
-		return fmt.Errorf("only 'branch-protection' may be set via additional config, all other fields have no merging logic yet. Diff: %s", diff)
+	emptyReference := &ProwConfig{
+		BranchProtection: additional.BranchProtection,
+		Tide:             Tide{MergeType: additional.Tide.MergeType},
 	}
-	return pc.BranchProtection.merge(&additional.BranchProtection)
+
+	var errs []error
+	if diff := cmp.Diff(additional, emptyReference); diff != "" {
+		errs = append(errs, fmt.Errorf("only 'branch-protection' and 'tide.merge_method' may be set via additional config, all other fields have no merging logic yet. Diff: %s", diff))
+	}
+	if err := pc.BranchProtection.merge(&additional.BranchProtection); err != nil {
+		errs = append(errs, fmt.Errorf("failed to merge branch protection config: %w", err))
+	}
+	if err := pc.Tide.mergeFrom(&additional.Tide); err != nil {
+		errs = append(errs, fmt.Errorf("failed to merge tide config: %w", err))
+	}
+
+	return utilerrors.NewAggregate(errs)
 }
 
 // ContextDescriptionWithBaseSha is used by the GitHub reporting to store the baseSHA of a context
@@ -2565,6 +2599,14 @@ func (pc *ProwConfig) HasConfigFor() (global bool, orgs sets.String, repos sets.
 		}
 	}
 
+	for orgOrRepo := range pc.Tide.MergeType {
+		if strings.Contains(orgOrRepo, "/") {
+			repos.Insert(orgOrRepo)
+		} else {
+			orgs.Insert(orgOrRepo)
+		}
+	}
+
 	return global, orgs, repos
 }
 
@@ -2572,6 +2614,9 @@ func (pc *ProwConfig) hasGlobalConfig() bool {
 	if pc.BranchProtection.ProtectTested != nil || pc.BranchProtection.AllowDisabledPolicies != nil || pc.BranchProtection.AllowDisabledJobPolicies != nil || isPolicySet(pc.BranchProtection.Policy) {
 		return true
 	}
-	emptyReference := &ProwConfig{BranchProtection: pc.BranchProtection}
+	emptyReference := &ProwConfig{
+		BranchProtection: pc.BranchProtection,
+		Tide:             Tide{MergeType: pc.Tide.MergeType},
+	}
 	return cmp.Diff(pc, emptyReference) != ""
 }
