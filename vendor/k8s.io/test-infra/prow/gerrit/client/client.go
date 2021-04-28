@@ -90,6 +90,7 @@ type gerritChange interface {
 	QueryChanges(opt *gerrit.QueryChangeOptions) (*[]gerrit.ChangeInfo, *gerrit.Response, error)
 	SetReview(changeID, revisionID string, input *gerrit.ReviewInput) (*gerrit.ReviewResult, *gerrit.Response, error)
 	ListChangeComments(changeID string) (*map[string][]gerrit.CommentInfo, *gerrit.Response, error)
+	GetChange(changeId string, opt *gerrit.ChangeOptions) (*ChangeInfo, *gerrit.Response, error)
 }
 
 type gerritProjects interface {
@@ -263,11 +264,23 @@ func (c *Client) QueryChanges(lastState LastSyncState, rateLimit int) map[string
 			continue
 		}
 
-		for _, change := range changes {
-			result[h.instance] = append(result[h.instance], change)
-		}
+		result[h.instance] = append(result[h.instance], changes...)
 	}
 	return result
+}
+
+func (c *Client) GetChange(instance, id string) (*ChangeInfo, error) {
+	h, ok := c.handlers[instance]
+	if !ok {
+		return nil, fmt.Errorf("not activated gerrit instance: %s", instance)
+	}
+
+	info, _, err := h.changeService.GetChange(id, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error getting current change: %w", err)
+	}
+
+	return info, nil
 }
 
 // SetReview writes a review comment base on the change id + revision
