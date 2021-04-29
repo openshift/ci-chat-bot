@@ -130,14 +130,39 @@ func (r *URLConfigResolver) Resolve(org, repo, branch, variant string) ([]byte, 
 	}
 }
 
-// stopJob triggers namespace deletion, which will cause graceful shutdown of the
-// cluster. If this method returns nil, it is safe to consider the cluster released.
+// stopJob triggers graceful cluster teardown. If this method returns nil,
+// it is safe to consider the cluster released.
 func (m *jobManager) stopJob(name string) error {
-	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(name))
-	if err := m.projectClient.ProjectV1().Projects().Delete(context.TODO(), namespace, metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+	uns, err := m.prowClient.Namespace(m.prowNamespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// There may have been an issue creating the prowjob; treat as success
+			return nil
+		}
 		return err
 	}
-	return nil
+	var pj prowapiv1.ProwJob
+	if err := prow.UnstructuredToObject(uns, &pj); err != nil {
+		return err
+	}
+
+	_, err = m.coreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			if pj.Status.State == prowapiv1.TriggeredState {
+				return fmt.Errorf("original request is still initializing -- please try again in a few minutes")
+			}
+			// Since prowjob State != Triggered, pod creation should have been attempted.
+			// If it is not here, there's nothing to stop
+			return nil
+		}
+		return err
+	}
+
+	// Deleting the prowjob pod will gracefully terminate template or step based jobs. In the case of
+	// steps, this includes running post steps.
+	klog.Infof("ProwJob pod for job %q will be deleted", name)
+	return m.coreClient.CoreV1().Pods(m.prowNamespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
 }
 
 // newJob creates a ProwJob for running the provided job and exits.
@@ -259,39 +284,40 @@ func (m *jobManager) newJob(job *Job) error {
 		return fmt.Errorf("the launch job definition could not be loaded: %v", err)
 	}
 
-	// for a test job, find a matching test definition in the launch template - the template
-	// must use "launch" as the target and have the correct mappings, then we will select the
-	// appropriate sub test
+	// Which target in the ci-operator config are we going to run?
+	targetName := "launch"
 	if testName, ok := job.JobParams["test"]; ok {
-		var matchedTest map[string]interface{}
-		if tests, ok := sourceConfig.Object["tests"].([]interface{}); ok {
-			for _, testObj := range tests {
-				if test, ok := testObj.(map[string]interface{}); ok {
-					name, _, _ := unstructured.NestedString(test, "as")
-					if name == testName {
-						matchedTest = test
-						break
-					}
+		targetName = testName
+	}
+
+	var matchedTarget map[string]interface{}
+	if tests, ok := sourceConfig.Object["tests"].([]interface{}); ok {
+		for _, testObj := range tests {
+			if test, ok := testObj.(map[string]interface{}); ok {
+				name, _, _ := unstructured.NestedString(test, "as")
+				if name == targetName {
+					matchedTarget = test
+					break
 				}
 			}
 		}
-		if matchedTest == nil {
-			return fmt.Errorf("no test definition matched the expected name %q", testName)
-		}
+	}
+	if matchedTarget == nil {
+		return fmt.Errorf("no test definition matched the expected name %q", targetName)
+	}
+	commands, _, _ := unstructured.NestedString(matchedTarget, "commands")
+	stepBasedTarget := len(commands) == 0 // if commands are specified, this is a template based target
 
-		commands, _, _ := unstructured.NestedString(matchedTest, "commands")
-		if len(commands) == 0 {
-			return fmt.Errorf("cannot run job because bot does not support step registry yet")
-		}
-
-		// TODO: this should not be necessary once we move to step registry, because the definition
-		// would be internal
+	if !stepBasedTarget {
+		// TODO: Remove once all launch jobs are step based
 		prow.SetJobEnvVar(&pj.Spec, "TEST_COMMAND", commands)
+	}
 
-		// jobs are expected to have name as "launch", set the one we matched to that name and
-		// then remove other tests
-		matchedTest["as"] = "launch"
-		sourceConfig.Object["tests"] = []interface{}{matchedTest}
+	if targetName != "launch" {
+		// launch jobs always target 'launch'. If we have selected a different target, rename
+		// it in the configuration so that it will be run.
+		matchedTarget["as"] = "launch"
+		sourceConfig.Object["tests"] = []interface{}{matchedTarget}
 	}
 
 	var hasRefs bool
@@ -424,6 +450,13 @@ func (m *jobManager) newJob(job *Job) error {
 		}
 	}
 
+	if stepBasedTarget {
+		job.TargetType = "steps"
+	} else {
+		job.TargetType = "template"
+	}
+	pj.Annotations["ci-chat-bot.openshift.io/targetType"] = job.TargetType
+
 	// build jobs do not launch contents
 	if job.Mode == JobTypeBuild {
 		if err := replaceTargetArgument(pj.Spec.PodSpec, "launch", "[release:latest]"); err != nil {
@@ -454,6 +487,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 		return nil
 	}
 	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(job.Name))
+	stepBasedMode := job.TargetType == "steps"
 
 	klog.Infof("Job %q started a prow job that will create pods in namespace %s", job.Name, namespace)
 	var pj *prowapiv1.ProwJob
@@ -537,11 +571,11 @@ func (m *jobManager) waitForJob(job *Job) error {
 		return nil
 	}
 
-	var targetPodName string
+	var targetName string
 	switch job.Mode {
 	case JobTypeBuild:
 	default:
-		targetPodName, err = findTargetName(pj.Spec.PodSpec)
+		targetName, err = findTargetName(pj.Spec.PodSpec)
 		if err != nil {
 			if klog.V(2) {
 				data, _ := json.MarshalIndent(pj.Spec.PodSpec, "", "  ")
@@ -579,7 +613,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 		return fmt.Errorf("unable to check launch status: %v", err)
 	}
 
-	klog.Infof("Job %q waiting for setup container in pod %s/%s to complete", job.Name, namespace, targetPodName)
+	klog.Infof("Job %q waiting for setup container in pod %s to complete", job.Name, namespace)
 
 	seen = false
 	var lastErr error
@@ -587,33 +621,56 @@ func (m *jobManager) waitForJob(job *Job) error {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
-		pod, err := m.coreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetPodName, metav1.GetOptions{})
-		if err != nil {
-			// pod could not be created or we may not have permission yet
-			if !errors.IsNotFound(err) && !errors.IsForbidden(err) {
-				lastErr = err
+
+		if stepBasedMode {
+			prowJobPod, err := m.coreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
+			if err != nil {
 				return false, err
 			}
-			if seen {
-				return false, fmt.Errorf("cluster has already been torn down")
+			if prowJobPod.Status.Phase == "Succeeded" || prowJobPod.Status.Phase == "Failed" {
+				return false, errJobCompleted
+			}
+			launchSecret, err := m.coreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+			if err != nil {
+				// It will take awhile before the secret is established and for the ci-chat-bot serviceaccount
+				// to get permission to access it (see openshift-cluster-bot-rbac step). Ignore errors.
+				return false, nil
+			}
+			if _, ok := launchSecret.Data["console.url"]; ok {
+				// If the console.url is established, the cluster was setup.
+				return true, nil
 			}
 			return false, nil
+		} else {
+			// Execute in template based mode where actual installation pod is monitored.
+			pod, err := m.coreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+			if err != nil {
+				// pod could not be created or we may not have permission yet
+				if !errors.IsNotFound(err) && !errors.IsForbidden(err) {
+					lastErr = err
+					return false, err
+				}
+				if seen {
+					return false, fmt.Errorf("cluster has already been torn down")
+				}
+				return false, nil
+			}
+			seen = true
+			if pod.DeletionTimestamp != nil {
+				return false, fmt.Errorf("cluster is being torn down")
+			}
+			if pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed" {
+				return false, fmt.Errorf("cluster has already been torn down")
+			}
+			ok, err := containerSuccessful(pod, "setup")
+			if err != nil {
+				return false, err
+			}
+			if containerTerminated(pod, "test") {
+				return false, fmt.Errorf("cluster is shutting down")
+			}
+			return ok, nil
 		}
-		seen = true
-		if pod.DeletionTimestamp != nil {
-			return false, fmt.Errorf("cluster is being torn down")
-		}
-		if pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed" {
-			return false, fmt.Errorf("cluster has already been torn down")
-		}
-		ok, err := containerSuccessful(pod, "setup")
-		if err != nil {
-			return false, err
-		}
-		if containerTerminated(pod, "test") {
-			return false, fmt.Errorf("cluster is shutting down")
-		}
-		return ok, nil
 	})
 	if err != nil {
 		if lastErr != nil && err == wait.ErrWaitTimeout {
@@ -622,35 +679,49 @@ func (m *jobManager) waitForJob(job *Job) error {
 		if strings.HasPrefix(err.Error(), "cluster ") {
 			return err
 		}
-		return fmt.Errorf("pod never became available: %v", err)
+		return fmt.Errorf("cluster never became available: %v", err)
 	}
 
-	klog.Infof("Job %q waiting for kubeconfig from pod %s/%s", job.Name, namespace, targetPodName)
-
 	var kubeconfig string
-	err = wait.PollImmediate(30*time.Second, 10*time.Minute, func() (bool, error) {
-		if m.jobIsComplete(job) {
-			return false, errJobCompleted
+	if stepBasedMode {
+		launchSecret, err := m.coreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+		if err == nil {
+			if content, ok := launchSecret.Data["kubeconfig"]; ok {
+				kubeconfig = string(content)
+			} else {
+				klog.Errorf("job %q unable to find kubeconfig entry in step secret in %s/%s", job.Name, namespace, targetName)
+				return fmt.Errorf("could not retrieve kubeconfig from pod %s/%s", namespace, targetName)
+			}
+		} else {
+			klog.Errorf("job %q unable to access step secret in %s/%s", job.Name, namespace, targetName)
+			return fmt.Errorf("could not retrieve kubeconfig from secret %s/%s: %v", namespace, targetName, err)
 		}
-		contents, err := commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace, targetPodName, "test", []string{"cat", "/tmp/admin.kubeconfig"})
-		if err != nil {
-			if strings.Contains(err.Error(), "container not found") {
-				// periodically check whether the still exists and is not succeeded or failed
-				pod, err := m.coreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetPodName, metav1.GetOptions{})
-				if errors.IsNotFound(err) || (pod != nil && (pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed")) {
-					return false, fmt.Errorf("pod cannot be found or has been deleted, assume cluster won't come up")
-				}
+	} else {
+		klog.Infof("Job %q waiting for kubeconfig from pod %s/%s", job.Name, namespace, targetName)
+		err = wait.PollImmediate(30*time.Second, 10*time.Minute, func() (bool, error) {
+			if m.jobIsComplete(job) {
+				return false, errJobCompleted
+			}
+			contents, err := commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace, targetName, "test", []string{"cat", "/tmp/admin.kubeconfig"})
+			if err != nil {
+				if strings.Contains(err.Error(), "container not found") {
+					// periodically check whether the still exists and is not succeeded or failed
+					pod, err := m.coreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+					if errors.IsNotFound(err) || (pod != nil && (pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed")) {
+						return false, fmt.Errorf("pod cannot be found or has been deleted, assume cluster won't come up")
+					}
 
+					return false, nil
+				}
+				klog.Infof("Unable to retrieve config contents for %s/%s: %v", namespace, targetName, err)
 				return false, nil
 			}
-			klog.Infof("Unable to retrieve config contents for %s/%s: %v", namespace, targetPodName, err)
-			return false, nil
+			kubeconfig = contents
+			return len(contents) > 0, nil
+		})
+		if err != nil {
+			return fmt.Errorf("could not retrieve kubeconfig from pod %s/%s: %v", namespace, targetName, err)
 		}
-		kubeconfig = contents
-		return len(contents) > 0, nil
-	})
-	if err != nil {
-		return fmt.Errorf("could not retrieve kubeconfig from pod %s/%s: %v", namespace, targetPodName, err)
 	}
 
 	job.Credentials = kubeconfig
@@ -659,24 +730,44 @@ func (m *jobManager) waitForJob(job *Job) error {
 	// TODO: better criteria?
 	var waitErr error
 	if err := waitForClusterReachable(kubeconfig, func() bool { return m.jobIsComplete(job) }); err != nil {
-		klog.Infof("error: Job %q unable to wait for the cluster %s/%s to start: %v", job.Name, namespace, targetPodName, err)
+		klog.Infof("error: Job %q failed waiting for cluster to become reachable in %s: %v", job.Name, namespace, err)
 		job.Credentials = ""
 		waitErr = fmt.Errorf("cluster did not become reachable: %v", err)
 	}
 
-	lines := int64(2)
-	logs, err := m.coreClient.CoreV1().Pods(namespace).GetLogs(targetPodName, &corev1.PodLogOptions{Container: "setup", TailLines: &lines}).DoRaw(context.TODO())
-	if err != nil {
-		klog.Infof("error: Job %q unable to get setup logs: %v", job.Name, err)
-	}
-	job.PasswordSnippet = strings.TrimSpace(reFixLines.ReplaceAllString(string(logs), "$1"))
-
-	password, err := commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace, targetPodName, "test", []string{"cat", "/tmp/artifacts/installer/auth/kubeadmin-password"})
-	if err != nil {
-		klog.Infof("error: Job %q unable to get kubeadmin password: %v", job.Name, err)
-		job.PasswordSnippet = fmt.Sprintf("\nError: Unable to retrieve kubeadmin password, you must use the kubeconfig file to access the cluster: %v", err)
+	var kubeadminPassword string
+	if stepBasedMode {
+		launchSecret, err := m.coreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to retrieve step secret %s/%s: %v", namespace, targetName, err)
+		}
+		if consoleURL, ok := launchSecret.Data["console.url"]; ok {
+			job.PasswordSnippet = string(consoleURL)
+		} else {
+			return fmt.Errorf("unable to retrieve console.url from step secret %s/%s", namespace, targetName)
+		}
+		if password, ok := launchSecret.Data["kubeadmin-password"]; ok {
+			kubeadminPassword = string(password)
+		}
 	} else {
-		job.PasswordSnippet += fmt.Sprintf("\nLog in to the console with user `kubeadmin` and password `%s`", password)
+		lines := int64(2)
+		logs, err := m.coreClient.CoreV1().Pods(namespace).GetLogs(targetName, &corev1.PodLogOptions{Container: "setup", TailLines: &lines}).DoRaw(context.TODO())
+		if err != nil {
+			klog.Infof("error: Job %q unable to get setup logs: %v", job.Name, err)
+		}
+		job.PasswordSnippet = strings.TrimSpace(reFixLines.ReplaceAllString(string(logs), "$1"))
+		password, err := commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace, targetName, "test", []string{"cat", "/tmp/artifacts/installer/auth/kubeadmin-password"})
+		if err != nil {
+			klog.Infof("error: Job %q unable to get kubeadmin password: %v", job.Name, err)
+		} else {
+			kubeadminPassword = password
+		}
+	}
+
+	if len(kubeadminPassword) > 0 {
+		job.PasswordSnippet += fmt.Sprintf("\nLog in to the console with user `kubeadmin` and password `%s`", kubeadminPassword)
+	} else {
+		job.PasswordSnippet = fmt.Sprintf("\nError: Unable to retrieve kubeadmin password, you must use the kubeconfig file to access the cluster")
 	}
 
 	created := len(pj.Annotations["ci-chat-bot.openshift.io/expires"]) == 0
@@ -964,6 +1055,7 @@ func replaceTargetArgument(spec *corev1.PodSpec, from, to string) error {
 	return nil
 }
 
+// Returns the name of the --target in the ci-operator invocation.
 func findTargetName(spec *corev1.PodSpec) (string, error) {
 	if spec == nil {
 		return "", fmt.Errorf("prow job has no pod spec, cannot find target pod name")
