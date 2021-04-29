@@ -892,6 +892,7 @@ fi
 UNRESOLVED_CONFIG=$INITIAL ARTIFACTS=$(ARTIFACTS)/initial ci-operator \
   --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
   --image-mirror-push-secret=/tmp/push-auth \
+  --gcs-upload-secret=/secrets/gcs/service-account.json \
   --namespace=$(NAMESPACE) \
   --delete-when-idle=$(PRESERVE_DURATION) \
   "${targets[@]}"
@@ -911,6 +912,7 @@ for var in "${!CONFIG_SPEC_@}"; do
     JOB_SPEC="${!jobvar}" ARTIFACTS=$(ARTIFACTS)/$suffix UNRESOLVED_CONFIG="${!var}" ci-operator \
       --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
       --image-mirror-push-secret=/tmp/push-auth \
+      --gcs-upload-secret=/secrets/gcs/service-account.json \
       --namespace=$(NAMESPACE)-${suffix} \
       --target=[images] -promote >"$(ARTIFACTS)/$suffix/build.log" 2>&1
     code=$?
