@@ -1091,14 +1091,14 @@ func (cfg *SlackReporter) DefaultAndValidate() error {
 }
 
 // Load loads and parses the config at path.
-func Load(prowConfig, jobConfig string, supplementalProwConfigDirs []string, supplementalProwConfigsFileName string, additionals ...func(*Config) error) (c *Config, err error) {
+func Load(prowConfig, jobConfig string, supplementalProwConfigDirs []string, supplementalProwConfigsFileNameSuffix string, additionals ...func(*Config) error) (c *Config, err error) {
 	// we never want config loading to take down the prow components
 	defer func() {
 		if r := recover(); r != nil {
 			c, err = nil, fmt.Errorf("panic loading config: %v\n%s", r, string(debug.Stack()))
 		}
 	}()
-	c, err = loadConfig(prowConfig, jobConfig, supplementalProwConfigDirs, supplementalProwConfigsFileName)
+	c, err = loadConfig(prowConfig, jobConfig, supplementalProwConfigDirs, supplementalProwConfigsFileNameSuffix)
 	if err != nil {
 		return nil, err
 	}
@@ -1187,7 +1187,7 @@ func ReadJobConfig(jobConfig string) (JobConfig, error) {
 }
 
 // loadConfig loads one or multiple config files and returns a config object.
-func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string, supplementalProwConfigsFileName string) (*Config, error) {
+func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string, supplementalProwConfigsFileNameSuffix string) (*Config, error) {
 	stat, err := os.Stat(prowConfig)
 	if err != nil {
 		return nil, err
@@ -1220,7 +1220,7 @@ func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string,
 				return nil
 			}
 
-			if info.IsDir() || (filepath.Base(path) != supplementalProwConfigsFileName) {
+			if info.IsDir() || !strings.HasSuffix(path, supplementalProwConfigsFileNameSuffix) {
 				return nil
 			}
 
@@ -1941,6 +1941,17 @@ func parseProwConfig(c *Config) error {
 	}
 	if c.Tide.MaxGoroutines <= 0 {
 		return fmt.Errorf("tide has invalid max_goroutines (%d), it needs to be a positive number", c.Tide.MaxGoroutines)
+	}
+
+	if len(c.Tide.TargetURLs) > 0 && c.Tide.TargetURL != "" {
+		return fmt.Errorf("tide.target_url and tide.target_urls are mutually exclusive")
+	}
+
+	if c.Tide.TargetURLs == nil {
+		c.Tide.TargetURLs = map[string]string{}
+	}
+	if c.Tide.TargetURL != "" {
+		c.Tide.TargetURLs["*"] = c.Tide.TargetURL
 	}
 
 	if c.Tide.PRStatusBaseURLs == nil {
