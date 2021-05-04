@@ -25,6 +25,6 @@ require (
 	k8s.io/apimachinery v0.20.2
 	k8s.io/client-go v11.0.1-0.20190805182717-6502b5e7b1b5+incompatible
 	k8s.io/klog v1.0.0
-	k8s.io/test-infra v0.0.0-20210430101958-a8de1a965bad
+	k8s.io/test-infra v0.0.0-20210504134511-af1ac03335dc
 	sigs.k8s.io/yaml v1.2.0
 )
