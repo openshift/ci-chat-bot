@@ -280,7 +280,13 @@ func (m *jobManager) newJob(job *Job) error {
 			return fmt.Errorf("UNRESOLVED_CONFIG or CONFIG_SPEC for the launch job could not be found in the prow job %s", job.JobName)
 		}
 	}
-	sourceConfig, srcNamespace, srcName, err := loadJobConfigSpec(m.clusterClients[job.BuildCluster].CoreClient, sourceEnv, "ci")
+
+	clusterClient, ok := m.clusterClients[job.BuildCluster]
+	if !ok {
+		return fmt.Errorf("Cluster %s not found in %v", job.BuildCluster, m.clusterClients)
+	}
+
+	sourceConfig, srcNamespace, srcName, err := loadJobConfigSpec(clusterClient.CoreClient, sourceEnv, "ci")
 	if err != nil {
 		return fmt.Errorf("the launch job definition could not be loaded: %v", err)
 	}
