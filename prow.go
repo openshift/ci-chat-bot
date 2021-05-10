@@ -132,7 +132,7 @@ func (r *URLConfigResolver) Resolve(org, repo, branch, variant string) ([]byte, 
 
 // stopJob triggers graceful cluster teardown. If this method returns nil,
 // it is safe to consider the cluster released.
-func (m *jobManager) stopJob(name string) error {
+func (m *jobManager) stopJob(name, cluster string) error {
 	uns, err := m.prowClient.Namespace(m.prowNamespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -146,7 +146,7 @@ func (m *jobManager) stopJob(name string) error {
 		return err
 	}
 
-	_, err = m.coreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), name, metav1.GetOptions{})
+	_, err = m.clusterClients[cluster].CoreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			if pj.Status.State == prowapiv1.TriggeredState {
@@ -162,7 +162,7 @@ func (m *jobManager) stopJob(name string) error {
 	// Deleting the prowjob pod will gracefully terminate template or step based jobs. In the case of
 	// steps, this includes running post steps.
 	klog.Infof("ProwJob pod for job %q will be deleted", name)
-	return m.coreClient.CoreV1().Pods(m.prowNamespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
+	return m.clusterClients[cluster].CoreClient.CoreV1().Pods(m.prowNamespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
 }
 
 // newJob creates a ProwJob for running the provided job and exits.
@@ -203,6 +203,7 @@ func (m *jobManager) newJob(job *Job) error {
 			"ci-chat-bot.openshift.io/ns":              namespace,
 			"ci-chat-bot.openshift.io/platform":        job.Platform,
 			"ci-chat-bot.openshift.io/jobInputs":       string(jobInputData),
+			"ci-chat-bot.openshift.io/buildCluster":    job.BuildCluster,
 
 			"prow.k8s.io/job": pj.Spec.Job,
 
@@ -279,7 +280,7 @@ func (m *jobManager) newJob(job *Job) error {
 			return fmt.Errorf("UNRESOLVED_CONFIG or CONFIG_SPEC for the launch job could not be found in the prow job %s", job.JobName)
 		}
 	}
-	sourceConfig, srcNamespace, srcName, err := loadJobConfigSpec(m.coreClient, sourceEnv, "ci")
+	sourceConfig, srcNamespace, srcName, err := loadJobConfigSpec(m.clusterClients[job.BuildCluster].CoreClient, sourceEnv, "ci")
 	if err != nil {
 		return fmt.Errorf("the launch job definition could not be loaded: %v", err)
 	}
@@ -329,7 +330,7 @@ func (m *jobManager) newJob(job *Job) error {
 	if hasRefs {
 		launchDeadline += 30 * time.Minute
 
-		is, err := m.targetImageClient.ImageV1().ImageStreams("openshift").Get(context.TODO(), "cli", metav1.GetOptions{})
+		is, err := m.clusterClients[job.BuildCluster].TargetImageClient.ImageV1().ImageStreams("openshift").Get(context.TODO(), "cli", metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("unable to lookup registry URL for job")
 		}
@@ -590,7 +591,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
-		pod, err := m.coreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
+		pod, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
 		if err != nil {
 			if !errors.IsNotFound(err) {
 				return false, err
@@ -623,14 +624,14 @@ func (m *jobManager) waitForJob(job *Job) error {
 		}
 
 		if stepBasedMode {
-			prowJobPod, err := m.coreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
+			prowJobPod, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
 			if err != nil {
 				return false, err
 			}
 			if prowJobPod.Status.Phase == "Succeeded" || prowJobPod.Status.Phase == "Failed" {
 				return false, errJobCompleted
 			}
-			launchSecret, err := m.coreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+			launchSecret, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 			if err != nil {
 				// It will take awhile before the secret is established and for the ci-chat-bot serviceaccount
 				// to get permission to access it (see openshift-cluster-bot-rbac step). Ignore errors.
@@ -643,7 +644,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 			return false, nil
 		} else {
 			// Execute in template based mode where actual installation pod is monitored.
-			pod, err := m.coreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+			pod, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 			if err != nil {
 				// pod could not be created or we may not have permission yet
 				if !errors.IsNotFound(err) && !errors.IsForbidden(err) {
@@ -684,7 +685,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	var kubeconfig string
 	if stepBasedMode {
-		launchSecret, err := m.coreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+		launchSecret, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 		if err == nil {
 			if content, ok := launchSecret.Data["kubeconfig"]; ok {
 				kubeconfig = string(content)
@@ -702,11 +703,11 @@ func (m *jobManager) waitForJob(job *Job) error {
 			if m.jobIsComplete(job) {
 				return false, errJobCompleted
 			}
-			contents, err := commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace, targetName, "test", []string{"cat", "/tmp/admin.kubeconfig"})
+			contents, err := commandContents(m.clusterClients[job.BuildCluster].CoreClient.CoreV1(), m.clusterClients[job.BuildCluster].CoreConfig, namespace, targetName, "test", []string{"cat", "/tmp/admin.kubeconfig"})
 			if err != nil {
 				if strings.Contains(err.Error(), "container not found") {
 					// periodically check whether the still exists and is not succeeded or failed
-					pod, err := m.coreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+					pod, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 					if errors.IsNotFound(err) || (pod != nil && (pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed")) {
 						return false, fmt.Errorf("pod cannot be found or has been deleted, assume cluster won't come up")
 					}
@@ -737,7 +738,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	var kubeadminPassword string
 	if stepBasedMode {
-		launchSecret, err := m.coreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+		launchSecret, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("unable to retrieve step secret %s/%s: %v", namespace, targetName, err)
 		}
@@ -751,12 +752,12 @@ func (m *jobManager) waitForJob(job *Job) error {
 		}
 	} else {
 		lines := int64(2)
-		logs, err := m.coreClient.CoreV1().Pods(namespace).GetLogs(targetName, &corev1.PodLogOptions{Container: "setup", TailLines: &lines}).DoRaw(context.TODO())
+		logs, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Pods(namespace).GetLogs(targetName, &corev1.PodLogOptions{Container: "setup", TailLines: &lines}).DoRaw(context.TODO())
 		if err != nil {
 			klog.Infof("error: Job %q unable to get setup logs: %v", job.Name, err)
 		}
 		job.PasswordSnippet = strings.TrimSpace(reFixLines.ReplaceAllString(string(logs), "$1"))
-		password, err := commandContents(m.coreClient.CoreV1(), m.coreConfig, namespace, targetName, "test", []string{"cat", "/tmp/artifacts/installer/auth/kubeadmin-password"})
+		password, err := commandContents(m.clusterClients[job.BuildCluster].CoreClient.CoreV1(), m.clusterClients[job.BuildCluster].CoreConfig, namespace, targetName, "test", []string{"cat", "/tmp/artifacts/installer/auth/kubeadmin-password"})
 		if err != nil {
 			klog.Infof("error: Job %q unable to get kubeadmin password: %v", job.Name, err)
 		} else {

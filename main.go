@@ -3,9 +3,14 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"log"
 	"net/url"
 	"os"
+	"path"
+	"regexp"
 	"time"
 
 	"gopkg.in/fsnotify.v1"
@@ -22,13 +27,18 @@ import (
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 )
 
+var (
+	reBuildClusterName = regexp.MustCompile(`(.*).kubeconfig`)
+)
+
 type options struct {
-	prowconfig               configflagutil.ConfigOptions
-	GithubEndpoint           string
-	ForcePROwner             string
-	BuildClusterKubeconfig   string
-	ReleaseClusterKubeconfig string
-	ConfigResolver           string
+	prowconfig                      configflagutil.ConfigOptions
+	GithubEndpoint                  string
+	ForcePROwner                    string
+	BuildClusterKubeconfig          string
+	BuildClusterKubeconfigsLocation string
+	ReleaseClusterKubeconfig        string
+	ConfigResolver                  string
 }
 
 func main() {
@@ -45,20 +55,28 @@ func run() error {
 			ConfigPathFlagName:    "prow-config",
 			JobConfigPathFlagName: "job-config",
 		},
-		GithubEndpoint: "https://api.github.com",
-		ConfigResolver: "http://config.ci.openshift.org/config",
+		GithubEndpoint:                  "https://api.github.com",
+		ConfigResolver:                  "http://config.ci.openshift.org/config",
+		BuildClusterKubeconfigsLocation: "/var/build-cluster-kubeconfigs",
 	}
+	var ignored string
 	pflag.StringVar(&opt.ConfigResolver, "config-resolver", opt.ConfigResolver, "A URL pointing to a config resolver for retrieving ci-operator config. You may pass a location on disk with file://<abs_path_to_ci_operator_config>")
 	pflag.StringVar(&opt.GithubEndpoint, "github-endpoint", opt.GithubEndpoint, "An optional proxy for connecting to github.")
 	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
-	pflag.StringVar(&opt.BuildClusterKubeconfig, "build-cluster-kubeconfig", "", "Kubeconfig to use for buildcluster. Defaults to normal kubeconfig if unset.")
+	pflag.StringVar(&ignored, "build-cluster-kubeconfig", ignored, "REMOVED: Kubeconfig to use for buildcluster. Defaults to normal kubeconfig if unset.")
+	pflag.StringVar(&opt.BuildClusterKubeconfigsLocation, "build-cluster-kubeconfigs-location", "", "Path to the location of the Kubeconfigs for the various buildclusters. Default is \"/var/build-cluster-kubeconfigs\".")
 	pflag.StringVar(&opt.ReleaseClusterKubeconfig, "release-cluster-kubeconfig", "", "Kubeconfig to use for cluster housing the release imagestreams. Defaults to normal kubeconfig if unset.")
 	opt.prowconfig.AddFlags(emptyFlags)
 	pflag.CommandLine.AddGoFlagSet(emptyFlags)
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
 
-	if err := setupKubeconfigWatches(opt); err != nil {
+	buildClusterClientConfigs, err := readBuildClusterKubeConfigs(opt.BuildClusterKubeconfigsLocation)
+	if err != nil {
+		return fmt.Errorf("unable to load build cluster configurations: %v", err)
+	}
+
+	if err := setupKubeconfigWatches(buildClusterClientConfigs); err != nil {
 		klog.Warningf("failed to set up kubeconfig watches: %v", err)
 	}
 
@@ -77,23 +95,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	config, err := loadKubeconfigFromFlagOrDefault(opt.BuildClusterKubeconfig, prowJobKubeconfig)
-	if err != nil {
-		return fmt.Errorf("failed to load prowjob kubeconfig: %w", err)
-	}
 	dynamicClient, err := dynamic.NewForConfig(prowJobKubeconfig)
 	if err != nil {
 		return fmt.Errorf("unable to create prow client: %v", err)
 	}
 	prowClient := dynamicClient.Resource(schema.GroupVersionResource{Group: "prow.k8s.io", Version: "v1", Resource: "prowjobs"})
-	client, err := clientset.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("unable to create client: %v", err)
-	}
-	targetImageClient, err := imageclientset.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("unable to create image client: %v", err)
-	}
 
 	// Config and Client to access release images
 	releaseConfig, err := loadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, prowJobKubeconfig)
@@ -101,17 +107,13 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("unable to create image client: %v", err)
 	}
-	projectClient, err := projectclientset.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("unable to create project client: %v", err)
-	}
 
 	configAgent, err := opt.prowconfig.ConfigAgent()
 	if err != nil {
 		return err
 	}
 
-	manager := NewJobManager(configAgent, resolver, prowClient, client, imageClient, targetImageClient, projectClient, config, opt.GithubEndpoint, opt.ForcePROwner)
+	manager := NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, opt.GithubEndpoint, opt.ForcePROwner)
 	if err := manager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %v", err)
 	}
@@ -125,17 +127,75 @@ func run() error {
 	}
 }
 
-func setupKubeconfigWatches(o *options) error {
+type BuildClusterClientConfig struct {
+	KubeconfigPath    string
+	CoreConfig        *rest.Config
+	CoreClient        *clientset.Clientset
+	ProjectClient     *projectclientset.Clientset
+	TargetImageClient *imageclientset.Clientset
+}
+
+type BuildClusterClientConfigMap map[string]*BuildClusterClientConfig
+
+func readBuildClusterKubeConfigs(location string) (BuildClusterClientConfigMap, error) {
+	files, err := ioutil.ReadDir(location)
+	if err != nil {
+		return nil, fmt.Errorf("unable to access location %q: %v", location, err)
+	}
+	clusterMap := make(BuildClusterClientConfigMap)
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		fullPath := path.Join(location, file.Name())
+		if m := reBuildClusterName.FindStringSubmatch(file.Name()); m != nil {
+			contents, err := ioutil.ReadFile(fullPath)
+			if err != nil {
+				return nil, fmt.Errorf("unable to access kubeconfig %q: %v", file.Name(), err)
+			}
+			cfg, err := clientcmd.NewClientConfigFromBytes(contents)
+			if err != nil {
+				return nil, fmt.Errorf("could not load build client configuration: %v", err)
+			}
+			clusterConfig, err := cfg.ClientConfig()
+			if err != nil {
+				return nil, fmt.Errorf("could not load cluster configuration: %v", err)
+			}
+			coreClient, err := clientset.NewForConfig(clusterConfig)
+			if err != nil {
+				return nil, fmt.Errorf("unable to create core client: %v", err)
+			}
+			targetImageClient, err := imageclientset.NewForConfig(clusterConfig)
+			if err != nil {
+				return nil, fmt.Errorf("unable to create target image client: %v", err)
+			}
+			projectClient, err := projectclientset.NewForConfig(clusterConfig)
+			if err != nil {
+				return nil, fmt.Errorf("unable to create project client: %v", err)
+			}
+			clusterMap[m[1]] = &BuildClusterClientConfig{
+				KubeconfigPath:    fullPath,
+				CoreConfig:        clusterConfig,
+				CoreClient:        coreClient,
+				ProjectClient:     projectClient,
+				TargetImageClient: targetImageClient,
+			}
+		}
+	}
+	return clusterMap, nil
+}
+
+func setupKubeconfigWatches(clusters BuildClusterClientConfigMap) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("failed to set up watcher: %w", err)
 	}
-	for _, candidate := range []string{o.BuildClusterKubeconfig, o.ReleaseClusterKubeconfig} {
-		if _, err := os.Stat(candidate); err != nil {
+	for _, cluster := range clusters {
+		if _, err := os.Stat(cluster.KubeconfigPath); err != nil {
 			continue
 		}
-		if err := watcher.Add(candidate); err != nil {
-			return fmt.Errorf("failed to watch %s: %w", candidate, err)
+		if err := watcher.Add(cluster.KubeconfigPath); err != nil {
+			return fmt.Errorf("failed to watch %s: %w", cluster, err)
 		}
 	}
 

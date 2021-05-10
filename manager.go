@@ -22,16 +22,12 @@ import (
 
 	"github.com/blang/semver"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/dynamic"
-	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-
 	imagev1 "github.com/openshift/api/image/v1"
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
-	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/dynamic"
 	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 )
 
@@ -139,6 +135,7 @@ type Job struct {
 	Complete      bool
 
 	Architecture string
+	BuildCluster string
 }
 
 func (j Job) IsComplete() bool {
@@ -156,16 +153,13 @@ type jobManager struct {
 	maxClusters   int
 	maxAge        time.Duration
 
-	prowConfigLoader  prow.ProwConfigLoader
-	prowClient        dynamic.NamespaceableResourceInterface
-	coreClient        clientset.Interface
-	imageClient       imageclientset.Interface
-	targetImageClient imageclientset.Interface
-	projectClient     projectclientset.Interface
-	coreConfig        *rest.Config
-	prowNamespace     string
-	githubURL         string
-	forcePROwner      string
+	prowConfigLoader prow.ProwConfigLoader
+	prowClient       dynamic.NamespaceableResourceInterface
+	imageClient      imageclientset.Interface
+	clusterClients   BuildClusterClientConfigMap
+	prowNamespace    string
+	githubURL        string
+	forcePROwner     string
 
 	configResolver ConfigResolver
 
@@ -185,11 +179,8 @@ func NewJobManager(
 	prowConfigLoader prow.ProwConfigLoader,
 	configResolver ConfigResolver,
 	prowClient dynamic.NamespaceableResourceInterface,
-	coreClient clientset.Interface,
 	imageClient imageclientset.Interface,
-	targetImageClient imageclientset.Interface,
-	projectClient projectclientset.Interface,
-	config *rest.Config,
+	buildClusterClientConfigMap BuildClusterClientConfigMap,
 	githubURL, forcePROwner string,
 ) *jobManager {
 	m := &jobManager{
@@ -200,15 +191,12 @@ func NewJobManager(
 		maxAge:        3 * time.Hour,
 		githubURL:     githubURL,
 
-		prowConfigLoader:  prowConfigLoader,
-		prowClient:        prowClient,
-		coreClient:        coreClient,
-		coreConfig:        config,
-		imageClient:       imageClient,
-		targetImageClient: targetImageClient,
-		projectClient:     projectClient,
-		prowNamespace:     "ci",
-		forcePROwner:      forcePROwner,
+		prowConfigLoader: prowConfigLoader,
+		prowClient:       prowClient,
+		imageClient:      imageClient,
+		clusterClients:   buildClusterClientConfigMap,
+		prowNamespace:    "ci",
+		forcePROwner:     forcePROwner,
 
 		configResolver: configResolver,
 	}
@@ -306,6 +294,10 @@ func (m *jobManager) sync() error {
 		if len(architecture) == 0 {
 			architecture = "amd64"
 		}
+		buildCluster := job.Annotations["release.openshift.io/buildCluster"]
+		if len(buildCluster) == 0 {
+			buildCluster = job.Spec.Cluster
+		}
 		j := &Job{
 			Name:             job.Name,
 			State:            job.Status.State,
@@ -319,6 +311,7 @@ func (m *jobManager) sync() error {
 			RequestedChannel: job.Annotations["ci-chat-bot.openshift.io/channel"],
 			RequestedAt:      job.CreationTimestamp.Time,
 			Architecture:     architecture,
+			BuildCluster:     buildCluster,
 		}
 
 		// This is a new annotation and there may be a brief window where not all
@@ -1092,7 +1085,9 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		return "", fmt.Errorf("configuration error, unable to find prow job matching %s", selector)
 	}
 	job.JobName = prowJob.Spec.Job
-	klog.Infof("Job %q requested by user %q with mode %s prow job %s - params=%s, inputs=%#v", job.Name, req.User, job.Mode, job.JobName, paramsToString(job.JobParams), job.Inputs)
+	job.BuildCluster = prowJob.Spec.Cluster
+
+	klog.Infof("Job %q requested by user %q with mode %s prow job %s(%s) - params=%s, inputs=%#v", job.Name, req.User, job.Mode, job.JobName, job.BuildCluster, paramsToString(job.JobParams), job.Inputs)
 
 	msg, err := func() (string, error) {
 		m.lock.Lock()
@@ -1177,9 +1172,9 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	return "", fmt.Errorf("job started, you will be notified on completion")
 }
 
-func (m *jobManager) clusterNameForUser(user string) (string, error) {
+func (m *jobManager) clusterDetailsForUser(user string) (string, string, error) {
 	if len(user) == 0 {
-		return "", fmt.Errorf("must specify the name of the user who requested this cluster")
+		return "", "", fmt.Errorf("must specify the name of the user who requested this cluster")
 	}
 
 	m.lock.Lock()
@@ -1187,25 +1182,29 @@ func (m *jobManager) clusterNameForUser(user string) (string, error) {
 
 	existing, ok := m.requests[user]
 	if !ok || len(existing.Name) == 0 {
-		return "", fmt.Errorf("no cluster has been requested by you")
+		return "", "", fmt.Errorf("no cluster has been requested by you")
 	}
-	return existing.Name, nil
+	job, ok := m.jobs[existing.Name]
+	if !ok || len(job.BuildCluster) == 0 {
+		return "", "", fmt.Errorf("unable to determine build cluster for your job")
+	}
+	return existing.Name, job.BuildCluster, nil
 }
 
 func (m *jobManager) TerminateJobForUser(user string) (string, error) {
-	name, err := m.clusterNameForUser(user)
+	name, cluster, err := m.clusterDetailsForUser(user)
 	if err != nil {
 		return "", err
 	}
 
-	if err := m.stopJob(name); err != nil {
+	if err := m.stopJob(name, cluster); err != nil {
 		return "", fmt.Errorf("unable to terminate: %v", err)
 	}
 
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	klog.Infof("user %q requests job %q to be terminated", user, name)
+	klog.Infof("user %q requests name %q to be terminated", user, name)
 	if job, ok := m.jobs[name]; ok {
 		job.Failure = "deletion requested"
 		job.ExpiresAt = time.Now().Add(15 * time.Minute)
