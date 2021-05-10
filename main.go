@@ -4,14 +4,15 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"log"
 	"net/url"
 	"os"
 	"path"
 	"regexp"
 	"time"
+
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 
 	"gopkg.in/fsnotify.v1"
 
@@ -195,7 +196,7 @@ func setupKubeconfigWatches(clusters BuildClusterClientConfigMap) error {
 			continue
 		}
 		if err := watcher.Add(cluster.KubeconfigPath); err != nil {
-			return fmt.Errorf("failed to watch %s: %w", cluster, err)
+			return fmt.Errorf("failed to watch %v: %w", cluster, err)
 		}
 	}
 
