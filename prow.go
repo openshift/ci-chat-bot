@@ -281,9 +281,9 @@ func (m *jobManager) newJob(job *Job) error {
 		}
 	}
 
-	clusterClient, ok := m.clusterClients[job.BuildCluster]
-	if !ok {
-		return fmt.Errorf("Cluster %s not found in %v", job.BuildCluster, m.clusterClients)
+	clusterClient, err := getClusterClient(m, job)
+	if err != nil {
+		return err
 	}
 
 	sourceConfig, srcNamespace, srcName, err := loadJobConfigSpec(clusterClient.CoreClient, sourceEnv, "ci")
@@ -336,7 +336,12 @@ func (m *jobManager) newJob(job *Job) error {
 	if hasRefs {
 		launchDeadline += 30 * time.Minute
 
-		is, err := m.clusterClients[job.BuildCluster].TargetImageClient.ImageV1().ImageStreams("openshift").Get(context.TODO(), "cli", metav1.GetOptions{})
+		clusterClient, err := getClusterClient(m, job)
+		if err != nil {
+			return err
+		}
+
+		is, err := clusterClient.TargetImageClient.ImageV1().ImageStreams("openshift").Get(context.TODO(), "cli", metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("unable to lookup registry URL for job")
 		}
@@ -489,6 +494,14 @@ func (m *jobManager) newJob(job *Job) error {
 	return nil
 }
 
+func getClusterClient(m *jobManager, job *Job) (*BuildClusterClientConfig, error) {
+	clusterClient, ok := m.clusterClients[job.BuildCluster]
+	if !ok {
+		return nil, fmt.Errorf("Cluster %s not found in %v", job.BuildCluster, m.clusterClients)
+	}
+	return clusterClient, nil
+}
+
 func (m *jobManager) waitForJob(job *Job) error {
 	if job.IsComplete() && len(job.PasswordSnippet) > 0 {
 		return nil
@@ -597,7 +610,11 @@ func (m *jobManager) waitForJob(job *Job) error {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
-		pod, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
+		clusterClient, err := getClusterClient(m, job)
+		if err != nil {
+			return false, err
+		}
+		pod, err := clusterClient.CoreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
 		if err != nil {
 			if !errors.IsNotFound(err) {
 				return false, err
@@ -629,15 +646,19 @@ func (m *jobManager) waitForJob(job *Job) error {
 			return false, errJobCompleted
 		}
 
+		clusterClient, err := getClusterClient(m, job)
+		if err != nil {
+			return false, err
+		}
 		if stepBasedMode {
-			prowJobPod, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
+			prowJobPod, err := clusterClient.CoreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
 			if err != nil {
 				return false, err
 			}
 			if prowJobPod.Status.Phase == "Succeeded" || prowJobPod.Status.Phase == "Failed" {
 				return false, errJobCompleted
 			}
-			launchSecret, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+			launchSecret, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 			if err != nil {
 				// It will take awhile before the secret is established and for the ci-chat-bot serviceaccount
 				// to get permission to access it (see openshift-cluster-bot-rbac step). Ignore errors.
@@ -650,7 +671,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 			return false, nil
 		} else {
 			// Execute in template based mode where actual installation pod is monitored.
-			pod, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+			pod, err := clusterClient.CoreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 			if err != nil {
 				// pod could not be created or we may not have permission yet
 				if !errors.IsNotFound(err) && !errors.IsForbidden(err) {
@@ -690,8 +711,12 @@ func (m *jobManager) waitForJob(job *Job) error {
 	}
 
 	var kubeconfig string
+	clusterClient, err := getClusterClient(m, job)
+	if err != nil {
+		return err
+	}
 	if stepBasedMode {
-		launchSecret, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+		launchSecret, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 		if err == nil {
 			if content, ok := launchSecret.Data["kubeconfig"]; ok {
 				kubeconfig = string(content)
@@ -709,11 +734,11 @@ func (m *jobManager) waitForJob(job *Job) error {
 			if m.jobIsComplete(job) {
 				return false, errJobCompleted
 			}
-			contents, err := commandContents(m.clusterClients[job.BuildCluster].CoreClient.CoreV1(), m.clusterClients[job.BuildCluster].CoreConfig, namespace, targetName, "test", []string{"cat", "/tmp/admin.kubeconfig"})
+			contents, err := commandContents(clusterClient.CoreClient.CoreV1(), clusterClient.CoreConfig, namespace, targetName, "test", []string{"cat", "/tmp/admin.kubeconfig"})
 			if err != nil {
 				if strings.Contains(err.Error(), "container not found") {
 					// periodically check whether the still exists and is not succeeded or failed
-					pod, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+					pod, err := clusterClient.CoreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 					if errors.IsNotFound(err) || (pod != nil && (pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed")) {
 						return false, fmt.Errorf("pod cannot be found or has been deleted, assume cluster won't come up")
 					}
@@ -744,7 +769,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	var kubeadminPassword string
 	if stepBasedMode {
-		launchSecret, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+		launchSecret, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("unable to retrieve step secret %s/%s: %v", namespace, targetName, err)
 		}
@@ -758,12 +783,12 @@ func (m *jobManager) waitForJob(job *Job) error {
 		}
 	} else {
 		lines := int64(2)
-		logs, err := m.clusterClients[job.BuildCluster].CoreClient.CoreV1().Pods(namespace).GetLogs(targetName, &corev1.PodLogOptions{Container: "setup", TailLines: &lines}).DoRaw(context.TODO())
+		logs, err := clusterClient.CoreClient.CoreV1().Pods(namespace).GetLogs(targetName, &corev1.PodLogOptions{Container: "setup", TailLines: &lines}).DoRaw(context.TODO())
 		if err != nil {
 			klog.Infof("error: Job %q unable to get setup logs: %v", job.Name, err)
 		}
 		job.PasswordSnippet = strings.TrimSpace(reFixLines.ReplaceAllString(string(logs), "$1"))
-		password, err := commandContents(m.clusterClients[job.BuildCluster].CoreClient.CoreV1(), m.clusterClients[job.BuildCluster].CoreConfig, namespace, targetName, "test", []string{"cat", "/tmp/artifacts/installer/auth/kubeadmin-password"})
+		password, err := commandContents(clusterClient.CoreClient.CoreV1(), clusterClient.CoreConfig, namespace, targetName, "test", []string{"cat", "/tmp/artifacts/installer/auth/kubeadmin-password"})
 		if err != nil {
 			klog.Infof("error: Job %q unable to get kubeadmin password: %v", job.Name, err)
 		} else {
