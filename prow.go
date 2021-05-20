@@ -336,6 +336,10 @@ func (m *jobManager) newJob(job *Job) error {
 	if hasRefs {
 		launchDeadline += 30 * time.Minute
 
+		// in order to build repos, we need to clone all the refs
+		boolFalse := false
+		pj.Spec.DecorationConfig.SkipCloning = &boolFalse
+
 		clusterClient, err := getClusterClient(m, job)
 		if err != nil {
 			return err
@@ -451,6 +455,13 @@ func (m *jobManager) newJob(job *Job) error {
 					return fmt.Errorf("unable to reformat child job for %#v: %v", ref, err)
 				}
 				prow.SetJobEnvVar(&pj.Spec, fmt.Sprintf("JOB_SPEC_%d", index), string(data))
+
+				// this is used by ci-operator to resolve per repo configuration (which is cloned above)
+				pathAlias := fmt.Sprintf("%d/github.com/%s/%s", index, ref.Org, ref.Repo)
+				copiedRef := ref
+				copiedRef.PathAlias = pathAlias
+				pj.Spec.ExtraRefs = append(pj.Spec.ExtraRefs, copiedRef)
+				prow.SetJobEnvVar(&pj.Spec, fmt.Sprintf("REPO_PATH_%d", index), pathAlias)
 
 				index++
 			}
@@ -996,6 +1007,11 @@ echo "{\"auths\":{\"${registry_host}\":{\"auth\":\"${encoded_token}\"}}}" > /tmp
 
 mkdir -p "$(ARTIFACTS)/initial" "$(ARTIFACTS)/final"
 
+# HACK: clonerefs infers a directory from the refs provided to the prowjob, there's no way
+# to override it outside the job today, so simply reset to the working dir
+cd "/home/prow/go/src"
+working_dir="$(pwd)"
+
 targets=()
 if [[ -z "${RELEASE_IMAGE_INITIAL-}" ]]; then
   unset RELEASE_IMAGE_INITIAL
@@ -1028,10 +1044,13 @@ pids=()
 for var in "${!CONFIG_SPEC_@}"; do
   suffix="${var/CONFIG_SPEC_/}"
   jobvar="JOB_SPEC_$suffix"
+	srcpath="REPO_PATH_$suffix"
+	srcpath="${working_dir}/${!srcpath}"
   mkdir -p "$(ARTIFACTS)/$suffix"
   (
     set +e
-    echo "Starting $suffix ..."
+    echo "Starting $suffix:${srcpath} ..."
+    if [[ -d "${srcpath}" ]]; then pushd "${srcpath}" >/dev/null; else echo "does not have a source directory ${srcpath}"; fi
     JOB_SPEC="${!jobvar}" ARTIFACTS=$(ARTIFACTS)/$suffix UNRESOLVED_CONFIG="${!var}" ci-operator \
       --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
       --image-mirror-push-secret=/tmp/push-auth \
