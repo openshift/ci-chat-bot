@@ -82,6 +82,7 @@ github.com/aws/aws-sdk-go/service/sts/stsiface
 # github.com/beorn7/perks v1.0.1
 github.com/beorn7/perks/quantile
 # github.com/blang/semver v3.5.1+incompatible
+## explicit
 github.com/blang/semver
 # github.com/bwmarrin/snowflake v0.0.0
 github.com/bwmarrin/snowflake
@@ -96,8 +97,11 @@ github.com/dgrijalva/jwt-go
 # github.com/dgrijalva/jwt-go/v4 v4.0.0-preview1
 github.com/dgrijalva/jwt-go/v4
 # github.com/docker/spdystream v0.0.0-20181023171402-6480d4af844c
+## explicit
 github.com/docker/spdystream
 github.com/docker/spdystream/spdy
+# github.com/elazarl/goproxy v0.0.0-20200315184450-1f3cb6622dad
+## explicit
 # github.com/evanphx/json-patch v4.9.0+incompatible
 github.com/evanphx/json-patch
 # github.com/fatih/structs v1.0.0
@@ -191,11 +195,13 @@ github.com/modern-go/concurrent
 # github.com/modern-go/reflect2 v1.0.1
 github.com/modern-go/reflect2
 # github.com/openshift/api v0.0.0-20200326160804-ecb9283fe820
+## explicit
 github.com/openshift/api/image/docker10
 github.com/openshift/api/image/dockerpre012
 github.com/openshift/api/image/v1
 github.com/openshift/api/project/v1
 # github.com/openshift/client-go v0.0.0-20200326155132-2a6cd50aedd0
+## explicit
 github.com/openshift/client-go/image/clientset/versioned
 github.com/openshift/client-go/image/clientset/versioned/scheme
 github.com/openshift/client-go/image/clientset/versioned/typed/image/v1
@@ -223,14 +229,18 @@ github.com/prometheus/procfs/internal/util
 # github.com/satori/go.uuid v1.2.0
 github.com/satori/go.uuid
 # github.com/sbstjn/allot v0.0.0-20161025071122-1f2349af5ccd
+## explicit
 github.com/sbstjn/allot
 # github.com/sbstjn/hanu v0.1.0
+## explicit
 github.com/sbstjn/hanu
 # github.com/shomali11/commander v0.0.0-20191122162317-51bc574c29ba
 github.com/shomali11/commander
 # github.com/shomali11/proper v0.0.0-20190608032528-6e70a05688e7
+## explicit
 github.com/shomali11/proper
 # github.com/shomali11/slacker v0.0.0-20200420173605-4887ab8127b6
+## explicit
 github.com/shomali11/slacker
 # github.com/shurcooL/githubv4 v0.0.0-20191102174205-af46314aec7b
 github.com/shurcooL/githubv4
@@ -241,11 +251,13 @@ github.com/shurcooL/graphql/internal/jsonutil
 # github.com/sirupsen/logrus v1.6.0
 github.com/sirupsen/logrus
 # github.com/slack-go/slack v0.6.4
+## explicit
 github.com/slack-go/slack
 github.com/slack-go/slack/internal/errorsx
 github.com/slack-go/slack/internal/timex
 github.com/slack-go/slack/slackutilsx
 # github.com/spf13/pflag v1.0.5
+## explicit
 github.com/spf13/pflag
 # github.com/tektoncd/pipeline v0.13.1-0.20200625065359-44f22a067b75
 github.com/tektoncd/pipeline/pkg/apis/config
@@ -460,6 +472,7 @@ google.golang.org/protobuf/types/known/durationpb
 google.golang.org/protobuf/types/known/timestamppb
 google.golang.org/protobuf/types/pluginpb
 # gopkg.in/fsnotify.v1 v1.4.7
+## explicit
 gopkg.in/fsnotify.v1
 # gopkg.in/inf.v0 v0.9.1
 gopkg.in/inf.v0
@@ -470,6 +483,7 @@ gopkg.in/yaml.v2
 # gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776
 gopkg.in/yaml.v3
 # k8s.io/api v0.20.2 => k8s.io/api v0.19.3
+## explicit
 k8s.io/api/admission/v1
 k8s.io/api/admission/v1beta1
 k8s.io/api/admissionregistration/v1
@@ -514,6 +528,7 @@ k8s.io/api/storage/v1
 k8s.io/api/storage/v1alpha1
 k8s.io/api/storage/v1beta1
 # k8s.io/apimachinery v0.20.2 => k8s.io/apimachinery v0.19.3
+## explicit
 k8s.io/apimachinery/pkg/api/equality
 k8s.io/apimachinery/pkg/api/errors
 k8s.io/apimachinery/pkg/api/meta
@@ -566,6 +581,7 @@ k8s.io/apimachinery/third_party/forked/golang/json
 k8s.io/apimachinery/third_party/forked/golang/netutil
 k8s.io/apimachinery/third_party/forked/golang/reflect
 # k8s.io/client-go v11.0.1-0.20190805182717-6502b5e7b1b5+incompatible => k8s.io/client-go v0.19.3
+## explicit
 k8s.io/client-go/discovery
 k8s.io/client-go/dynamic
 k8s.io/client-go/informers
@@ -748,12 +764,14 @@ k8s.io/client-go/util/workqueue
 k8s.io/component-base/config
 k8s.io/component-base/config/v1alpha1
 # k8s.io/klog v1.0.0
+## explicit
 k8s.io/klog
 # k8s.io/klog/v2 v2.4.0
 k8s.io/klog/v2
 # k8s.io/kube-openapi v0.0.0-20201113171705-d219536bb9fd
 k8s.io/kube-openapi/pkg/util/proto
 # k8s.io/test-infra v0.0.0-20210504134511-af1ac03335dc
+## explicit
 k8s.io/test-infra/ghproxy/ghcache
 k8s.io/test-infra/ghproxy/ghmetrics
 k8s.io/test-infra/pkg/genyaml
@@ -841,4 +859,8 @@ sigs.k8s.io/controller-runtime/pkg/webhook/internal/metrics
 # sigs.k8s.io/structured-merge-diff/v4 v4.0.2
 sigs.k8s.io/structured-merge-diff/v4/value
 # sigs.k8s.io/yaml v1.2.0
+## explicit
 sigs.k8s.io/yaml
+# k8s.io/api => k8s.io/api v0.19.3
+# k8s.io/apimachinery => k8s.io/apimachinery v0.19.3
+# k8s.io/client-go => k8s.io/client-go v0.19.3

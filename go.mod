@@ -1,6 +1,6 @@
 module github.com/openshift/ci-chat-bot
 
-go 1.13
+go 1.16
 
 replace (
 	k8s.io/api => k8s.io/api v0.19.3
