@@ -24,7 +24,6 @@ import (
 	"net/url"
 	"path"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -183,22 +182,6 @@ func readLink(objAttrs *storage.ObjectAttrs) string {
 	return ""
 }
 
-// Sort the builds by monotonically increasing original prefix base name.
-//
-// In other words,
-//   gs://c/10
-//   gs://a/5
-//   gs://b/1
-// becomes:
-//   gs://b/1
-//   gs://a/5
-//   gs://c/10
-func Sort(builds []Build) {
-	sort.SliceStable(builds, func(i, j int) bool {
-		return !sortorder.NaturalLess(builds[i].baseName, builds[j].baseName)
-	})
-}
-
 // hackOffset handles tot's sequential names, which GCS handles poorly
 // AKA asking GCS to return results after 6 will never find 10
 // So we always have to list everything for these types of numbers.
@@ -281,8 +264,8 @@ func ListBuilds(parent context.Context, lister Lister, gcsPath Path, after *Path
 		// GCS will return 200 2000 30 for a prefix of 100
 		// testgrid expects this as 2000 200 (dropping 30)
 		for i, b := range all {
-			if sortorder.NaturalLess(b.baseName, offsetBaseName) {
-				return all[:i], nil
+			if sortorder.NaturalLess(b.baseName, offsetBaseName) || b.baseName == offsetBaseName {
+				return all[:i], nil // b <= offsetBaseName, so skip this one
 			}
 		}
 	}
@@ -437,6 +420,22 @@ func readSuites(ctx context.Context, opener Opener, p Path) (*junit.Suites, erro
 	return suitesMeta, nil
 }
 
+// Error wraps an error in an associated Path.
+type Error struct {
+	Path
+	err error
+}
+
+// Unwrap the underlying error
+func (e Error) Unwrap() error {
+	return e.err
+}
+
+// Error satisfies the error interface type.
+func (e Error) Error() string {
+	return fmt.Sprintf("%s: %s", e.Path, e.err)
+}
+
 // Suites takes a channel of artifact names, parses those representing junit suites, writing the result to the suites channel.
 //
 // Note that junit suites are parsed in parallel, so there are no guarantees about suites ordering.
@@ -490,7 +489,7 @@ func (build Build) Suites(parent context.Context, opener Opener, artifacts <-cha
 			if err != nil {
 				select {
 				case <-ctx.Done():
-				case ec <- fmt.Errorf("read %s suites: %w", *path, err):
+				case ec <- fmt.Errorf("read %w", Error{*path, err}):
 				}
 				return
 			}
