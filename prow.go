@@ -307,6 +307,40 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	if job.IsComplete() && len(job.PasswordSnippet) > 0 {
 		return "", nil
 	}
+
+	pj, err := m.generateProwJob(job)
+
+	_, err = m.prowClient.Namespace(m.prowNamespace).Create(context.TODO(), prow.ObjectToUnstructured(pj), metav1.CreateOptions{})
+	if err != nil && !errors.IsAlreadyExists(err) {
+		return "", err
+	}
+
+	var prowJobURL string
+	// Wait for ProwJob URL to be assigned
+	err = wait.PollImmediate(10*time.Second, 5*time.Minute, func() (bool, error) {
+		uns, err := m.prowClient.Namespace(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		var latestPJ prowapiv1.ProwJob
+		if err := prow.UnstructuredToObject(uns, &latestPJ); err != nil {
+			return false, err
+		}
+
+		if len(latestPJ.Status.URL) > 0 {
+			prowJobURL = latestPJ.Status.URL
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("did not retrieve job url due to an error: %v", err)
+	}
+
+	return prowJobURL, nil
+}
+
+func (m *jobManager) generateProwJob(job *Job) (*prowapiv1.ProwJob, error) {
 	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(job.Name))
 
 	launchDeadline := 45 * time.Minute
@@ -314,12 +348,12 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	// launch a prow job, tied back to this cluster user
 	pj, err := prow.JobForConfig(m.prowConfigLoader, job.JobName)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	jobInputData, err := json.Marshal(job.Inputs)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	pj.ObjectMeta = metav1.ObjectMeta{
@@ -408,18 +442,18 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	if !ok {
 		sourceEnv, _, ok = firstEnvVar(pj.Spec.PodSpec, "UNRESOLVED_CONFIG")
 		if !ok {
-			return "", fmt.Errorf("UNRESOLVED_CONFIG or CONFIG_SPEC for the launch job could not be found in the prow job %s", job.JobName)
+			return nil, fmt.Errorf("UNRESOLVED_CONFIG or CONFIG_SPEC for the launch job could not be found in the prow job %s", job.JobName)
 		}
 	}
 
 	clusterClient, err := getClusterClient(m, job)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	sourceConfig, srcNamespace, srcName, err := loadJobConfigSpec(clusterClient.CoreClient, sourceEnv, "ci")
 	if err != nil {
-		return "", fmt.Errorf("the launch job definition could not be loaded: %v", err)
+		return nil, fmt.Errorf("the launch job definition could not be loaded: %v", err)
 	}
 
 	// Which target in the ci-operator config are we going to run?
@@ -478,7 +512,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			}
 		}
 		if matchedTarget == nil {
-			return "", fmt.Errorf("no test definition matched the expected name %q", targetName)
+			return nil, fmt.Errorf("no test definition matched the expected name %q", targetName)
 		}
 		commands := matchedTarget.Commands
 		stepBasedTarget = len(commands) == 0 // if commands are specified, this is a template based target
@@ -529,7 +563,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 						matchedTarget.MultiStageTestConfiguration.Environment[env.name] = env.value
 					}
 				} else {
-					return "", fmt.Errorf("unknown test type %s", job.JobParams["test"])
+					return nil, fmt.Errorf("unknown test type %s", job.JobParams["test"])
 				}
 			}
 		}
@@ -577,12 +611,12 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 		clusterClient, err := getClusterClient(m, job)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
 		is, err := clusterClient.TargetImageClient.ImageV1().ImageStreams("openshift").Get(context.TODO(), "cli", metav1.GetOptions{})
 		if err != nil {
-			return "", fmt.Errorf("unable to lookup registry URL for job")
+			return nil, fmt.Errorf("unable to lookup registry URL for job")
 		}
 		registryHost := strings.SplitN(is.Status.PublicDockerImageRepository, "/", 2)[0]
 
@@ -612,7 +646,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 			prow.SetJobEnvVar(&pj.Spec, "INITIAL", configInitial)
 		default:
-			return "", fmt.Errorf("the prow job %s does not have a recognizable command/args setup and cannot be used with pull request builds", job.JobName)
+			return nil, fmt.Errorf("the prow job %s does not have a recognizable command/args setup and cannot be used with pull request builds", job.JobName)
 		}
 
 		// For template based jobs, we must rely on "tag_specification"
@@ -655,15 +689,15 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			for _, ref := range input.Refs {
 				configData, ok, err := m.configResolver.Resolve(ref.Org, ref.Repo, ref.BaseRef, "")
 				if err != nil {
-					return "", fmt.Errorf("could not resolve config for %s/%s/%s: %v", ref.Org, ref.Repo, ref.BaseRef, err)
+					return nil, fmt.Errorf("could not resolve config for %s/%s/%s: %v", ref.Org, ref.Repo, ref.BaseRef, err)
 				}
 				if !ok {
-					return "", fmt.Errorf("there is no defined configuration for the organization %s with repo %s and branch %s", ref.Org, ref.Repo, ref.BaseRef)
+					return nil, fmt.Errorf("there is no defined configuration for the organization %s with repo %s and branch %s", ref.Org, ref.Repo, ref.BaseRef)
 				}
 
 				var cfg citools.ReleaseBuildConfiguration
 				if err := yaml.Unmarshal([]byte(configData), &cfg); err != nil {
-					return "", fmt.Errorf("unable to parse ci-operator config definition from resolver: %v", err)
+					return nil, fmt.Errorf("unable to parse ci-operator config definition from resolver: %v", err)
 				}
 				targetConfig := &cfg
 				if klog.V(2) {
@@ -741,13 +775,13 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 				data, err := json.MarshalIndent(targetConfig, "", "  ")
 				if err != nil {
-					return "", fmt.Errorf("unable to reformat child job for %#v: %v", ref, err)
+					return nil, fmt.Errorf("unable to reformat child job for %#v: %v", ref, err)
 				}
 				prow.SetJobEnvVar(&pj.Spec, fmt.Sprintf("CONFIG_SPEC_%d", index), string(data))
 
 				data, err = json.MarshalIndent(JobSpec{Refs: &ref}, "", "  ")
 				if err != nil {
-					return "", fmt.Errorf("unable to reformat child job for %#v: %v", ref, err)
+					return nil, fmt.Errorf("unable to reformat child job for %#v: %v", ref, err)
 				}
 				prow.SetJobEnvVar(&pj.Spec, fmt.Sprintf("JOB_SPEC_%d", index), string(data))
 
@@ -778,7 +812,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	// build jobs do not launch contents
 	if job.Mode == JobTypeBuild {
 		if err := replaceTargetArgument(pj.Spec.PodSpec, "launch", "[release:latest]"); err != nil {
-			return "", fmt.Errorf("unable to configure pod spec to alter launch target: %v", err)
+			return nil, fmt.Errorf("unable to configure pod spec to alter launch target: %v", err)
 		}
 	}
 
@@ -795,7 +829,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 	_, err = m.prowClient.Namespace(m.prowNamespace).Create(context.TODO(), prow.ObjectToUnstructured(pj), metav1.CreateOptions{})
 	if err != nil && !errors.IsAlreadyExists(err) {
-		return "", err
+		return nil, err
 	}
 
 	var prowJobURL string
@@ -817,10 +851,10 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		return false, nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("did not retrieve job url due to an error: %v", err)
+		return nil, fmt.Errorf("did not retrieve job url due to an error: %v", err)
 	}
 
-	return prowJobURL, nil
+	return pj, nil
 }
 
 func getClusterClient(m *jobManager, job *Job) (*BuildClusterClientConfig, error) {

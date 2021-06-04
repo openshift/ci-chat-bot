@@ -100,6 +100,7 @@ type JobManager interface {
 	GetLaunchJob(user string) (*Job, error)
 	LookupInputs(inputs []string) (string, error)
 	ListJobs(users ...string) string
+	GenerateProwJobForCli(req *JobRequest, outputPath string) error
 }
 
 // JobCallbackFunc is invoked when the job changes state in a significant
@@ -1170,10 +1171,10 @@ func configContainsVariant(params map[string]string, platform, unresolvedConfig,
 	return false, "", nil
 }
 
-func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
+func (m *jobManager) generateJob(req *JobRequest) (*Job, error) {
 	job, err := m.resolveToJob(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// try to pick a job that matches the install version, if we can, otherwise use the first that
@@ -1201,7 +1202,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 				if sourceEnv, _, ok := firstEnvVar(prowJob.Spec.PodSpec, "UNRESOLVED_CONFIG"); ok { // all multistage configs will be unresolved
 					primaryHasVariant, _, err = configContainsVariant(req.JobParams, req.Platform, sourceEnv.Value, job.Mode)
 					if err != nil {
-						return "", err
+						return nil, err
 					}
 				}
 			}
@@ -1213,12 +1214,52 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		}
 	}
 	if prowJob == nil {
-		return "", fmt.Errorf("configuration error, unable to find prow job matching %s with parameters=%v", selector, paramsToString(job.JobParams))
+		return nil, fmt.Errorf("configuration error, unable to find prow job matching %s with parameters=%v", selector, paramsToString(job.JobParams))
 	}
 	job.JobName = prowJob.Spec.Job
 	job.BuildCluster = prowJob.Spec.Cluster
 
 	klog.Infof("Job %q requested by user %q with mode %s prow job %s(%s) - params=%s, inputs=%#v", job.Name, req.User, job.Mode, job.JobName, job.BuildCluster, paramsToString(job.JobParams), job.Inputs)
+	return job, nil
+}
+
+func (m *jobManager) GenerateProwJobForCli(req *JobRequest, outputPath string) error {
+	job, err := m.generateJob(req)
+	if err != nil {
+		return fmt.Errorf("unable to generate job: %v", err)
+	}
+
+	pj, err := m.generateProwJob(job)
+	if err != nil {
+		return fmt.Errorf("unable to generate prow job: %v", err)
+	}
+
+	// This job should not be monitored by the cluster-bot...
+	//delete(pj.Labels, "ci-chat-bot.openshift.io/user")
+	//delete(pj.Labels, "ci-chat-bot.openshift.io/channel")
+	delete(pj.Labels, "ci-chat-bot.openshift.io/launch")
+
+	output, err := json.MarshalIndent(pj, "", "\t")
+	if err != nil {
+		return fmt.Errorf("unable to marshal prow job: %v", err)
+	}
+
+	if len(outputPath) > 0 {
+		klog.Infof("Writing ProwJob %q to: %s\n", pj.Name, outputPath)
+		if err := ioutil.WriteFile(outputPath, output, 0644); err != nil {
+			return fmt.Errorf("failed to write file `%s`: %v", outputPath, err)
+		}
+	} else {
+		klog.Infof("Generated ProwJob:\n%s\n\n", string(output))
+	}
+	return nil
+}
+
+func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
+	job, err := m.generateJob(req)
+	if err != nil {
+		return "", err
+	}
 
 	msg, err := func() (string, error) {
 		m.lock.Lock()
