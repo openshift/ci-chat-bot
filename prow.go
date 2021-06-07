@@ -802,6 +802,10 @@ func (m *jobManager) waitForJob(job *Job) error {
 		password, err := commandContents(clusterClient.CoreClient.CoreV1(), clusterClient.CoreConfig, namespace, targetName, "test", []string{"cat", "/tmp/artifacts/installer/auth/kubeadmin-password"})
 		if err != nil {
 			klog.Infof("error: Job %q unable to get kubeadmin password: %v", job.Name, err)
+			password, err = commandContents(clusterClient.CoreClient.CoreV1(), clusterClient.CoreConfig, namespace, targetName, "test", []string{"cat", "/tmp/shared/installer/auth/kubeadmin-password"})
+		}
+		if err != nil {
+			klog.Infof("error: Job %q unable to locate kubeadmin password: %v", job.Name, err)
 		} else {
 			kubeadminPassword = password
 		}
