@@ -28,7 +28,7 @@ require (
 	github.com/openshift/client-go v3.9.0+incompatible
 	github.com/sbstjn/allot v0.0.0-20161025071122-1f2349af5ccd // indirect
 	github.com/sbstjn/hanu v0.1.0
-	github.com/shomali11/proper v0.0.0-20190608032528-6e70a05688e7 // indirect
+	github.com/shomali11/proper v0.0.0-20190608032528-6e70a05688e7
 	github.com/shomali11/slacker v0.0.0-20200420173605-4887ab8127b6
 	github.com/slack-go/slack v0.7.3
 	github.com/spf13/pflag v1.0.5
