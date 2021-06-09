@@ -286,6 +286,7 @@ type ReporterConfig struct {
 }
 
 type SlackReporterConfig struct {
+	Host              string         `json:"host,omitempty"`
 	Channel           string         `json:"channel,omitempty"`
 	JobStatesToReport []ProwJobState `json:"job_states_to_report,omitempty"`
 	ReportTemplate    string         `json:"report_template,omitempty"`
@@ -881,7 +882,7 @@ type Refs struct {
 	// `https://github.com/org/repo.git`.
 	CloneURI string `json:"clone_uri,omitempty"`
 	// SkipSubmodules determines if submodules should be
-	// cloned when the job is run. Defaults to true.
+	// cloned when the job is run. Defaults to false.
 	SkipSubmodules bool `json:"skip_submodules,omitempty"`
 	// CloneDepth is the depth of the clone that will be used.
 	// A depth of zero will do a full clone.
