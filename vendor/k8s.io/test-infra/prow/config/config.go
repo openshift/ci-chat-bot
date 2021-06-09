@@ -480,13 +480,13 @@ func (c *Controller) ReportTemplateForRepo(refs *prowapi.Refs) *template.Templat
 type Plank struct {
 	Controller `json:",inline"`
 	// PodPendingTimeout is after how long the controller will perform a garbage
-	// collection on pending pods. Defaults to one day.
+	// collection on pending pods. Defaults to 10 minutes.
 	PodPendingTimeout *metav1.Duration `json:"pod_pending_timeout,omitempty"`
 	// PodRunningTimeout is after how long the controller will abort a prowjob pod
 	// stuck in running state. Defaults to two days.
 	PodRunningTimeout *metav1.Duration `json:"pod_running_timeout,omitempty"`
 	// PodUnscheduledTimeout is after how long the controller will abort a prowjob
-	// stuck in an unscheduled state. Defaults to one day.
+	// stuck in an unscheduled state. Defaults to 5 minutes.
 	PodUnscheduledTimeout *metav1.Duration `json:"pod_unscheduled_timeout,omitempty"`
 
 	// DefaultDecorationConfigs holds the default decoration config for specific values.
@@ -1044,6 +1044,7 @@ type ManagedWebhooks struct {
 type SlackReporter struct {
 	JobTypesToReport  []prowapi.ProwJobType  `json:"job_types_to_report,omitempty"`
 	JobStatesToReport []prowapi.ProwJobState `json:"job_states_to_report,omitempty"`
+	Host              string                 `json:"host,omitempty"`
 	Channel           string                 `json:"channel"`
 	ReportTemplate    string                 `json:"report_template"`
 }
@@ -1453,12 +1454,12 @@ func setPeriodicDecorationDefaults(c *Config, ps *Periodic) {
 }
 
 // defaultPresubmits defaults the presubmits for one repo
-func defaultPresubmits(presubmits []Presubmit, addtionalPresets []Preset, c *Config, repo string) error {
+func defaultPresubmits(presubmits []Presubmit, additionalPresets []Preset, c *Config, repo string) error {
 	c.defaultPresubmitFields(presubmits)
 	var errs []error
 	for idx, ps := range presubmits {
 		setPresubmitDecorationDefaults(c, &presubmits[idx], repo)
-		if err := resolvePresets(ps.Name, ps.Labels, ps.Spec, append(c.Presets, addtionalPresets...)); err != nil {
+		if err := resolvePresets(ps.Name, ps.Labels, ps.Spec, append(c.Presets, additionalPresets...)); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -1470,12 +1471,12 @@ func defaultPresubmits(presubmits []Presubmit, addtionalPresets []Preset, c *Con
 }
 
 // defaultPostsubmits defaults the postsubmits for one repo
-func defaultPostsubmits(postsubmits []Postsubmit, addtionalPresets []Preset, c *Config, repo string) error {
+func defaultPostsubmits(postsubmits []Postsubmit, additionalPresets []Preset, c *Config, repo string) error {
 	c.defaultPostsubmitFields(postsubmits)
 	var errs []error
 	for idx, ps := range postsubmits {
 		setPostsubmitDecorationDefaults(c, &postsubmits[idx], repo)
-		if err := resolvePresets(ps.Name, ps.Labels, ps.Spec, append(c.Presets, addtionalPresets...)); err != nil {
+		if err := resolvePresets(ps.Name, ps.Labels, ps.Spec, append(c.Presets, additionalPresets...)); err != nil {
 			errs = append(errs, err)
 		}
 	}
