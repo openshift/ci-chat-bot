@@ -369,9 +369,9 @@ func (m *jobManager) newJob(job *Job) error {
 			envPrefix := strings.Join(restoreImageVariableScript, " ")
 			container.Command = []string{"/bin/bash", "-c"}
 			if job.Mode == "build" {
-				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n\n%s\n%s ci-operator $@", registryHost, script, permissionsScript, envPrefix), "")
+				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n\n%s\n%s %s", registryHost, script, permissionsScript, envPrefix, launchClusterScript), "")
 			} else {
-				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n\n%s ci-operator $@", registryHost, script, envPrefix), "")
+				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n%s %s", registryHost, script, envPrefix, launchClusterScript), "")
 			}
 			container.Args = args
 
@@ -1004,7 +1004,7 @@ tests:
 
 const script = `set -euo pipefail
 
-trap 'jobs -p | xargs -r kill || true; exit 0' TERM
+trap 'jobs -p | xargs -r kill || true; exit 0' TERM EXIT
 
 encoded_token="$( echo -n "serviceaccount:$( cat /var/run/secrets/kubernetes.io/serviceaccount/token )" | base64 -w 0 - )"
 echo "{\"auths\":{\"${registry_host}\":{\"auth\":\"${encoded_token}\"}}}" > /tmp/push-auth
@@ -1080,6 +1080,10 @@ chmod ug+x /tmp/bin/oc
 
 # grant all authenticated users access to the images in this namespace
 oc policy add-role-to-group system:image-puller -n $(NAMESPACE) system:authenticated
+`
+
+const launchClusterScript = `ci-operator $@ &
+wait
 `
 
 type JobSpec struct {
