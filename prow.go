@@ -369,9 +369,9 @@ func (m *jobManager) newJob(job *Job) error {
 			envPrefix := strings.Join(restoreImageVariableScript, " ")
 			container.Command = []string{"/bin/bash", "-c"}
 			if job.Mode == "build" {
-				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n\n%s\n%s ci-operator $@ &\nwait", registryHost, script, permissionsScript, envPrefix), "")
+				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n\n%s\n%s ci-operator $@ & wait", registryHost, script, permissionsScript, envPrefix), "")
 			} else {
-				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n%s ci-operator $@ &\nwait", registryHost, script, envPrefix), "")
+				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n%s ci-operator $@ & wait", registryHost, script, envPrefix), "")
 			}
 			container.Args = args
 
