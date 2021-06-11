@@ -369,9 +369,9 @@ func (m *jobManager) newJob(job *Job) error {
 			envPrefix := strings.Join(restoreImageVariableScript, " ")
 			container.Command = []string{"/bin/bash", "-c"}
 			if job.Mode == "build" {
-				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n\n%s\n%s %s", registryHost, script, permissionsScript, envPrefix, launchClusterScript), "")
+				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n\n%s\n%s ci-operator $@ &\nwait", registryHost, script, permissionsScript, envPrefix), "")
 			} else {
-				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n%s %s", registryHost, script, envPrefix, launchClusterScript), "")
+				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n%s ci-operator $@ &\nwait", registryHost, script, envPrefix), "")
 			}
 			container.Args = args
 
@@ -1080,10 +1080,6 @@ chmod ug+x /tmp/bin/oc
 
 # grant all authenticated users access to the images in this namespace
 oc policy add-role-to-group system:image-puller -n $(NAMESPACE) system:authenticated
-`
-
-const launchClusterScript = `ci-operator $@ &
-wait
 `
 
 type JobSpec struct {
