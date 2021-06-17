@@ -2546,12 +2546,12 @@ func StringsToOrgRepos(vs []string) []OrgRepo {
 func (pc *ProwConfig) mergeFrom(additional *ProwConfig) error {
 	emptyReference := &ProwConfig{
 		BranchProtection: additional.BranchProtection,
-		Tide:             Tide{MergeType: additional.Tide.MergeType},
+		Tide:             Tide{MergeType: additional.Tide.MergeType, Queries: additional.Tide.Queries},
 	}
 
 	var errs []error
 	if diff := cmp.Diff(additional, emptyReference); diff != "" {
-		errs = append(errs, fmt.Errorf("only 'branch-protection' and 'tide.merge_method' may be set via additional config, all other fields have no merging logic yet. Diff: %s", diff))
+		errs = append(errs, fmt.Errorf("only 'branch-protection', 'tide.merge_method' and 'tide.queries' may be set via additional config, all other fields have no merging logic yet. Diff: %s", diff))
 	}
 	if err := pc.BranchProtection.merge(&additional.BranchProtection); err != nil {
 		errs = append(errs, fmt.Errorf("failed to merge branch protection config: %w", err))
@@ -2639,6 +2639,11 @@ func (pc *ProwConfig) HasConfigFor() (global bool, orgs sets.String, repos sets.
 		}
 	}
 
+	for _, query := range pc.Tide.Queries {
+		orgs.Insert(query.Orgs...)
+		repos.Insert(query.Repos...)
+	}
+
 	return global, orgs, repos
 }
 
@@ -2648,7 +2653,7 @@ func (pc *ProwConfig) hasGlobalConfig() bool {
 	}
 	emptyReference := &ProwConfig{
 		BranchProtection: pc.BranchProtection,
-		Tide:             Tide{MergeType: pc.Tide.MergeType},
+		Tide:             Tide{MergeType: pc.Tide.MergeType, Queries: pc.Tide.Queries},
 	}
 	return cmp.Diff(pc, emptyReference) != ""
 }
@@ -2681,7 +2686,22 @@ func (tm tideQueryMap) queries() (TideQueries, error) {
 
 	}
 
-	return result, nil
+	// Sort the queries here to make sure that the de-duplication results
+	// in a deterministic order.
+	var errs []error
+	sort.SliceStable(result, func(i, j int) bool {
+		iSerialized, err := json.Marshal(result[i])
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to marshal %+v: %w", result[i], err))
+		}
+		jSerialized, err := json.Marshal(result[j])
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to marshal %+v: %w", result[j], err))
+		}
+		return string(iSerialized) < string(jSerialized)
+	})
+
+	return result, utilerrors.NewAggregate(errs)
 }
 
 // sortStringSlice is a tiny wrapper that returns
