@@ -30,12 +30,12 @@ INFO:      # go mod tidy
 EOF
 
 echo "Checking go formatting..."
-(cd ${base_dir}; gofmt -w $(find . -type f -a -name '*.go' | grep -v /vendor/) && git add --intent-to-add . && git diff --quiet --exit-code .)
+(cd ${base_dir}; gofmt -w $(find . -type f -a -name '*.go' | grep -v /vendor/) && git add --intent-to-add . && git diff --exit-code .)
 
 echo "Checking go vendoring..."
-(cd ${base_dir}; go mod vendor && git add --intent-to-add . && git diff --quiet --exit-code .)
+(cd ${base_dir}; go mod vendor && git add --intent-to-add . && git diff --exit-code .)
 
 echo "Checking go mod tidy..."
-(cd ${base_dir}; go mod tidy && git add --intent-to-add . && git diff --quiet --exit-code .)
+(cd ${base_dir}; go mod tidy && git add --intent-to-add . && git diff --exit-code .)
 
 exit 0
