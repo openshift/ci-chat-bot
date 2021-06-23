@@ -594,8 +594,9 @@ github.com/golangci/unconvert v0.0.0-20180507085042-28b1c447d1f4/go.mod h1:Izgrg
 github.com/golangplus/bytes v0.0.0-20160111154220-45c989fe5450/go.mod h1:Bk6SMAONeMXrxql8uvOKuAZSu8aM5RUGv+1C6IJaEho=
 github.com/golangplus/fmt v0.0.0-20150411045040-2a5d6d7d2995/go.mod h1:lJgMEyOkYFkPcDKwRXegd+iM6E7matEszMG5HhwytU8=
 github.com/golangplus/testing v0.0.0-20180327235837-af21d9c3145e/go.mod h1:0AA//k/eakGydO4jKRoRL2j92ZKSzTgj9tclaCrvXHk=
-github.com/gomodule/redigo v1.7.0 h1:ZKld1VOtsGhAe37E7wMxEDgAlGM5dvFY+DiOhSkhP9Y=
 github.com/gomodule/redigo v1.7.0/go.mod h1:B4C85qUVwatsJoIUNIfCRsp7qO0iAmpGFZ4EELWSbC4=
+github.com/gomodule/redigo v1.8.5 h1:nRAxCa+SVsyjSBrtZmG/cqb6VbTmuRzpg/PoTFlpumc=
+github.com/gomodule/redigo v1.8.5/go.mod h1:P9dn9mFrCBvWhGE1wpxx6fgq7BAeLBk+UUUzlpkBYO0=
 github.com/google/btree v0.0.0-20180124185431-e89373fe6b4a/go.mod h1:lNA+9X1NB3Zf8V7Ke586lFgjr2dZNuvo3lPJSGZ5JPQ=
 github.com/google/btree v0.0.0-20180813153112-4030bb1f1f0c/go.mod h1:lNA+9X1NB3Zf8V7Ke586lFgjr2dZNuvo3lPJSGZ5JPQ=
 github.com/google/btree v1.0.0 h1:0udJVsspx3VBr5FwtLhQQtuAsVc79tTq0ocGIPAU6qo=
@@ -1156,8 +1157,9 @@ github.com/sirupsen/logrus v1.2.0/go.mod h1:LxeOpSwHxABJmUn/MG1IvRgCAasNZTLOkJPx
 github.com/sirupsen/logrus v1.4.1/go.mod h1:ni0Sbl8bgC9z8RoU9G6nDWqqs/fq4eDPysMBDgk/93Q=
 github.com/sirupsen/logrus v1.4.2/go.mod h1:tLMulIdttU9McNUspp0xgXVQah82FyeX6MwdIuYE2rE=
 github.com/sirupsen/logrus v1.6.0/go.mod h1:7uNnSEd1DgxDLC74fIahvMZmmYsHGZGEOFrfsX/uA88=
-github.com/sirupsen/logrus v1.7.0 h1:ShrD1U9pZB12TX0cVy0DtePoCH97K8EtX+mg7ZARUtM=
 github.com/sirupsen/logrus v1.7.0/go.mod h1:yWOB1SBYBC5VeMP7gHvWumXLIWorT60ONWic61uBYv0=
+github.com/sirupsen/logrus v1.8.1 h1:dJKuHgqk1NNQlqoA6BTlM1Wf9DOH3NBjQyu0h9+AZZE=
+github.com/sirupsen/logrus v1.8.1/go.mod h1:yWOB1SBYBC5VeMP7gHvWumXLIWorT60ONWic61uBYv0=
 github.com/slack-go/slack v0.6.3/go.mod h1:HE4RwNe7YpOg/F0vqo5PwXH3Hki31TplTvKRW9dGGaw=
 github.com/slack-go/slack v0.6.4 h1:cxOqFgM5RW6mdEyDqAJutFk3qiORK9oHRKi5bPqkY9o=
 github.com/slack-go/slack v0.6.4/go.mod h1:sGRjv3w+ERAUMMMbldHObQPBcNSyVB7KLKYfnwUFBfw=
@@ -1995,8 +1997,8 @@ k8s.io/test-infra v0.0.0-20200407001919-bc7f71ef65b8/go.mod h1:/WpJWcaDvuykB322W
 k8s.io/test-infra v0.0.0-20200514184223-ba32c8aae783/go.mod h1:bW6thaPZfL2hW7ecjx2WYwlP9KQLM47/xIJyttkVk5s=
 k8s.io/test-infra v0.0.0-20200617221206-ea73eaeab7ff/go.mod h1:L3+cRvwftUq8IW1TrHji5m3msnc4uck/7LsE/GR/aZk=
 k8s.io/test-infra v0.0.0-20200630233406-1dca6122872e/go.mod h1:L3+cRvwftUq8IW1TrHji5m3msnc4uck/7LsE/GR/aZk=
-k8s.io/test-infra v0.0.0-20210622005358-f9f3b13107d6 h1:Xov433VJIsqTxBU7MzcOnZ1DLAmd/nq1My2qWit1dd8=
-k8s.io/test-infra v0.0.0-20210622005358-f9f3b13107d6/go.mod h1:QPyq1EhIX/9jcDa3dt6wtMFPC1TAYjAex8PMrNahE5Y=
+k8s.io/test-infra v0.0.0-20210623151810-40ee9bd9852d h1:4ZS13oQC2JS7+cxl4xiSvd8uM8oi761BUYpgiGVlPCA=
+k8s.io/test-infra v0.0.0-20210623151810-40ee9bd9852d/go.mod h1:tOJumNMCX8OMK1QP5cElTTk1hnynWpMnr9GpeNrgQE0=
 k8s.io/utils v0.0.0-20181019225348-5e321f9a457c/go.mod h1:8k8uAuAQ0rXslZKaEWd0c3oVhZz7sSzSiPnVZayjIX0=
 k8s.io/utils v0.0.0-20190221042446-c2654d5206da/go.mod h1:8k8uAuAQ0rXslZKaEWd0c3oVhZz7sSzSiPnVZayjIX0=
 k8s.io/utils v0.0.0-20190506122338-8fab8cb257d5/go.mod h1:sZAwmy6armz5eXlNoLmJcl4F1QuKu7sr+mFQ0byX7Ew=
