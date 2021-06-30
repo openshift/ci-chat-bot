@@ -74,7 +74,7 @@ func run() error {
 	pflag.StringVar(&opt.BuildClusterKubeconfigsLocation, "build-cluster-kubeconfigs-location", opt.BuildClusterKubeconfigsLocation, "Path to the location of the Kubeconfigs for the various buildclusters. Default is \"/var/build-cluster-kubeconfigs\".")
 	pflag.StringVar(&opt.ReleaseClusterKubeconfig, "release-cluster-kubeconfig", opt.ReleaseClusterKubeconfig, "Kubeconfig to use for cluster housing the release imagestreams. Defaults to normal kubeconfig if unset.")
 	pflag.StringVar(&opt.WorkflowConfigPath, "workflow-config-path", "", "Path to config file used for workflow commands")
-	pflag.StringVar(&opt.Command, "command", opt.Command, "The command to run in command-line mode")
+	pflag.StringVar(&opt.Command, "command", opt.Command, "The slack command to run directly and then exit")
 	pflag.StringVar(&opt.Output, "output", opt.Output, "The path, of the file, where to write the prow job JSON")
 	opt.prowconfig.AddFlags(emptyFlags)
 	pflag.CommandLine.AddGoFlagSet(emptyFlags)
