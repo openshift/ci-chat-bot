@@ -1235,8 +1235,6 @@ func (m *jobManager) GenerateProwJobForCli(req *JobRequest, outputPath string) e
 	}
 
 	// This job should not be monitored by the cluster-bot...
-	//delete(pj.Labels, "ci-chat-bot.openshift.io/user")
-	//delete(pj.Labels, "ci-chat-bot.openshift.io/channel")
 	delete(pj.Labels, "ci-chat-bot.openshift.io/launch")
 
 	output, err := json.MarshalIndent(pj, "", "\t")
@@ -1250,7 +1248,7 @@ func (m *jobManager) GenerateProwJobForCli(req *JobRequest, outputPath string) e
 			return fmt.Errorf("failed to write file `%s`: %v", outputPath, err)
 		}
 	} else {
-		klog.Infof("Generated ProwJob:\n%s\n\n", string(output))
+		fmt.Printf(string(output))
 	}
 	return nil
 }
