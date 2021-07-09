@@ -53,7 +53,7 @@ var supportedUpgradeTests = []string{"e2e-upgrade", "e2e-upgrade-all", "e2e-upgr
 var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "hypershift"}
 
 // supportedParameters are the allowed parameter keys that can be passed to jobs
-var supportedParameters = []string{"ovn", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv6", "preserve-bootstrap", "test", "rt", "single-node"}
+var supportedParameters = []string{"ovn", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv6", "preserve-bootstrap", "test", "rt", "single-node", "cgroupsv2"}
 
 // supportedArchitectures are the allowed architectures that can be passed to jobs
 var supportedArchitectures = []string{"amd64"}
