@@ -292,6 +292,35 @@ type SlackReporterConfig struct {
 	ReportTemplate    string         `json:"report_template,omitempty"`
 }
 
+func (src *SlackReporterConfig) ApplyDefault(def *SlackReporterConfig) *SlackReporterConfig {
+	if src == nil && def == nil {
+		return nil
+	}
+	var merged SlackReporterConfig
+	if src != nil {
+		merged = *src.DeepCopy()
+	} else {
+		merged = *def.DeepCopy()
+	}
+	if src == nil || def == nil {
+		return &merged
+	}
+
+	if merged.Channel == "" {
+		merged.Channel = def.Channel
+	}
+	if merged.Host == "" {
+		merged.Host = def.Host
+	}
+	if merged.JobStatesToReport == nil {
+		merged.JobStatesToReport = def.JobStatesToReport
+	}
+	if merged.ReportTemplate == "" {
+		merged.ReportTemplate = def.ReportTemplate
+	}
+	return &merged
+}
+
 // Duration is a wrapper around time.Duration that parses times in either
 // 'integer number of nanoseconds' or 'duration string' formats and serializes
 // to 'duration string' format.
@@ -367,7 +396,7 @@ type DecorationConfig struct {
 	SkipCloning *bool `json:"skip_cloning,omitempty"`
 	// CookieFileSecret is the name of a kubernetes secret that contains
 	// a git http.cookiefile, which should be used during the cloning process.
-	CookiefileSecret string `json:"cookiefile_secret,omitempty"`
+	CookiefileSecret *string `json:"cookiefile_secret,omitempty"`
 	// OauthTokenSecret is a Kubernetes secret that contains the OAuth token,
 	// which is going to be used for fetching a private repository.
 	OauthTokenSecret *OauthTokenSecret `json:"oauth_token_secret,omitempty"`
@@ -532,7 +561,7 @@ func (d *DecorationConfig) ApplyDefault(def *DecorationConfig) *DecorationConfig
 	if merged.SkipCloning == nil {
 		merged.SkipCloning = def.SkipCloning
 	}
-	if merged.CookiefileSecret == "" {
+	if merged.CookiefileSecret == nil {
 		merged.CookiefileSecret = def.CookiefileSecret
 	}
 	if merged.OauthTokenSecret == nil {
