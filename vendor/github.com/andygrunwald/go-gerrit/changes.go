@@ -40,8 +40,8 @@ type NotifyInfo struct {
 // AbandonInput entity contains information for abandoning a change.
 type AbandonInput struct {
 	Message       string       `json:"message,omitempty"`
-	Notify        string       `json:"notify"`
-	NotifyDetails []NotifyInfo `json:"notify_details"`
+	Notify        string       `json:"notify,omitempty"`
+	NotifyDetails []NotifyInfo `json:"notify_details,omitempty"`
 }
 
 // ApprovalInfo entity contains information about an approval from a user for a label on a change.
@@ -49,6 +49,13 @@ type ApprovalInfo struct {
 	AccountInfo
 	Value int    `json:"value,omitempty"`
 	Date  string `json:"date,omitempty"`
+}
+
+// CommitMessageInput entity contains information for changing the commit message of a change.
+type CommitMessageInput struct {
+	Message       string       `json:"message,omitempty"`
+	Notify        string       `json:"notify,omitempty"`
+	NotifyDetails []NotifyInfo `json:"notify_details"`
 }
 
 // ChangeEditInput entity contains information for restoring a path within change edit.
@@ -158,6 +165,15 @@ type ReviewInfo struct {
 	Labels map[string]int `json:"labels"`
 }
 
+// ReviewerUpdateInfo entity contains information about updates
+// to change's reviewers set.
+type ReviewerUpdateInfo struct {
+	Updated   Timestamp   `json:"updated"`    // Timestamp of the update.
+	UpdatedBy AccountInfo `json:"updated_by"` // The account which modified state of the reviewer in question.
+	Reviewer  AccountInfo `json:"reviewer"`   // The reviewer account added or removed from the change.
+	State     string      `json:"state"`      // The reviewer state, one of "REVIEWER", "CC" or "REMOVED".
+}
+
 // ReviewResult entity contains information regarding the updates that were
 // made to a review.
 type ReviewResult struct {
@@ -252,6 +268,13 @@ type CommentInput struct {
 	Message   string        `json:"message,omitempty"`
 }
 
+// MoveInput entity contains information for moving a change.
+type MoveInput struct {
+	DestinationBranch string `json:"destination_branch"`
+	Message           string `json:"message,omitempty"`
+	KeepAllLabels     bool   `json:"keep_all_labels"`
+}
+
 // RobotCommentInput entity contains information for creating an inline robot comment.
 // https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#robot-comment-input
 type RobotCommentInput struct {
@@ -320,6 +343,17 @@ type FixReplacementInfo struct {
 	Replacement string `json:"replacement,omitempty"`
 }
 
+//  AttentionSetInfo entity contains details of users that are in the attention set.
+// https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#attention-set-info
+type AttentionSetInfo struct {
+	// AccountInfo entity.
+	Account AccountInfo `json:"account"`
+	// The timestamp of the last update.
+	LastUpdate Timestamp `json:"last_update"`
+	// The reason of for adding or removing the user.
+	Reason string `json:"reason"`
+}
+
 // DiffIntralineInfo entity contains information about intraline edits in a file.
 //
 // The information consists of a list of <skip length, mark length> pairs,
@@ -335,35 +369,53 @@ type DiffIntralineInfo [][2]int
 
 // ChangeInfo entity contains information about a change.
 type ChangeInfo struct {
-	ID                 string                   `json:"id"`
-	URL                string                   `json:"url,omitempty"`
-	Project            string                   `json:"project"`
-	Branch             string                   `json:"branch"`
-	Topic              string                   `json:"topic,omitempty"`
-	ChangeID           string                   `json:"change_id"`
-	Subject            string                   `json:"subject"`
-	Status             string                   `json:"status"`
-	Created            Timestamp                `json:"created"`
-	Updated            Timestamp                `json:"updated"`
-	Submitted          *Timestamp               `json:"submitted,omitempty"`
-	Starred            bool                     `json:"starred,omitempty"`
-	Reviewed           bool                     `json:"reviewed,omitempty"`
-	Mergeable          bool                     `json:"mergeable,omitempty"`
-	Insertions         int                      `json:"insertions"`
-	Deletions          int                      `json:"deletions"`
-	Number             int                      `json:"_number"`
-	Owner              AccountInfo              `json:"owner"`
-	Actions            map[string]ActionInfo    `json:"actions,omitempty"`
-	Labels             map[string]LabelInfo     `json:"labels,omitempty"`
-	PermittedLabels    map[string][]string      `json:"permitted_labels,omitempty"`
-	RemovableReviewers []AccountInfo            `json:"removable_reviewers,omitempty"`
-	Reviewers          map[string][]AccountInfo `json:"reviewers,omitempty"`
-	Messages           []ChangeMessageInfo      `json:"messages,omitempty"`
-	CurrentRevision    string                   `json:"current_revision,omitempty"`
-	Revisions          map[string]RevisionInfo  `json:"revisions,omitempty"`
-	MoreChanges        bool                     `json:"_more_changes,omitempty"`
-	Problems           []ProblemInfo            `json:"problems,omitempty"`
-	BaseChange         string                   `json:"base_change,omitempty"`
+	ID                     string                      `json:"id"`
+	URL                    string                      `json:"url,omitempty"`
+	Project                string                      `json:"project"`
+	Branch                 string                      `json:"branch"`
+	Topic                  string                      `json:"topic,omitempty"`
+	AttentionSet           map[string]AttentionSetInfo `json:"attention_set,omitempty"`
+	Assignee               AccountInfo                 `json:"assignee,omitempty"`
+	Hashtags               []string                    `json:"hashtags,omitempty"`
+	ChangeID               string                      `json:"change_id"`
+	Subject                string                      `json:"subject"`
+	Status                 string                      `json:"status"`
+	Created                Timestamp                   `json:"created"`
+	Updated                Timestamp                   `json:"updated"`
+	Submitted              *Timestamp                  `json:"submitted,omitempty"`
+	Submitter              AccountInfo                 `json:"submitter,omitempty"`
+	Starred                bool                        `json:"starred,omitempty"`
+	Reviewed               bool                        `json:"reviewed,omitempty"`
+	SubmitType             string                      `json:"submit_type,omitempty"`
+	Mergeable              bool                        `json:"mergeable,omitempty"`
+	Submittable            bool                        `json:"submittable,omitempty"`
+	Insertions             int                         `json:"insertions"`
+	Deletions              int                         `json:"deletions"`
+	TotalCommentCount      int                         `json:"total_comment_count,omitempty"`
+	UnresolvedCommentCount int                         `json:"unresolved_comment_count,omitempty"`
+	Number                 int                         `json:"_number"`
+	Owner                  AccountInfo                 `json:"owner"`
+	Actions                map[string]ActionInfo       `json:"actions,omitempty"`
+	Labels                 map[string]LabelInfo        `json:"labels,omitempty"`
+	PermittedLabels        map[string][]string         `json:"permitted_labels,omitempty"`
+	RemovableReviewers     []AccountInfo               `json:"removable_reviewers,omitempty"`
+	Reviewers              map[string][]AccountInfo    `json:"reviewers,omitempty"`
+	PendingReviewers       map[string][]AccountInfo    `json:"pending_reviewers,omitempty"`
+	ReviewerUpdates        []ReviewerUpdateInfo        `json:"reviewer_updates,omitempty"`
+	Messages               []ChangeMessageInfo         `json:"messages,omitempty"`
+	CurrentRevision        string                      `json:"current_revision,omitempty"`
+	Revisions              map[string]RevisionInfo     `json:"revisions,omitempty"`
+	MoreChanges            bool                        `json:"_more_changes,omitempty"`
+	Problems               []ProblemInfo               `json:"problems,omitempty"`
+	IsPrivate              bool                        `json:"is_private,omitempty"`
+	WorkInProgress         bool                        `json:"work_in_progress,omitempty"`
+	HasReviewStarted       bool                        `json:"has_review_started,omitempty"`
+	RevertOf               int                         `json:"revert_of,omitempty"`
+	SubmissionID           string                      `json:"submission_id,omitempty"`
+	CherryPickOfChange     int                         `json:"cherry_pick_of_change,omitempty"`
+	CherryPickOfPatchSet   int                         `json:"cherry_pick_of_patch_set,omitempty"`
+	ContainsGitConflicts   bool                        `json:"contains_git_conflicts,omitempty"`
+	BaseChange             string                      `json:"base_change,omitempty"`
 }
 
 // LabelInfo entity contains information about a label on a change, always corresponding to the current patch set.
@@ -676,6 +728,23 @@ func (s *ChangesService) CreateChange(input *ChangeInfo) (*ChangeInfo, *Response
 	return v, resp, err
 }
 
+// SetCommitMessage creates a new patch set with a new commit message.
+// The new commit message must be provided in the request body inside a CommitMessageInput entity.
+// If a Change-Id footer is specified, it must match the current Change-Id footer.
+// If the Change-Id footer is absent, the current Change-Id is added to the message.
+//
+// Gerrit API docs: https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#set-message
+func (s *ChangesService) SetCommitMessage(changeID string, input *CommitMessageInput) (*Response, error) {
+	u := fmt.Sprintf("changes/%s/message", changeID)
+
+	req, err := s.client.NewRequest("PUT", u, input)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.client.Do(req, nil)
+}
+
 // SetTopic sets the topic of a change.
 // The new topic must be provided in the request body inside a TopicInput entity.
 //
@@ -840,4 +909,15 @@ func (s *ChangesService) RestoreChange(changeID string, input *RestoreInput) (*C
 // Gerrit API docs: https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#revert-change
 func (s *ChangesService) RevertChange(changeID string, input *RevertInput) (*ChangeInfo, *Response, error) {
 	return s.change("revert", changeID, input)
+}
+
+// MoveChange moves a change.
+//
+// The destination branch must be provided in the request body inside a MoveInput entity.
+// Only veto votes that are blocking the change from submission are moved to the destination
+// branch by default.
+//
+// Gerrit API docs: https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#move-change
+func (s *ChangesService) MoveChange(changeID string, input *MoveInput) (*ChangeInfo, *Response, error) {
+	return s.change("move", changeID, input)
 }

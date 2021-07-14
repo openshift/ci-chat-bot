@@ -557,7 +557,7 @@ plank:
 
             # CookieFileSecret is the name of a kubernetes secret that contains
             # a git http.cookiefile, which should be used during the cloning process.
-            cookiefile_secret: ' '
+            cookiefile_secret: ""
 
             # DefaultServiceAccountName is the name of the Kubernetes service account
             # that should be used by the pod if one is not specified in the podspec.
@@ -734,7 +734,7 @@ plank:
 
             # CookieFileSecret is the name of a kubernetes secret that contains
             # a git http.cookiefile, which should be used during the cloning process.
-            cookiefile_secret: ' '
+            cookiefile_secret: ""
 
             # DefaultServiceAccountName is the name of the Kubernetes service account
             # that should be used by the pod if one is not specified in the podspec.
@@ -910,6 +910,16 @@ prowjob_namespace: ' '
 # Pub/Sub Subscriptions that we want to listen to
 pubsub_subscriptions:
     "": null
+
+
+# PubSubTriggers defines Pub/Sub Subscriptions that we want to listen to,
+# can be used to restrict build cluster on a topic
+pubsub_triggers:
+  - allowed_clusters:
+      - ""
+    project: ' '
+    topics:
+      - ""
 
 
 # PushGateway is a prometheus push gateway.

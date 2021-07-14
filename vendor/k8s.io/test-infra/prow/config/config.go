@@ -161,6 +161,10 @@ type ProwConfig struct {
 	// Pub/Sub Subscriptions that we want to listen to
 	PubSubSubscriptions PubsubSubscriptions `json:"pubsub_subscriptions,omitempty"`
 
+	// PubSubTriggers defines Pub/Sub Subscriptions that we want to listen to,
+	// can be used to restrict build cluster on a topic
+	PubSubTriggers PubSubTriggers `json:"pubsub_triggers,omitempty"`
+
 	// GitHubOptions allows users to control how prow applications display GitHub website links.
 	GitHubOptions GitHubOptions `json:"github,omitempty"`
 
@@ -361,7 +365,12 @@ func (c *Config) GetPresubmits(gc git.ClientFactory, identifier string, baseSHAG
 		return nil, err
 	}
 
-	return append(c.PresubmitsStatic[identifier], prowYAML.Presubmits...), nil
+	return append(c.GetPresubmitsStatic(identifier), prowYAML.Presubmits...), nil
+}
+
+// GetPresubmitsStatic will return presubmits for the given identifier that are versioned inside the tested repo
+func (c *Config) GetPresubmitsStatic(identifier string) []Presubmit {
+	return c.PresubmitsStatic[identifier]
 }
 
 // GetPostsubmits will return all postsubmits for the given identifier. This includes
@@ -377,6 +386,11 @@ func (c *Config) GetPostsubmits(gc git.ClientFactory, identifier string, baseSHA
 	}
 
 	return append(c.PostsubmitsStatic[identifier], prowYAML.Postsubmits...), nil
+}
+
+// GetPostsubmitsStatic will return postsubmits for the given identifier that are versioned inside the tested repo
+func (c *Config) GetPostsubmitsStatic(identifier string) []Postsubmit {
+	return c.PostsubmitsStatic[identifier]
 }
 
 // OwnersDirDenylist is used to configure regular expressions matching directories
@@ -1008,8 +1022,18 @@ func (rac RerunAuthConfigs) GetRerunAuthConfig(refs *prowapi.Refs) prowapi.Rerun
 	return rac["*"]
 }
 
-// PubSubSubscriptions maps GCP projects to a list of Topics.
+// PubsubSubscriptions maps GCP projects to a list of Topics
 type PubsubSubscriptions map[string][]string
+
+// PubSubTriggers contains pubsub configurations
+type PubSubTriggers []PubSubTrigger
+
+// PubSubTrigger contain pubsub configuration for a single project
+type PubSubTrigger struct {
+	Project         string   `json:"project"`
+	Topics          []string `json:"topics"`
+	AllowedClusters []string `json:"allowed_clusters"`
+}
 
 // GitHubOptions allows users to control how prow applications display GitHub website links.
 type GitHubOptions struct {
@@ -1042,11 +1066,8 @@ type ManagedWebhooks struct {
 // SlackReporter represents the config for the Slack reporter. The channel can be overridden
 // on the job via the .reporter_config.slack.channel property
 type SlackReporter struct {
-	JobTypesToReport  []prowapi.ProwJobType  `json:"job_types_to_report,omitempty"`
-	JobStatesToReport []prowapi.ProwJobState `json:"job_states_to_report,omitempty"`
-	Host              string                 `json:"host,omitempty"`
-	Channel           string                 `json:"channel"`
-	ReportTemplate    string                 `json:"report_template"`
+	JobTypesToReport            []prowapi.ProwJobType `json:"job_types_to_report,omitempty"`
+	prowapi.SlackReporterConfig `json:",inline"`
 }
 
 // SlackReporterConfigs represents the config for the Slack reporter(s).
@@ -1277,6 +1298,20 @@ func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string,
 	// Respect `"*": []`, which disabled default global cluster
 	if nc.InRepoConfig.AllowedClusters["*"] == nil {
 		nc.InRepoConfig.AllowedClusters["*"] = []string{kube.DefaultClusterAlias}
+	}
+
+	// merge pubsub configs
+	if nc.PubSubSubscriptions != nil {
+		if nc.PubSubTriggers != nil {
+			return nil, errors.New("pubsub_subscriptions and pubsub_triggers are mutually exclusive")
+		}
+		for proj, topics := range nc.PubSubSubscriptions {
+			nc.PubSubTriggers = append(nc.PubSubTriggers, PubSubTrigger{
+				Project:         proj,
+				Topics:          topics,
+				AllowedClusters: []string{"*"},
+			})
+		}
 	}
 
 	// TODO(krzyzacy): temporary allow empty jobconfig
