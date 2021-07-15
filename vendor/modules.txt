@@ -820,7 +820,7 @@ k8s.io/klog
 k8s.io/klog/v2
 # k8s.io/kube-openapi v0.0.0-20210305001622-591a79e4bda7
 k8s.io/kube-openapi/pkg/util/proto
-# k8s.io/test-infra v0.0.0-20210714174627-7b8bded26640
+# k8s.io/test-infra v0.0.0-20210715211303-f8dbf1fd3d25
 ## explicit
 k8s.io/test-infra/ghproxy/ghcache
 k8s.io/test-infra/ghproxy/ghmetrics
