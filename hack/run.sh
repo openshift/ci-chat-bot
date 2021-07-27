@@ -8,7 +8,7 @@ tmp_kk=$(mktemp)
 trap 'rm -rf $tmp_kk' EXIT
 
 kubectl config view >$tmp_kk
-kubectl --kubeconfig=$tmp_kk config use-context api.ci
+kubectl --kubeconfig=$tmp_kk config use-context app.ci
 
 
 kubectl config use-context app.ci
