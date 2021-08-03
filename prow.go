@@ -309,6 +309,9 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	}
 
 	pj, err := m.generateProwJob(job)
+	if err != nil {
+		return fmt.Errorf("unable to generate prow job: %v", err)
+	}
 
 	_, err = m.prowClient.Namespace(m.prowNamespace).Create(context.TODO(), prow.ObjectToUnstructured(pj), metav1.CreateOptions{})
 	if err != nil && !errors.IsAlreadyExists(err) {
