@@ -691,11 +691,11 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 			}
 			return "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
 		} else if unresolved == "nightly" {
-			unresolved = "4.8.0-0.nightly"
+			unresolved = "4.9.0-0.nightly"
 		} else if unresolved == "ci" {
-			unresolved = "4.8.0-0.ci"
+			unresolved = "4.9.0-0.ci"
 		} else if unresolved == "prerelease" {
-			unresolved = "4.8.0-0.ci"
+			unresolved = "4.9.0-0.ci"
 		}
 
 		if tag, name := findImageStatusTag(is, unresolved); tag != nil {
