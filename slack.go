@@ -48,7 +48,7 @@ func getUserProfile(client slacker.BotContext) *slack.User {
 	return userProfile
 }
 
-func (b *Bot) Start(manager JobManager) error {
+func (b *Bot) Start(context context.Context, manager JobManager) error {
 	client := slacker.NewClient(b.botToken, b.botAppToken)
 	// client := slacker.NewClient(b.botToken, b.botAppToken, slacker.WithBotInteractionMode(slacker.BotInteractionModeIgnoreApp))
 
@@ -513,7 +513,7 @@ func (b *Bot) Start(manager JobManager) error {
 	})
 
 	klog.Infof("ci-chat-bot up and listening to slack")
-	return client.Listen(context.Background())
+	return client.Listen(context)
 }
 
 func getPlatformArchFromWorkflowConfig(workflowConfig *WorkflowConfig, name string) (string, string, error) {
