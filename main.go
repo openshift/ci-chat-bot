@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -9,6 +10,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"os/signal"
 	"path"
 	"regexp"
 	"sync"
@@ -53,12 +55,28 @@ func (o *options) Validate() error {
 }
 
 func main() {
-	if err := run(); err != nil {
+	cxt, cancel := context.WithCancel(context.Background())
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt)
+	// Cleanup everything on regular shutdown
+	defer func() {
+		signal.Stop(signals)
+		cancel()
+	}()
+	// Wait, indefinitely, for signals
+	go func() {
+		select {
+		case <-signals:
+			cancel()
+		case <-cxt.Done():
+		}
+	}()
+	if err := run(cxt); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run() error {
+func run(context context.Context) error {
 	emptyFlags := flag.NewFlagSet("empty", flag.ContinueOnError)
 	klog.InitFlags(emptyFlags)
 	opt := &options{
@@ -161,7 +179,7 @@ func run() error {
 
 	bot := NewBot(botToken, botAppToken, &workflows)
 	for {
-		if err := bot.Start(manager); err != nil && !isRetriable(err) {
+		if err := bot.Start(context, manager); err != nil && !isRetriable(err) {
 			return err
 		}
 		time.Sleep(5 * time.Second)
