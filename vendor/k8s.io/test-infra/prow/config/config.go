@@ -180,6 +180,13 @@ type ProwConfig struct {
 	// ManagedWebhooks contains information about all github repositories and organizations which are using
 	// non-global Hmac token.
 	ManagedWebhooks ManagedWebhooks `json:"managed_webhooks,omitempty"`
+
+	// ProwJobDefaultEntries holds a list of defaults for specific values
+	// Each entry in the slice specifies Repo and CLuster regexp filter fields to
+	// match against the jobs and a corresponding ProwJobDefault . All entries that
+	// match a job are used. Later matching entries override the fields of earlier
+	// matching entires.
+	ProwJobDefaultEntries []*ProwJobDefaultEntry `json:"prowjob_default_entries,omitempty"`
 }
 
 type InRepoConfig struct {
@@ -533,6 +540,31 @@ type Plank struct {
 	// JobURLPrefixDisableAppendStorageProvider disables that the storageProvider is
 	// automatically appended to the JobURLPrefix
 	JobURLPrefixDisableAppendStorageProvider bool `json:"jobURLPrefixDisableAppendStorageProvider,omitempty"`
+
+	// BuildClusterStatusFile is an optional field used to specify the blob storage location
+	// to publish cluster status information.
+	// e.g. gs://my-bucket/cluster-status.json
+	BuildClusterStatusFile string `json:"build_cluster_status_file,omitempty"`
+}
+
+type ProwJobDefaultEntry struct {
+	// Matching/filtering fields. All filters must match for an entry to match.
+
+	// OrgRepo matches against the "org" or "org/repo" that the presubmit or postsubmit
+	// is associated with. If the job is a periodic, extra_refs[0] is used. If the
+	// job is a periodic without extra_refs, the empty string will be used.
+	// If this field is omitted all jobs will match.
+	OrgRepo string `json:"repo,omitempty"`
+	// Cluster matches against the cluster alias of the build cluster that the
+	// ProwJob is configured to run on. Recall that ProwJobs default to running on
+	// the "default" build cluster if they omit the "cluster" field in config.
+	Cluster string `json:"cluster,omitempty"`
+
+	// Config is the ProwJobDefault to apply if the filter fields all match the
+	// ProwJob. Note that when multiple entries match a ProwJob they are all used
+	// by sequentially merging with later entries overriding fields from earlier
+	// entries.
+	Config *prowapi.ProwJobDefault `json:"config,omitempty"`
 }
 
 // DefaultDecorationConfigEntry contains a DecorationConfig and a set of
@@ -559,11 +591,38 @@ type DefaultDecorationConfigEntry struct {
 	Config *prowapi.DecorationConfig `json:"config,omitempty"`
 }
 
+// TODO(mpherman): Make a Matcher struct embedded in both ProwJobDefaultEntry and DefaultDecorationConfigEntry
+func matches(orgRepo, givenCluster, repo, cluster string) bool {
+	repoMatch := orgRepo == "" || orgRepo == "*" || orgRepo == repo || orgRepo == strings.Split(repo, "/")[0]
+	clusterMatch := givenCluster == "" || givenCluster == "*" || givenCluster == cluster
+	return repoMatch && clusterMatch
+}
+
+// matches returns true iff all the filters for the entry match a job.
+func (d *ProwJobDefaultEntry) matches(repo, cluster string) bool {
+	return matches(d.OrgRepo, d.Cluster, repo, cluster)
+}
+
 // matches returns true iff all the filters for the entry match a job.
 func (d *DefaultDecorationConfigEntry) matches(repo, cluster string) bool {
-	repoMatch := d.OrgRepo == "" || d.OrgRepo == "*" || d.OrgRepo == repo || d.OrgRepo == strings.Split(repo, "/")[0]
-	clusterMatch := d.Cluster == "" || d.Cluster == "*" || d.Cluster == cluster
-	return repoMatch && clusterMatch
+	return matches(d.OrgRepo, d.Cluster, repo, cluster)
+}
+
+// mergeProwJobDefault finds all matching ProwJobDefaultEntry
+// for a job and merges them sequentially before merging into the job's own
+// PrwoJobDefault. Configs merged later override values from earlier configs.
+func (pc *ProwConfig) mergeProwJobDefault(repo, cluster string, jobDefault *prowapi.ProwJobDefault) *prowapi.ProwJobDefault {
+	var merged *prowapi.ProwJobDefault
+	for _, entry := range pc.ProwJobDefaultEntries {
+		if entry.matches(repo, cluster) {
+			merged = entry.Config.ApplyDefault(merged)
+		}
+	}
+	merged = jobDefault.ApplyDefault(merged)
+	if merged == nil {
+		merged = &prowapi.ProwJobDefault{}
+	}
+	return merged
 }
 
 // mergeDefaultDecorationConfig finds all matching DefaultDecorationConfigEntry
@@ -1022,6 +1081,10 @@ func (rac RerunAuthConfigs) GetRerunAuthConfig(refs *prowapi.Refs) prowapi.Rerun
 	return rac["*"]
 }
 
+const (
+	defaultMaxOutstandingMessages = 10
+)
+
 // PubsubSubscriptions maps GCP projects to a list of Topics
 type PubsubSubscriptions map[string][]string
 
@@ -1033,6 +1096,8 @@ type PubSubTrigger struct {
 	Project         string   `json:"project"`
 	Topics          []string `json:"topics"`
 	AllowedClusters []string `json:"allowed_clusters"`
+	// MaxOutstandingMessages is the max number of messaged being processed, default is 10
+	MaxOutstandingMessages int `json:"max_outstanding_messages"`
 }
 
 // GitHubOptions allows users to control how prow applications display GitHub website links.
@@ -1330,6 +1395,11 @@ func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string,
 			})
 		}
 	}
+	for i, trigger := range nc.PubSubTriggers {
+		if trigger.MaxOutstandingMessages == 0 {
+			nc.PubSubTriggers[i].MaxOutstandingMessages = defaultMaxOutstandingMessages
+		}
+	}
 
 	// TODO(krzyzacy): temporary allow empty jobconfig
 	//                 also temporary allow job config in prow config
@@ -1488,6 +1558,22 @@ func shouldDecorate(c *JobConfig, util *UtilityConfig) bool {
 	return c.DecorateAllJobs
 }
 
+func setPresubmitProwJobDefaults(c *Config, ps *Presubmit, repo string) {
+	ps.ProwJobDefault = c.mergeProwJobDefault(repo, ps.Cluster, ps.ProwJobDefault)
+}
+
+func setPostsubmitProwJobDefaults(c *Config, ps *Postsubmit, repo string) {
+	ps.ProwJobDefault = c.mergeProwJobDefault(repo, ps.Cluster, ps.ProwJobDefault)
+}
+
+func setPeriodicProwJobDefaults(c *Config, ps *Periodic) {
+	var repo string
+	if len(ps.UtilityConfig.ExtraRefs) > 0 {
+		repo = fmt.Sprintf("%s/%s", ps.UtilityConfig.ExtraRefs[0].Org, ps.UtilityConfig.ExtraRefs[0].Repo)
+	}
+
+	ps.ProwJobDefault = c.mergeProwJobDefault(repo, ps.Cluster, ps.ProwJobDefault)
+}
 func setPresubmitDecorationDefaults(c *Config, ps *Presubmit, repo string) {
 	if shouldDecorate(&c.JobConfig, &ps.JobBase.UtilityConfig) {
 		ps.DecorationConfig = c.Plank.mergeDefaultDecorationConfig(repo, ps.Cluster, ps.DecorationConfig)
@@ -1517,6 +1603,7 @@ func defaultPresubmits(presubmits []Presubmit, additionalPresets []Preset, c *Co
 	var errs []error
 	for idx, ps := range presubmits {
 		setPresubmitDecorationDefaults(c, &presubmits[idx], repo)
+		setPresubmitProwJobDefaults(c, &presubmits[idx], repo)
 		if err := resolvePresets(ps.Name, ps.Labels, ps.Spec, append(c.Presets, additionalPresets...)); err != nil {
 			errs = append(errs, err)
 		}
@@ -1534,6 +1621,7 @@ func defaultPostsubmits(postsubmits []Postsubmit, additionalPresets []Preset, c 
 	var errs []error
 	for idx, ps := range postsubmits {
 		setPostsubmitDecorationDefaults(c, &postsubmits[idx], repo)
+		setPostsubmitProwJobDefaults(c, &postsubmits[idx], repo)
 		if err := resolvePresets(ps.Name, ps.Labels, ps.Spec, append(c.Presets, additionalPresets...)); err != nil {
 			errs = append(errs, err)
 		}
@@ -1550,6 +1638,7 @@ func defaultPeriodics(c *Config) error {
 	var errs []error
 	for i := range c.Periodics {
 		setPeriodicDecorationDefaults(c, &c.Periodics[i])
+		setPeriodicProwJobDefaults(c, &c.Periodics[i])
 		if err := resolvePresets(c.Periodics[i].Name, c.Periodics[i].Labels, c.Periodics[i].Spec, c.Presets); err != nil {
 			errs = append(errs, err)
 		}
