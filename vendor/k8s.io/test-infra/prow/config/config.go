@@ -70,6 +70,8 @@ const (
 	// it up if present. This allows components to include the config version
 	// in their logs, which can be useful for debugging.
 	ConfigVersionFileName = "VERSION"
+
+	DefaultTenantID = "GlobalDefaultID"
 )
 
 // Config is a read-only snapshot of the config.
@@ -621,6 +623,9 @@ func (pc *ProwConfig) mergeProwJobDefault(repo, cluster string, jobDefault *prow
 	merged = jobDefault.ApplyDefault(merged)
 	if merged == nil {
 		merged = &prowapi.ProwJobDefault{}
+	}
+	if merged.TenantID == "" {
+		merged.TenantID = DefaultTenantID
 	}
 	return merged
 }
@@ -2195,6 +2200,11 @@ func parseProwConfig(c *Config) error {
 	// Avoid using a job timeout of infinity by setting the default value to 24 hours
 	if c.DefaultJobTimeout == nil {
 		c.DefaultJobTimeout = &metav1.Duration{Duration: DefaultJobTimeout}
+	}
+
+	// Ensure Policy.Include and Policy.Exclude are mutually exclusive
+	if len(c.BranchProtection.Include) > 0 && len(c.BranchProtection.Exclude) > 0 {
+		return fmt.Errorf("Forbidden to set both Policy.Include and Policy.Exclude, Please use either Include or Exclude!")
 	}
 
 	return nil
