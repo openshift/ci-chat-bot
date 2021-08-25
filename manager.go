@@ -639,7 +639,7 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 		return ""
 	}
 	if refs.BaseRef == "master" {
-		return "4.8.0-0.latest"
+		return "4.9.0-0.latest"
 	}
 	if m := reBranchVersion.FindStringSubmatch(refs.BaseRef); m != nil {
 		return fmt.Sprintf("%s.0-0.latest", m[2])
