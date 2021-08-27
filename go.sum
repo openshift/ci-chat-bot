@@ -1150,8 +1150,9 @@ github.com/shomali11/slacker v0.0.0-20200420173605-4887ab8127b6 h1:8d0Pg+DXPl7VE
 github.com/shomali11/slacker v0.0.0-20200420173605-4887ab8127b6/go.mod h1:xNhDAKq5oI6HBP/Dnpq5pGGTGEP4ffR2OFtIiNQPj9k=
 github.com/shurcooL/githubv4 v0.0.0-20180925043049-51d7b505e2e9/go.mod h1:hAF0iLZy4td2EX+/8Tw+4nodhlMrwN3HupfaXj3zkGo=
 github.com/shurcooL/githubv4 v0.0.0-20190718010115-4ba037080260/go.mod h1:hAF0iLZy4td2EX+/8Tw+4nodhlMrwN3HupfaXj3zkGo=
-github.com/shurcooL/githubv4 v0.0.0-20191102174205-af46314aec7b h1:Cocq9/ZZxCoiybhygOR7hX4E3/PkV8eNbd1AEcUvaHM=
 github.com/shurcooL/githubv4 v0.0.0-20191102174205-af46314aec7b/go.mod h1:hAF0iLZy4td2EX+/8Tw+4nodhlMrwN3HupfaXj3zkGo=
+github.com/shurcooL/githubv4 v0.0.0-20210725200734-83ba7b4c9228 h1:N5B+JgvM/DVYIxreItPJMM3yWrNO/GB2q4nESrtBisM=
+github.com/shurcooL/githubv4 v0.0.0-20210725200734-83ba7b4c9228/go.mod h1:hAF0iLZy4td2EX+/8Tw+4nodhlMrwN3HupfaXj3zkGo=
 github.com/shurcooL/go v0.0.0-20180423040247-9e1955d9fb6e/go.mod h1:TDJrrUr11Vxrven61rcy3hJMUqaf/CLWYhHNPmT14Lk=
 github.com/shurcooL/go-goon v0.0.0-20170922171312-37c2f522c041/go.mod h1:N5mDOmsrJOB+vfqUK+7DmDyjhSLIIBnXo9lvZJj3MWQ=
 github.com/shurcooL/graphql v0.0.0-20180924043259-e4a3a37e6d42/go.mod h1:AuYgA5Kyo4c7HfUmvRGs/6rGlMMV/6B1bVnB9JxJEEg=
@@ -2009,8 +2010,8 @@ k8s.io/test-infra v0.0.0-20200514184223-ba32c8aae783/go.mod h1:bW6thaPZfL2hW7ecj
 k8s.io/test-infra v0.0.0-20200617221206-ea73eaeab7ff/go.mod h1:L3+cRvwftUq8IW1TrHji5m3msnc4uck/7LsE/GR/aZk=
 k8s.io/test-infra v0.0.0-20200630233406-1dca6122872e/go.mod h1:L3+cRvwftUq8IW1TrHji5m3msnc4uck/7LsE/GR/aZk=
 k8s.io/test-infra v0.0.0-20210730160938-8ad9b8c53bd8/go.mod h1:RXgSaKbQA0upN4GGyH38yRkotDJr3myiKWkvdfB5yP4=
-k8s.io/test-infra v0.0.0-20210823175823-85d839e08600 h1:+OEATRoQFV2DoKZYXozFYD0doV4tdcRyXo7GBZuUHeo=
-k8s.io/test-infra v0.0.0-20210823175823-85d839e08600/go.mod h1:lD/4oSg2hEhDm4+Q6Twz8XwiPuhkrPCA3KuwA1IOYWs=
+k8s.io/test-infra v0.0.0-20210827145205-66a2e9540e8a h1:6Ep3Jp7s5ILsJLMzEf676+bigRztTnhTsxxbLixll70=
+k8s.io/test-infra v0.0.0-20210827145205-66a2e9540e8a/go.mod h1:BsvIn76ONdctNpC17P3bsLEV8WkpFcLlZBzBJqHDLls=
 k8s.io/utils v0.0.0-20181019225348-5e321f9a457c/go.mod h1:8k8uAuAQ0rXslZKaEWd0c3oVhZz7sSzSiPnVZayjIX0=
 k8s.io/utils v0.0.0-20190221042446-c2654d5206da/go.mod h1:8k8uAuAQ0rXslZKaEWd0c3oVhZz7sSzSiPnVZayjIX0=
 k8s.io/utils v0.0.0-20190506122338-8fab8cb257d5/go.mod h1:sZAwmy6armz5eXlNoLmJcl4F1QuKu7sr+mFQ0byX7Ew=
