@@ -246,7 +246,7 @@ github.com/shomali11/proper
 # github.com/shomali11/slacker v0.0.0-20200420173605-4887ab8127b6
 ## explicit
 github.com/shomali11/slacker
-# github.com/shurcooL/githubv4 v0.0.0-20191102174205-af46314aec7b
+# github.com/shurcooL/githubv4 v0.0.0-20210725200734-83ba7b4c9228
 github.com/shurcooL/githubv4
 # github.com/shurcooL/graphql v0.0.0-20181231061246-d48a9a75455f
 github.com/shurcooL/graphql
@@ -826,7 +826,7 @@ k8s.io/klog
 k8s.io/klog/v2
 # k8s.io/kube-openapi v0.0.0-20210305001622-591a79e4bda7
 k8s.io/kube-openapi/pkg/util/proto
-# k8s.io/test-infra v0.0.0-20210823175823-85d839e08600
+# k8s.io/test-infra v0.0.0-20210827145205-66a2e9540e8a
 ## explicit
 k8s.io/test-infra/ghproxy/ghcache
 k8s.io/test-infra/ghproxy/ghmetrics
