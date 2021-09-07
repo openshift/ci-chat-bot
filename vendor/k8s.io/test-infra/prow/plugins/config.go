@@ -373,7 +373,7 @@ type Goose struct {
 type Label struct {
 	// AdditionalLabels is a set of additional labels enabled for use
 	// on top of the existing "kind/*", "priority/*", and "area/*" labels.
-	AdditionalLabels []string `json:"additional_labels"`
+	AdditionalLabels []string `json:"additional_labels,omitempty"`
 
 	// RestrictedLabels allows to configure labels that can only be modified
 	// by users that belong to at least one of the configured teams. The key
@@ -395,8 +395,8 @@ func (l Label) RestrictedLabelsFor(org, repo string) map[string]RestrictedLabel 
 
 type RestrictedLabel struct {
 	Label        string   `json:"label"`
-	AllowedTeams []string `json:"allowed_teams"`
-	AllowedUsers []string `json:"allowed_users"`
+	AllowedTeams []string `json:"allowed_teams,omitempty"`
+	AllowedUsers []string `json:"allowed_users,omitempty"`
 }
 
 // Trigger specifies a configuration for a single trigger.
@@ -1794,7 +1794,7 @@ type Override struct {
 
 func (c *Configuration) mergeFrom(other *Configuration) error {
 	var errs []error
-	if diff := cmp.Diff(other, &Configuration{Approve: other.Approve, Bugzilla: other.Bugzilla, ExternalPlugins: other.ExternalPlugins, Lgtm: other.Lgtm, Plugins: other.Plugins}); diff != "" {
+	if diff := cmp.Diff(other, &Configuration{Approve: other.Approve, Bugzilla: other.Bugzilla, ExternalPlugins: other.ExternalPlugins, Label: Label{RestrictedLabels: other.Label.RestrictedLabels}, Lgtm: other.Lgtm, Plugins: other.Plugins}); diff != "" {
 		errs = append(errs, fmt.Errorf("supplemental plugin configuration has config that doesn't support merging: %s", diff))
 	}
 
@@ -1939,7 +1939,7 @@ func getLabelConfigFromRestrictedLabelsSlice(s []RestrictedLabel, label string) 
 }
 
 func (c *Configuration) HasConfigFor() (global bool, orgs sets.String, repos sets.String) {
-	if !reflect.DeepEqual(c, &Configuration{Approve: c.Approve, Bugzilla: c.Bugzilla, ExternalPlugins: c.ExternalPlugins, Label: c.Label, Lgtm: c.Lgtm, Plugins: c.Plugins}) || c.Bugzilla.Default != nil {
+	if !reflect.DeepEqual(c, &Configuration{Approve: c.Approve, Bugzilla: c.Bugzilla, ExternalPlugins: c.ExternalPlugins, Label: Label{RestrictedLabels: c.Label.RestrictedLabels}, Lgtm: c.Lgtm, Plugins: c.Plugins}) || c.Bugzilla.Default != nil {
 		global = true
 	}
 	orgs = sets.String{}
