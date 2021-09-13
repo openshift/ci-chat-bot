@@ -380,9 +380,20 @@ func (m *jobManager) newJob(job *Job) error {
 			return fmt.Errorf("the prow job %s does not have a recognizable command/args setup and cannot be used with pull request builds", job.JobName)
 		}
 
-		sourceConfig.Object["tag_specification"] = map[string]interface{}{
-			"name":      "pipeline",
-			"namespace": "$(NAMESPACE)",
+		sourceConfig.Object["releases"] = map[string]interface{}{
+			"initial": map[string]interface{}{
+				"integration": map[string]interface{}{
+					"name":      "pipeline",
+					"namespace": "$(NAMESPACE)",
+				},
+			},
+			"latest": map[string]interface{}{
+				"integration": map[string]interface{}{
+					"include_built_images": true,
+					"name":                 "pipeline",
+					"namespace":            "$(NAMESPACE)",
+				},
+			},
 		}
 		if tests, ok := sourceConfig.Object["tests"].([]interface{}); !ok || len(tests) == 0 {
 			sourceConfig.Object["tests"] = []interface{}{
@@ -427,9 +438,20 @@ func (m *jobManager) newJob(job *Job) error {
 						"registry_override":   registryHost,
 						"disable_build_cache": true,
 					}
-					targetConfig.Object["tag_specification"] = map[string]interface{}{
-						"name":      "stable-initial",
-						"namespace": "$(NAMESPACE)",
+					targetConfig.Object["releases"] = map[string]interface{}{
+						"initial": map[string]interface{}{
+							"integration": map[string]interface{}{
+								"name":      "stable-initial",
+								"namespace": "$(NAMESPACE)",
+							},
+						},
+						"latest": map[string]interface{}{
+							"integration": map[string]interface{}{
+								"include_built_images": true,
+								"name":                 "stable-initial",
+								"namespace":            "$(NAMESPACE)",
+							},
+						},
 					}
 				} else {
 					targetConfig.Object["promotion"] = map[string]interface{}{
@@ -438,9 +460,20 @@ func (m *jobManager) newJob(job *Job) error {
 						"registry_override":   registryHost,
 						"disable_build_cache": true,
 					}
-					targetConfig.Object["tag_specification"] = map[string]interface{}{
-						"name":      "stable",
-						"namespace": "$(NAMESPACE)",
+					targetConfig.Object["releases"] = map[string]interface{}{
+						"initial": map[string]interface{}{
+							"integration": map[string]interface{}{
+								"name":      "stable",
+								"namespace": "$(NAMESPACE)",
+							},
+						},
+						"latest": map[string]interface{}{
+							"integration": map[string]interface{}{
+								"include_built_images": true,
+								"name":                 "stable",
+								"namespace":            "$(NAMESPACE)",
+							},
+						},
 					}
 				}
 
@@ -992,9 +1025,16 @@ resources:
     requests:
       cpu: 100m
       memory: 200Mi
-tag_specification:
-  name: "$(BRANCH)"
-  namespace: ocp
+releases:
+  initial:
+    integration:
+      name: "$(BRANCH)"
+      namespace: ocp
+  latest:
+    integration:
+      include_built_images: true
+      name: "$(BRANCH)"
+      namespace: ocp
 tests:
 - as: none
   commands: "true"
