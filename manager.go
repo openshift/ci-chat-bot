@@ -709,7 +709,7 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		}
 	}
 
-	return "", "", fmt.Errorf("unable to find a release matching %q on https://amd64.ocp.releases.ci.openshift.org or https://origin-release.svc.ci.openshift.org", imageOrVersion)
+	return "", "", fmt.Errorf("unable to find a release matching %q on https://amd64.ocp.releases.ci.openshift.org or https://amd64.origin.releases.ci.openshift.org", imageOrVersion)
 }
 
 func findNewestStableImageSpecTagBySemanticMajor(is *imagev1.ImageStream, majorMinor string) *imagev1.TagReference {
