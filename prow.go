@@ -420,6 +420,9 @@ func (m *jobManager) newJob(job *Job) error {
 				// delete sections we don't need
 				delete(targetConfig.Object, "tests")
 
+				// For template based jobs, we must rely on "tag_specification"
+				delete(targetConfig.Object, "releases")
+
 				if i == 0 && len(job.Inputs) > 1 {
 					targetConfig.Object["promotion"] = map[string]interface{}{
 						"name":                "stable-initial",
