@@ -20,10 +20,10 @@ require (
 	github.com/slack-go/slack v0.6.4
 	github.com/spf13/pflag v1.0.5
 	gopkg.in/fsnotify.v1 v1.4.7
-	k8s.io/api v0.21.1
-	k8s.io/apimachinery v0.21.1
+	k8s.io/api v0.21.3
+	k8s.io/apimachinery v0.21.3
 	k8s.io/client-go v11.0.1-0.20190805182717-6502b5e7b1b5+incompatible
 	k8s.io/klog v1.0.0
-	k8s.io/test-infra v0.0.0-20210908195957-7cf307fffca5
+	k8s.io/test-infra v0.0.0-20210927130536-6ca34c5e3519
 	sigs.k8s.io/yaml v1.2.0
 )

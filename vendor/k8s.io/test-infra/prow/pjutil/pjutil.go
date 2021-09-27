@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"strconv"
 
 	uuid "github.com/satori/go.uuid"
 	"github.com/sirupsen/logrus"
@@ -97,6 +98,7 @@ func NewPresubmit(pr github.PullRequest, baseSHA string, job config.Presubmit, e
 		labels[k] = v
 	}
 	labels[github.EventGUID] = eventGUID
+	labels[kube.IsOptionalLabel] = strconv.FormatBool(job.Optional)
 	annotations := make(map[string]string)
 	for k, v := range job.Annotations {
 		annotations[k] = v
@@ -265,6 +267,7 @@ func ProwJobFields(pj *prowapi.ProwJob) logrus.Fields {
 	fields["name"] = pj.ObjectMeta.Name
 	fields["job"] = pj.Spec.Job
 	fields["type"] = pj.Spec.Type
+	fields["state"] = pj.Status.State
 	if len(pj.ObjectMeta.Labels[github.EventGUID]) > 0 {
 		fields[github.EventGUID] = pj.ObjectMeta.Labels[github.EventGUID]
 	}
