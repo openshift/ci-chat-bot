@@ -150,7 +150,7 @@ func (c *Client) Report(ctx context.Context, log *logrus.Entry, pj *v1.ProwJob) 
 	if pj.Spec.Type == v1.PresubmitJob {
 		key, err := lockKeyForPJ(pj)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get lockkey for job: %v", err)
+			return nil, nil, fmt.Errorf("failed to get lockkey for job: %w", err)
 		}
 		lock, err := c.prLocks.getLock(ctx, *key)
 		if err != nil {
@@ -163,7 +163,7 @@ func (c *Client) Report(ctx context.Context, log *logrus.Entry, pj *v1.ProwJob) 
 	}
 
 	// TODO(krzyzacy): ditch ReportTemplate, and we can drop reference to config.Getter
-	err := report.Report(ctx, c.gc, c.config().Plank.ReportTemplateForRepo(pj.Spec.Refs), *pj, c.config().GitHubReporter.JobTypesToReport)
+	err := report.Report(ctx, c.gc, c.config().Plank.ReportTemplateForRepo(pj.Spec.Refs), *pj, c.config().GitHubReporter)
 	if err != nil {
 		if strings.Contains(err.Error(), "This SHA and context has reached the maximum number of statuses") {
 			// This is completely unrecoverable, so just swallow the error to make sure we wont retry, even when crier gets restarted.

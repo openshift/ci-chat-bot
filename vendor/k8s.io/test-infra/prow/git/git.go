@@ -263,6 +263,31 @@ func (r *Repo) Clean() error {
 	return os.RemoveAll(r.dir)
 }
 
+// ResetHard runs `git reset --hard`
+func (r *Repo) ResetHard(commitlike string) error {
+	// `git reset --hard` doesn't cleanup untracked file
+	r.logger.Info("Clean untracked files and dirs.")
+	if b, err := r.gitCommand("clean", "-df").CombinedOutput(); err != nil {
+		return fmt.Errorf("error clean -df: %v. output: %s", err, string(b))
+	}
+	r.logger.WithField("commitlike", commitlike).Info("Reset hard.")
+	co := r.gitCommand("reset", "--hard", commitlike)
+	if b, err := co.CombinedOutput(); err != nil {
+		return fmt.Errorf("error reset hard %s: %v. output: %s", commitlike, err, string(b))
+	}
+	return nil
+}
+
+// IsDirty checks whether the repo is dirty or not
+func (r *Repo) IsDirty() (bool, error) {
+	r.logger.Info("Checking is dirty.")
+	b, err := r.gitCommand("status", "--porcelain").CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("error add -A: %v. output: %s", err, string(b))
+	}
+	return len(b) > 0, nil
+}
+
 func (r *Repo) gitCommand(arg ...string) *exec.Cmd {
 	cmd := exec.Command(r.git, arg...)
 	cmd.Dir = r.dir
@@ -437,7 +462,7 @@ func (r *Repo) PushToNamedFork(forkName, branch string, force bool) error {
 	out, err := co.CombinedOutput()
 	if err != nil {
 		r.logger.WithField("out", string(out)).WithError(err).Error("Pushing failed.")
-		return fmt.Errorf("pushing failed, output: %q, error: %v", string(out), err)
+		return fmt.Errorf("pushing failed, output: %q, error: %w", string(out), err)
 	}
 	return nil
 }
@@ -518,7 +543,7 @@ func (r *Repo) ShowRef(commitlike string) (string, error) {
 	r.logger.WithField("commitlike", commitlike).Info("Getting the commit sha.")
 	out, err := r.gitCommand("show-ref", "-s", commitlike).CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("failed to get commit sha for commitlike %s: %v", commitlike, err)
+		return "", fmt.Errorf("failed to get commit sha for commitlike %s: %w", commitlike, err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }

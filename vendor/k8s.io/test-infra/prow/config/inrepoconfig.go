@@ -37,6 +37,8 @@ const (
 	inRepoConfigDirName  = ".prow"
 )
 
+// +k8s:deepcopy-gen=true
+
 // ProwYAML represents the content of a .prow.yaml file
 // used to version Presubmits and Postsubmits inside the tested repo.
 type ProwYAML struct {
@@ -49,10 +51,18 @@ type ProwYAML struct {
 // their own implementation and set that on the Config.
 type ProwYAMLGetter func(c *Config, gc git.ClientFactory, identifier, baseSHA string, headSHAs ...string) (*ProwYAML, error)
 
-// Verify defaultProwYAMLGetter is a ProwYAMLGetter
-var _ ProwYAMLGetter = defaultProwYAMLGetter
+// Verify prowYAMLGetterWithDefaults and prowYAMLGetter are both of type
+// ProwYAMLGetter.
+var _ ProwYAMLGetter = prowYAMLGetterWithDefaults
+var _ ProwYAMLGetter = prowYAMLGetter
 
-func defaultProwYAMLGetter(
+// prowYAMLGetter is like prowYAMLGetterWithDefaults, but without default values
+// (it does not call DefaultAndValidateProwYAML()). Its sole purpose is to allow
+// caching of ProwYAMLs that are retrieved purely from the inrepoconfig's repo,
+// __without__ having the contents modified by the main Config's own settings
+// (which happens mostly inside DefaultAndValidateProwYAML()). prowYAMLGetter is
+// only used by GetProwYAMLCached().
+func prowYAMLGetter(
 	c *Config,
 	gc git.ClientFactory,
 	identifier string,
@@ -62,7 +72,7 @@ func defaultProwYAMLGetter(
 	log := logrus.WithField("repo", identifier)
 
 	if gc == nil {
-		log.Error("defaultProwYAMLGetter was called with a nil git client")
+		log.Error("prowYAMLGetter was called with a nil git client")
 		return nil, errors.New("gitClient is nil")
 	}
 
@@ -72,7 +82,7 @@ func defaultProwYAMLGetter(
 	}
 	repo, err := gc.ClientFor(orgRepo.Org, orgRepo.Repo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to clone repo for %q: %v", identifier, err)
+		return nil, fmt.Errorf("failed to clone repo for %q: %w", identifier, err)
 	}
 	defer func() {
 		if err := repo.Clean(); err != nil {
@@ -93,7 +103,7 @@ func defaultProwYAMLGetter(
 	mergeMethod := c.Tide.MergeMethod(orgRepo)
 	log.Debugf("Using merge strategy %q.", mergeMethod)
 	if err := repo.MergeAndCheckout(baseSHA, string(mergeMethod), headSHAs...); err != nil {
-		return nil, fmt.Errorf("failed to merge: %v", err)
+		return nil, fmt.Errorf("failed to merge: %w", err)
 	}
 
 	prowYAML := &ProwYAML{}
@@ -143,20 +153,37 @@ func defaultProwYAMLGetter(
 				return nil, fmt.Errorf("failed to read %q: %w", prowYAMLDirPath, err)
 			}
 			if err := yaml.Unmarshal(bytes, prowYAML); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal %q: %v", prowYAMLDirPath, err)
+				return nil, fmt.Errorf("failed to unmarshal %q: %w", prowYAMLDirPath, err)
 			}
 		} else {
 			if !os.IsNotExist(err) {
-				return nil, fmt.Errorf("failed to check if file %q exists: %v", prowYAMLDirPath, err)
+				return nil, fmt.Errorf("failed to check if file %q exists: %w", prowYAMLDirPath, err)
 			}
 		}
 	}
 
+	return prowYAML, nil
+}
+
+// prowYAMLGetterWithDefaults is like prowYAMLGetter, but additionally sets
+// defaults by calling DefaultAndValidateProwYAML.
+func prowYAMLGetterWithDefaults(
+	c *Config,
+	gc git.ClientFactory,
+	identifier string,
+	baseSHA string,
+	headSHAs ...string) (*ProwYAML, error) {
+
+	prowYAML, err := prowYAMLGetter(c, gc, identifier, baseSHA, headSHAs...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Mutate prowYAML to default values as necessary.
 	if err := DefaultAndValidateProwYAML(c, prowYAML, identifier); err != nil {
 		return nil, err
 	}
 
-	log.Debugf("Successfully got %d presubmits and %d postsubmits from %q.", len(prowYAML.Presubmits), len(prowYAML.Postsubmits), inRepoConfigFileName)
 	return prowYAML, nil
 }
 
@@ -186,6 +213,11 @@ func DefaultAndValidateProwYAML(c *Config, p *ProwYAML, identifier string) error
 		}
 	}
 
+	if len(errs) == 0 {
+		log := logrus.WithField("repo", identifier)
+		log.Debugf("Successfully got %d presubmits and %d postsubmits.", len(p.Presubmits), len(p.Postsubmits))
+	}
+
 	return utilerrors.NewAggregate(errs)
 }
 
@@ -210,9 +242,24 @@ func NewInRepoConfigGitCache(factory git.ClientFactory) git.ClientFactory {
 
 func (c *InRepoConfigGitCache) ClientFor(org, repo string) (git.RepoClient, error) {
 	key := fmt.Sprintf("%s/%s", org, repo)
-	getCache := func() (git.RepoClient, error) {
+	getCache := func(threadSafe bool) (git.RepoClient, error) {
 		if client, ok := c.cache[key]; ok {
 			client.Lock()
+			// if repo is dirty, perform git reset --hard instead of deleting entire repo
+			if isDirty, err := client.RepoClient.IsDirty(); err != nil || isDirty {
+				if err := client.ResetHard("HEAD"); err != nil {
+					if threadSafe {
+						// Called within client `Lock`, safe to delete from map,
+						// return with nil so that a fresh clone will be performed
+						delete(c.cache, key)
+						client.Clean() // best effort clean, to avoid jam up disk
+					}
+					// Called with client `RLock`, not safe to delete from map,
+					// also return because fetch doesn't make much sense any more
+					client.Unlock()
+					return nil, nil
+				}
+			}
 			// Don't unlock the client unless we get an error or the consumer indicates they are done by Clean()ing.
 			if err := client.Fetch(); err != nil {
 				client.Unlock()
@@ -223,7 +270,7 @@ func (c *InRepoConfigGitCache) ClientFor(org, repo string) (git.RepoClient, erro
 		return nil, nil
 	}
 	c.RLock()
-	cached, err := getCache()
+	cached, err := getCache(false)
 	c.RUnlock()
 	if cached != nil || err != nil {
 		return cached, err
@@ -235,7 +282,7 @@ func (c *InRepoConfigGitCache) ClientFor(org, repo string) (git.RepoClient, erro
 	// On cold start, all threads pass RLock and wait here, we need to do one more
 	// check here to avoid more than one cloning.
 	// (It would be nice if we could upgrade from `RLock` to `Lock`)
-	cached, err = getCache()
+	cached, err = getCache(true)
 	if cached != nil || err != nil {
 		return cached, err
 	}
@@ -264,6 +311,6 @@ type skipCleanRepoClient struct {
 
 func (rc *skipCleanRepoClient) Clean() error {
 	// Skip cleaning and unlock to allow reuse as a cached entry.
-	rc.Unlock()
+	rc.Mutex.Unlock()
 	return nil
 }

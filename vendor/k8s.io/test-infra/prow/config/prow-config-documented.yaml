@@ -440,6 +440,11 @@ github_reporter:
     # defaults to both presubmit and postsubmit jobs.
     job_types_to_report:
       - ""
+
+    # NoCommentRepos is a list of orgs and org/repos for which failure report
+    # comments should not be maintained. Status contexts will still be written.
+    no_comment_repos:
+      - ""
 horologium:
     # TickInterval is the interval in which we check if new jobs need to be
     # created. Defaults to one minute.
@@ -534,11 +539,17 @@ plank:
     # e.g. gs://my-bucket/cluster-status.json
     build_cluster_status_file: ' '
 
-    # DefaultDecorationConfigEntries holds the default decoration config for specific values.
+    # DefaultDecorationConfigEntries is used to populate DefaultDecorationConfigs.
+
     # Each entry in the slice specifies Repo and Cluster regexp filter fields to
     # match against jobs and a corresponding DecorationConfig. All entries that
     # match a job are used. Later matching entries override the fields of earlier
     # matching entries.
+
+    # This field is smarter than the DefaultDecorationConfigsMap, because each
+    # entry includes additional Cluster regexp information that the old format
+    # does not consider.
+
     # This field is mutually exclusive with the DefaultDecorationConfigsMap field.
     default_decoration_config_entries:
       - # Cluster matches against the cluster alias of the build cluster that the
@@ -722,9 +733,11 @@ plank:
         # If this field is omitted all jobs will match.
         repo: ' '
 
-    # DefaultDecorationConfigsMap is a mapping from 'org', 'org/repo', or the literal string '*',
-    # to the default decoration config to use for that key. The '*' key matches all jobs.
-    # (Periodics use extra_refs[0] for matching if present.)
+    # DefaultDecorationConfigsMap is a mapping from 'org', 'org/repo', or the
+    # literal string '*', to the default decoration config to use for that key.
+    # The '*' key matches all jobs. (Periodics use extra_refs[0] for matching
+    # if present.)
+
     # This field is mutually exclusive with the DefaultDecorationConfigEntries field.
     default_decoration_configs:
         "":
