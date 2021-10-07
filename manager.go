@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"gopkg.in/yaml.v2"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog"
 
@@ -24,6 +26,7 @@ import (
 
 	imagev1 "github.com/openshift/api/image/v1"
 	"github.com/openshift/ci-chat-bot/pkg/prow"
+	citools "github.com/openshift/ci-tools/pkg/api"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -136,6 +139,8 @@ type Job struct {
 
 	Architecture string
 	BuildCluster string
+
+	LegacyConfig bool
 }
 
 func (j Job) IsComplete() bool {
@@ -1062,6 +1067,44 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 	return job, nil
 }
 
+func multistageParamsForPlatform(platform string) sets.String {
+	params := sets.NewString()
+	for param, env := range multistageParameters {
+		if env.platforms.Has(platform) {
+			params.Insert(param)
+		}
+	}
+	return params
+}
+
+func multistageLaunchNameFromParams(params map[string]string, platform string) string {
+	platformParams := multistageParamsForPlatform(platform)
+	variants := sets.NewString()
+	for k := range params {
+		if contains(supportedParameters, k) && !platformParams.Has(k) { // we only need parameters that are not configured via multistage env vars
+			variants.Insert(k)
+		}
+	}
+	if len(variants) == 0 {
+		return "launch"
+	}
+	return fmt.Sprintf("launch-%s", strings.Join(variants.List(), "-"))
+}
+
+func configContainsVariant(params map[string]string, platform string, unresolvedConfig string) (bool, error) {
+	name := multistageLaunchNameFromParams(params, platform)
+	var config citools.ReleaseBuildConfiguration
+	if err := yaml.Unmarshal([]byte(unresolvedConfig), &config); err != nil {
+		return false, fmt.Errorf("failed to unmarshal CONFIG_SPEC: %w", err)
+	}
+	for _, test := range config.Tests {
+		if test.As == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	job, err := m.resolveToJob(req)
 	if err != nil {
@@ -1071,7 +1114,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	// try to pick a job that matches the install version, if we can, otherwise use the first that
 	// matches us (we can do better)
 	var prowJob *prowapiv1.ProwJob
-	selector := labels.Set{"job-env": req.Platform, "job-type": "launch"}
+	selector := labels.Set{"job-env": req.Platform, "job-type": "launch"} // TODO: handle versioned variants better
 	if len(job.Inputs[0].Version) > 0 {
 		if v, err := semver.ParseTolerant(job.Inputs[0].Version); err == nil {
 			withRelease := labels.Merge(selector, labels.Set{"job-release": fmt.Sprintf("%d.%d", v.Major, v.Minor)})
@@ -1079,10 +1122,32 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		}
 	}
 	if prowJob == nil {
-		prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(selector))
+		// TODO: initial support only for launch jobs; add support for tests later
+		var primaryHasVariant bool
+		if job.Mode == "launch" {
+			primarySelector := labels.Set{"job-env": req.Platform, "job-type": "launch", "config-type": "modern"} // these jobs will only contain configs using non-deprecated features
+			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(primarySelector))
+			if prowJob != nil {
+				klog.Infof("Found modern prowjob %s", prowJob.Name)
+				if sourceEnv, _, ok := firstEnvVar(prowJob.Spec.PodSpec, "UNRESOLVED_CONFIG"); ok { // all multistage configs will be unresolved
+					primaryHasVariant, err = configContainsVariant(req.JobParams, req.Platform, sourceEnv.Value)
+					if err != nil {
+						return "", err
+					}
+					klog.Infof("For parameters %s, hasVariant==%t", paramsToString(req.JobParams), primaryHasVariant)
+				}
+			} else {
+				klog.Info("Could not find modern prowjob")
+			}
+		}
+		if !primaryHasVariant {
+			job.LegacyConfig = true
+			fallbackSelector := labels.Set{"job-env": req.Platform, "job-type": "launch", "config-type": "legacy"} // these jobs will contain older, deprecated configs that can be used as fallback for the primary config typr
+			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(fallbackSelector))
+		}
 	}
 	if prowJob == nil {
-		return "", fmt.Errorf("configuration error, unable to find prow job matching %s", selector)
+		return "", fmt.Errorf("configuration error, unable to find prow job matching %s with parameters=%v", selector, paramsToString(job.JobParams))
 	}
 	job.JobName = prowJob.Spec.Job
 	job.BuildCluster = prowJob.Spec.Cluster

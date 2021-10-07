@@ -25,8 +25,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -37,8 +37,15 @@ import (
 	"k8s.io/client-go/transport"
 
 	"github.com/openshift/ci-chat-bot/pkg/prow"
+	citools "github.com/openshift/ci-tools/pkg/api"
 	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 )
+
+type envVar struct {
+	name      string
+	value     string
+	platforms sets.String
+}
 
 var errJobCompleted = fmt.Errorf("job is complete")
 
@@ -54,6 +61,30 @@ var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "hy
 
 // supportedParameters are the allowed parameter keys that can be passed to jobs
 var supportedParameters = []string{"ovn", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv6", "preserve-bootstrap", "test", "rt", "single-node", "cgroupsv2"}
+
+// multistageParameters is the mapping of supportedParameters that can be configured via multistage parameters to the correct environment variable format
+var multistageParameters = map[string]envVar{
+	"compact": {
+		name:      "SIZE_VARIANT",
+		value:     "compact",
+		platforms: sets.NewString("aws", "gcp", "azure"),
+	},
+	"large": {
+		name:      "SIZE_VARIANT",
+		value:     "large",
+		platforms: sets.NewString("aws", "gcp", "azure"),
+	},
+	"xlarge": {
+		name:      "SIZE_VARIANT",
+		value:     "xlarge",
+		platforms: sets.NewString("aws", "gcp", "azure"),
+	},
+	"preserve-bootstrap": {
+		name:      "OPENSHIFT_INSTALL_PRESERVE_BOOTSTRAP",
+		value:     "true",
+		platforms: sets.NewString("aws", "gcp", "azure", "vsphere", "ovirt"),
+	},
+}
 
 // supportedArchitectures are the allowed architectures that can be passed to jobs
 var supportedArchitectures = []string{"amd64"}
@@ -293,38 +324,54 @@ func (m *jobManager) newJob(job *Job) error {
 
 	// Which target in the ci-operator config are we going to run?
 	targetName := "launch"
-	if testName, ok := job.JobParams["test"]; ok {
-		targetName = testName
+	if job.LegacyConfig {
+		if testName, ok := job.JobParams["test"]; ok {
+			targetName = testName
+		}
+	} else {
+		targetName = multistageLaunchNameFromParams(job.JobParams, job.Platform)
 	}
 
-	var matchedTarget map[string]interface{}
-	if tests, ok := sourceConfig.Object["tests"].([]interface{}); ok {
-		for _, testObj := range tests {
-			if test, ok := testObj.(map[string]interface{}); ok {
-				name, _, _ := unstructured.NestedString(test, "as")
-				if name == targetName {
-					matchedTarget = test
-					break
-				}
-			}
+	var matchedTarget *citools.TestStepConfiguration
+	for _, test := range sourceConfig.Tests {
+		if test.As == targetName {
+			matchedTarget = &test
+			break
 		}
 	}
 	if matchedTarget == nil {
 		return fmt.Errorf("no test definition matched the expected name %q", targetName)
 	}
-	commands, _, _ := unstructured.NestedString(matchedTarget, "commands")
+	commands := matchedTarget.Commands
 	stepBasedTarget := len(commands) == 0 // if commands are specified, this is a template based target
 
 	if !stepBasedTarget {
 		// TODO: Remove once all launch jobs are step based
 		prow.SetJobEnvVar(&pj.Spec, "TEST_COMMAND", commands)
+	} else {
+		envParams := sets.NewString()
+		platformParams := multistageParamsForPlatform(job.Platform)
+		for k := range job.JobParams {
+			if platformParams.Has(k) {
+				envParams.Insert(k)
+			}
+		}
+		if len(envParams) != 0 {
+			if matchedTarget.MultiStageTestConfiguration.Environment == nil {
+				matchedTarget.MultiStageTestConfiguration.Environment = citools.TestEnvironment{}
+			}
+			for param := range envParams {
+				envForParam := multistageParameters[param]
+				matchedTarget.MultiStageTestConfiguration.Environment[envForParam.name] = envForParam.value
+			}
+		}
 	}
 
 	if targetName != "launch" {
 		// launch jobs always target 'launch'. If we have selected a different target, rename
 		// it in the configuration so that it will be run.
-		matchedTarget["as"] = "launch"
-		sourceConfig.Object["tests"] = []interface{}{matchedTarget}
+		matchedTarget.As = "launch"
+		sourceConfig.Tests = []citools.TestStepConfiguration{*matchedTarget}
 	}
 
 	var hasRefs bool
@@ -380,20 +427,18 @@ func (m *jobManager) newJob(job *Job) error {
 			return fmt.Errorf("the prow job %s does not have a recognizable command/args setup and cannot be used with pull request builds", job.JobName)
 		}
 
-		sourceConfig.Object["tag_specification"] = map[string]interface{}{
-			"name":      "pipeline",
-			"namespace": "$(NAMESPACE)",
+		sourceConfig.ReleaseTagConfiguration = &citools.ReleaseTagConfiguration{
+			Name:      "pipeline",
+			Namespace: "$(NAMESPACE)",
 		}
-		if tests, ok := sourceConfig.Object["tests"].([]interface{}); !ok || len(tests) == 0 {
-			sourceConfig.Object["tests"] = []interface{}{
-				map[string]interface{}{
-					"as":       "none",
-					"commands": "true",
-					"container": map[string]interface{}{
-						"from": "src",
-					},
+		if len(sourceConfig.Tests) == 0 {
+			sourceConfig.Tests = []citools.TestStepConfiguration{{
+				As:       "none",
+				Commands: "true",
+				ContainerTestConfiguration: &citools.ContainerTestConfiguration{
+					From: "src",
 				},
-			}
+			}}
 		}
 
 		index := 0
@@ -407,8 +452,8 @@ func (m *jobManager) newJob(job *Job) error {
 					return fmt.Errorf("there is no defined configuration for the organization %s with repo %s and branch %s", ref.Org, ref.Repo, ref.BaseRef)
 				}
 
-				var cfg unstructured.Unstructured
-				if err := yaml.Unmarshal([]byte(configData), &cfg.Object); err != nil {
+				var cfg citools.ReleaseBuildConfiguration
+				if err := yaml.Unmarshal([]byte(configData), &cfg); err != nil {
 					return fmt.Errorf("unable to parse ci-operator config definition from resolver: %v", err)
 				}
 				targetConfig := &cfg
@@ -418,32 +463,33 @@ func (m *jobManager) newJob(job *Job) error {
 				}
 
 				// delete sections we don't need
-				delete(targetConfig.Object, "tests")
+				targetConfig.Tests = nil
 
 				// For template based jobs, we must rely on "tag_specification"
-				delete(targetConfig.Object, "releases")
+				// TODO: add support for using releases for multistage tests
+				targetConfig.Releases = nil
 
 				if i == 0 && len(job.Inputs) > 1 {
-					targetConfig.Object["promotion"] = map[string]interface{}{
-						"name":                "stable-initial",
-						"namespace":           "$(NAMESPACE)",
-						"registry_override":   registryHost,
-						"disable_build_cache": true,
+					targetConfig.PromotionConfiguration = &citools.PromotionConfiguration{
+						Name:              "stable-initial",
+						Namespace:         "$(NAMESPACE)",
+						RegistryOverride:  registryHost,
+						DisableBuildCache: true,
 					}
-					targetConfig.Object["tag_specification"] = map[string]interface{}{
-						"name":      "stable-initial",
-						"namespace": "$(NAMESPACE)",
+					targetConfig.ReleaseTagConfiguration = &citools.ReleaseTagConfiguration{
+						Name:      "stable-initial",
+						Namespace: "$(NAMESPACE)",
 					}
 				} else {
-					targetConfig.Object["promotion"] = map[string]interface{}{
-						"name":                "stable",
-						"namespace":           "$(NAMESPACE)",
-						"registry_override":   registryHost,
-						"disable_build_cache": true,
+					targetConfig.PromotionConfiguration = &citools.PromotionConfiguration{
+						Name:              "stable",
+						Namespace:         "$(NAMESPACE)",
+						RegistryOverride:  registryHost,
+						DisableBuildCache: true,
 					}
-					targetConfig.Object["tag_specification"] = map[string]interface{}{
-						"name":      "stable",
-						"namespace": "$(NAMESPACE)",
+					targetConfig.ReleaseTagConfiguration = &citools.ReleaseTagConfiguration{
+						Name:      "stable",
+						Namespace: "$(NAMESPACE)",
 					}
 				}
 
@@ -1163,16 +1209,16 @@ func ciOperatorConfigRefForRefs(refs *prowapiv1.Refs) *corev1.ConfigMapKeySelect
 	}
 }
 
-func loadJobConfigSpec(client clientset.Interface, env corev1.EnvVar, namespace string) (*unstructured.Unstructured, string, string, error) {
+func loadJobConfigSpec(client clientset.Interface, env corev1.EnvVar, namespace string) (*citools.ReleaseBuildConfiguration, string, string, error) {
 	if len(env.Value) > 0 {
-		var cfg unstructured.Unstructured
-		if err := yaml.Unmarshal([]byte(env.Value), &cfg.Object); err != nil {
+		var cfg citools.ReleaseBuildConfiguration
+		if err := yaml.Unmarshal([]byte(env.Value), &cfg); err != nil {
 			return nil, "", "", fmt.Errorf("unable to parse ci-operator config definition: %v", err)
 		}
 		return &cfg, "", "", nil
 	}
 	if env.ValueFrom == nil {
-		return &unstructured.Unstructured{}, "", "", nil
+		return &citools.ReleaseBuildConfiguration{}, "", "", nil
 	}
 	if env.ValueFrom.ConfigMapKeyRef == nil {
 		return nil, "", "", fmt.Errorf("only config spec values inline or referenced in config maps may be used")
@@ -1186,8 +1232,8 @@ func loadJobConfigSpec(client clientset.Interface, env corev1.EnvVar, namespace 
 	if !ok {
 		return nil, "", "", fmt.Errorf("no ci-operator config was found in config map %s/%s with key %s", namespace, configMap, keyName)
 	}
-	var cfg unstructured.Unstructured
-	if err := yaml.Unmarshal([]byte(configData), &cfg.Object); err != nil {
+	var cfg citools.ReleaseBuildConfiguration
+	if err := yaml.Unmarshal([]byte(configData), &cfg); err != nil {
 		return nil, "", "", fmt.Errorf("unable to parse ci-operator config definition from %s/%s[%s]: %v", namespace, configMap, keyName, err)
 	}
 	return &cfg, namespace, configMap, nil
