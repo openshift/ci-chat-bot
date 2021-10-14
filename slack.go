@@ -266,7 +266,7 @@ func (b *Bot) Start(manager JobManager) error {
 			}
 
 			msg, err := manager.LaunchJobForUser(&JobRequest{
-				OriginalMessage: request.Event().Text,
+				OriginalMessage: stripLinks(request.Event().Text),
 				User:            user,
 				Inputs:          [][]string{from},
 				Type:            JobTypeTest,
