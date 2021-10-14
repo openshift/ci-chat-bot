@@ -632,7 +632,7 @@ func (m *jobManager) GetLaunchJob(user string) (*Job, error) {
 	return &copied, nil
 }
 
-var reBranchVersion = regexp.MustCompile((`^(openshift-|release-)(\d+\.\d+)$`))
+var reBranchVersion = regexp.MustCompile(`^(openshift-|release-)(\d+\.\d+)$`)
 
 func versionForRefs(refs *prowapiv1.Refs) string {
 	if refs == nil || len(refs.BaseRef) == 0 {
@@ -647,7 +647,7 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 	return ""
 }
 
-var reMajorMinorVersion = regexp.MustCompile(`^(\d)\.(\d)$`)
+var reMajorMinorVersion = regexp.MustCompile(`^(\d+)\.(\d+)$`)
 
 func buildPullSpec(namespace, tagName string) string {
 	var delimiter = ":"
