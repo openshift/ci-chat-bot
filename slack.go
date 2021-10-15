@@ -284,7 +284,7 @@ func (b *Bot) Start(manager JobManager) error {
 	})
 
 	slack.Command("build <pullrequest>", &slacker.CommandDefinition{
-		Description: "Create a new release image from one or more pull requests. The successful build location will be sent to you when it completes and then preserved for 12 hours.  Example: `build openshift/operator-framework-olm#68,operator-framework/operator-marketplace#396`",
+		Description: "Create a new release image from one or more pull requests. The successful build location will be sent to you when it completes and then preserved for 12 hours.  Example: `build openshift/operator-framework-olm#68,operator-framework/operator-marketplace#396`. To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
 		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
 			user := request.Event().User
 			channel := request.Event().Channel
