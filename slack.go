@@ -363,6 +363,9 @@ func (b *Bot) jobResponder(s *slacker.Slacker) func(Job) {
 func (b *Bot) notifyJob(response slacker.ResponseWriter, job *Job) {
 	switch job.Mode {
 	case "launch":
+		if job.LegacyConfig {
+			response.Reply(fmt.Sprintf("WARNING: using legacy template based job for this cluster. This is unsupported and the cluster may not install as expected. Contact #forum-crt for more information."))
+		}
 		switch {
 		case len(job.Failure) > 0 && len(job.URL) > 0:
 			response.Reply(fmt.Sprintf("your cluster failed to launch: %s (<%s|logs>)", job.Failure, job.URL))

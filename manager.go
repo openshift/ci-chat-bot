@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math"
@@ -1232,7 +1233,11 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	go m.handleJobStartup(*job, "start")
 
 	if job.Mode == "launch" {
-		return "", fmt.Errorf("a cluster is being created - I'll send you the credentials in about %d minutes", m.estimateCompletion(req.RequestedAt)/time.Minute)
+		msg := fmt.Sprintf("a cluster is being created - I'll send you the credentials in about %d minutes", m.estimateCompletion(req.RequestedAt)/time.Minute)
+		if job.LegacyConfig {
+			msg = fmt.Sprintf("WARNING: using legacy template based job for this cluster. This is unsupported and the cluster may not install as expected. Contact #forum-crt for more information.\n%s", msg)
+		}
+		return "", errors.New(msg)
 	}
 	return "", fmt.Errorf("job started, you will be notified on completion")
 }
