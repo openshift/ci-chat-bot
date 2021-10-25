@@ -374,6 +374,20 @@ func (m *jobManager) newJob(job *Job) error {
 		sourceConfig.Tests = []citools.TestStepConfiguration{*matchedTarget}
 	}
 
+	// set releases field and unset tag_specification for all modern jobs
+	if !job.LegacyConfig {
+		sourceConfig.Releases = map[string]citools.UnresolvedRelease{
+			"latest": {
+				Integration: &citools.Integration{
+					Name:               "ocp",
+					Namespace:          "$(BRANCH)",
+					IncludeBuiltImages: true,
+				},
+			},
+		}
+		sourceConfig.ReleaseTagConfiguration = nil
+	}
+
 	var hasRefs bool
 	for _, input := range job.Inputs {
 		if len(input.Refs) > 0 {
@@ -427,9 +441,30 @@ func (m *jobManager) newJob(job *Job) error {
 			return fmt.Errorf("the prow job %s does not have a recognizable command/args setup and cannot be used with pull request builds", job.JobName)
 		}
 
-		sourceConfig.ReleaseTagConfiguration = &citools.ReleaseTagConfiguration{
-			Name:      "pipeline",
-			Namespace: "$(NAMESPACE)",
+		// For template based jobs, we must rely on "tag_specification"
+		if job.LegacyConfig {
+			sourceConfig.Releases = nil
+			sourceConfig.ReleaseTagConfiguration = &citools.ReleaseTagConfiguration{
+				Name:      "pipeline",
+				Namespace: "$(NAMESPACE)",
+			}
+		} else {
+			sourceConfig.ReleaseTagConfiguration = nil
+			sourceConfig.Releases = map[string]citools.UnresolvedRelease{
+				"initial": {
+					Integration: &citools.Integration{
+						Name:      "pipeline",
+						Namespace: "$(NAMESPACE)",
+					},
+				},
+				"latest": {
+					Integration: &citools.Integration{
+						Name:               "pipeline",
+						Namespace:          "$(NAMESPACE)",
+						IncludeBuiltImages: true,
+					},
+				},
+			}
 		}
 		if len(sourceConfig.Tests) == 0 {
 			sourceConfig.Tests = []citools.TestStepConfiguration{{
@@ -465,10 +500,6 @@ func (m *jobManager) newJob(job *Job) error {
 				// delete sections we don't need
 				targetConfig.Tests = nil
 
-				// For template based jobs, we must rely on "tag_specification"
-				// TODO: add support for using releases for multistage tests
-				targetConfig.Releases = nil
-
 				if i == 0 && len(job.Inputs) > 1 {
 					targetConfig.PromotionConfiguration = &citools.PromotionConfiguration{
 						Name:              "stable-initial",
@@ -476,9 +507,30 @@ func (m *jobManager) newJob(job *Job) error {
 						RegistryOverride:  registryHost,
 						DisableBuildCache: true,
 					}
-					targetConfig.ReleaseTagConfiguration = &citools.ReleaseTagConfiguration{
-						Name:      "stable-initial",
-						Namespace: "$(NAMESPACE)",
+					// For template based jobs, we must rely on "tag_specification"
+					if job.LegacyConfig {
+						targetConfig.Releases = nil
+						targetConfig.ReleaseTagConfiguration = &citools.ReleaseTagConfiguration{
+							Name:      "stable-initial",
+							Namespace: "$(NAMESPACE)",
+						}
+					} else {
+						targetConfig.ReleaseTagConfiguration = nil
+						targetConfig.Releases = map[string]citools.UnresolvedRelease{
+							"initial": {
+								Integration: &citools.Integration{
+									Name:      "stable-initial",
+									Namespace: "$(NAMESPACE)",
+								},
+							},
+							"latest": {
+								Integration: &citools.Integration{
+									Name:               "stable-initial",
+									Namespace:          "$(NAMESPACE)",
+									IncludeBuiltImages: true,
+								},
+							},
+						}
 					}
 				} else {
 					targetConfig.PromotionConfiguration = &citools.PromotionConfiguration{
@@ -487,9 +539,29 @@ func (m *jobManager) newJob(job *Job) error {
 						RegistryOverride:  registryHost,
 						DisableBuildCache: true,
 					}
-					targetConfig.ReleaseTagConfiguration = &citools.ReleaseTagConfiguration{
-						Name:      "stable",
-						Namespace: "$(NAMESPACE)",
+					// For template based jobs, we must rely on "tag_specification"
+					if job.LegacyConfig {
+						targetConfig.Releases = nil
+						targetConfig.ReleaseTagConfiguration = &citools.ReleaseTagConfiguration{
+							Name:      "stable",
+							Namespace: "$(NAMESPACE)",
+						}
+					} else {
+						targetConfig.Releases = map[string]citools.UnresolvedRelease{
+							"initial": {
+								Integration: &citools.Integration{
+									Name:      "stable",
+									Namespace: "$(NAMESPACE)",
+								},
+							},
+							"latest": {
+								Integration: &citools.Integration{
+									Name:               "stable",
+									Namespace:          "$(NAMESPACE)",
+									IncludeBuiltImages: true,
+								},
+							},
+						}
 					}
 				}
 
@@ -1041,9 +1113,16 @@ resources:
     requests:
       cpu: 100m
       memory: 200Mi
-tag_specification:
-  name: "$(BRANCH)"
-  namespace: ocp
+releases:
+  initial:
+    integration:
+      name: "$(BRANCH)"
+      namespace: ocp
+  latest:
+    integration:
+      include_built_images: true
+      name: "$(BRANCH)"
+      namespace: ocp
 tests:
 - as: none
   commands: "true"
