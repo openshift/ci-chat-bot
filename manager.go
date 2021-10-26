@@ -76,8 +76,10 @@ type JobRequest struct {
 type JobType string
 
 const (
-	JobTypeBuild   = "build"
+	JobTypeBuild = "build"
+	// TODO: remove this const. It seems out of date and replaced by launch everywhere except for in JobRequest.JobType. Gets changed to "launch" for job.Mode
 	JobTypeInstall = "install"
+	JobTypeLaunch  = "launch"
 	JobTypeTest    = "test"
 	JobTypeUpgrade = "upgrade"
 )
@@ -371,7 +373,7 @@ func (m *jobManager) sync() error {
 			j.State = prowapiv1.PendingState
 			j.Failure = ""
 
-			if j.Mode == "launch" && (previous != nil && !previous.Complete) {
+			if j.Mode == JobTypeLaunch && (previous != nil && !previous.Complete) {
 				if user := j.RequestedBy; len(user) > 0 {
 					if _, ok := m.requests[user]; !ok {
 						var inputStrings [][]string
@@ -485,7 +487,7 @@ func (m *jobManager) ListJobs(users ...string) string {
 	var totalJobs int
 	var runningClusters int
 	for _, job := range m.jobs {
-		if job.Mode == "launch" {
+		if job.Mode == JobTypeLaunch {
 			if !job.Complete {
 				runningClusters++
 			}
@@ -1037,7 +1039,7 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		if len(req.Platform) == 0 {
 			return nil, fmt.Errorf("platform must be set when launching clusters")
 		}
-		job.Mode = "launch"
+		job.Mode = JobTypeLaunch
 	case JobTypeUpgrade:
 		if len(jobInputs) != 2 {
 			return nil, fmt.Errorf("upgrading a cluster requires two images, versions, or pull requests")
@@ -1078,32 +1080,56 @@ func multistageParamsForPlatform(platform string) sets.String {
 	return params
 }
 
-func multistageLaunchNameFromParams(params map[string]string, platform string) string {
+func multistageNameFromParams(params map[string]string, platform, jobType string) (string, error) {
+	var prefix string
+	switch jobType {
+	case JobTypeLaunch:
+		prefix = "launch"
+	case JobTypeTest:
+		prefix = "e2e"
+	default:
+		return "", fmt.Errorf("Unknown job type %s", jobType)
+	}
 	platformParams := multistageParamsForPlatform(platform)
 	variants := sets.NewString()
 	for k := range params {
-		if contains(supportedParameters, k) && !platformParams.Has(k) { // we only need parameters that are not configured via multistage env vars
+		if contains(supportedParameters, k) && !platformParams.Has(k) && k != "test" { // we only need parameters that are not configured via multistage env vars
 			variants.Insert(k)
 		}
 	}
 	if len(variants) == 0 {
-		return "launch"
+		return prefix, nil
 	}
-	return fmt.Sprintf("launch-%s", strings.Join(variants.List(), "-"))
+	return fmt.Sprintf("%s-%s", prefix, strings.Join(variants.List(), "-")), nil
 }
 
-func configContainsVariant(params map[string]string, platform string, unresolvedConfig string) (bool, error) {
-	name := multistageLaunchNameFromParams(params, platform)
+func configContainsVariant(params map[string]string, platform, unresolvedConfig, jobType string) (bool, string, error) {
+	name, err := multistageNameFromParams(params, platform, jobType)
+	if err != nil {
+		return false, "", err
+	}
 	var config citools.ReleaseBuildConfiguration
 	if err := yaml.Unmarshal([]byte(unresolvedConfig), &config); err != nil {
-		return false, fmt.Errorf("failed to unmarshal CONFIG_SPEC: %w", err)
+		return false, "", fmt.Errorf("failed to unmarshal CONFIG_SPEC: %w", err)
 	}
 	for _, test := range config.Tests {
 		if test.As == name {
-			return true, nil
+			return true, name, nil
 		}
 	}
-	return false, nil
+	// most e2e jobs will be simply be applied on top of launch jobs; specific jobs for e2e will be only for non-standard tests
+	if jobType == JobTypeTest && testStepForPlatform(platform) != "" {
+		name, err := multistageNameFromParams(params, platform, JobTypeLaunch)
+		if err != nil {
+			return false, "", err
+		}
+		for _, test := range config.Tests {
+			if test.As == name {
+				return true, name, nil
+			}
+		}
+	}
+	return false, "", nil
 }
 
 func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
@@ -1115,7 +1141,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	// try to pick a job that matches the install version, if we can, otherwise use the first that
 	// matches us (we can do better)
 	var prowJob *prowapiv1.ProwJob
-	selector := labels.Set{"job-env": req.Platform, "job-type": "launch"} // TODO: handle versioned variants better
+	selector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch} // TODO: handle versioned variants better
 	if len(job.Inputs[0].Version) > 0 {
 		if v, err := semver.ParseTolerant(job.Inputs[0].Version); err == nil {
 			withRelease := labels.Merge(selector, labels.Set{"job-release": fmt.Sprintf("%d.%d", v.Major, v.Minor)})
@@ -1123,27 +1149,23 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		}
 	}
 	if prowJob == nil {
-		// TODO: initial support only for launch jobs; add support for tests later
+		// TODO: currently support only for launch jobs and tests; add support for upgrades later
 		var primaryHasVariant bool
-		if job.Mode == "launch" {
-			primarySelector := labels.Set{"job-env": req.Platform, "job-type": "launch", "config-type": "modern"} // these jobs will only contain configs using non-deprecated features
+		if job.Mode == JobTypeLaunch || job.Mode == JobTypeTest {
+			primarySelector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "modern"} // these jobs will only contain configs using non-deprecated features
 			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(primarySelector))
 			if prowJob != nil {
-				klog.Infof("Found modern prowjob %s", prowJob.Name)
 				if sourceEnv, _, ok := firstEnvVar(prowJob.Spec.PodSpec, "UNRESOLVED_CONFIG"); ok { // all multistage configs will be unresolved
-					primaryHasVariant, err = configContainsVariant(req.JobParams, req.Platform, sourceEnv.Value)
+					primaryHasVariant, _, err = configContainsVariant(req.JobParams, req.Platform, sourceEnv.Value, job.Mode)
 					if err != nil {
 						return "", err
 					}
-					klog.Infof("For parameters %s, hasVariant==%t", paramsToString(req.JobParams), primaryHasVariant)
 				}
-			} else {
-				klog.Info("Could not find modern prowjob")
 			}
 		}
 		if !primaryHasVariant {
 			job.LegacyConfig = true
-			fallbackSelector := labels.Set{"job-env": req.Platform, "job-type": "launch", "config-type": "legacy"} // these jobs will contain older, deprecated configs that can be used as fallback for the primary config typr
+			fallbackSelector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "legacy"} // these jobs will contain older, deprecated configs that can be used as fallback for the primary config typr
 			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(fallbackSelector))
 		}
 	}
@@ -1160,7 +1182,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		defer m.lock.Unlock()
 
 		user := req.User
-		if job.Mode == "launch" {
+		if job.Mode == JobTypeLaunch {
 			existing, ok := m.requests[user]
 			if ok {
 				if len(existing.Name) == 0 {
@@ -1186,7 +1208,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 
 			launchedClusters := 0
 			for _, job := range m.jobs {
-				if job != nil && job.Mode == "launch" && !job.Complete && len(job.Failure) == 0 {
+				if job != nil && job.Mode == JobTypeLaunch && !job.Complete && len(job.Failure) == 0 {
 					launchedClusters++
 				}
 			}
@@ -1194,7 +1216,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 				klog.Infof("user %q is will have to wait", user)
 				var waitUntil time.Time
 				for _, c := range m.jobs {
-					if c == nil || c.Mode != "launch" {
+					if c == nil || c.Mode != JobTypeLaunch {
 						continue
 					}
 					if waitUntil.Before(c.ExpiresAt) {
@@ -1210,7 +1232,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		} else {
 			running := 0
 			for _, job := range m.jobs {
-				if job != nil && job.Mode != "launch" && job.RequestedBy == user {
+				if job != nil && job.Mode != JobTypeLaunch && job.RequestedBy == user {
 					running++
 				}
 			}
@@ -1232,14 +1254,16 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 
 	go m.handleJobStartup(*job, "start")
 
-	if job.Mode == "launch" {
-		msg := fmt.Sprintf("a cluster is being created - I'll send you the credentials in about %d minutes", m.estimateCompletion(req.RequestedAt)/time.Minute)
-		if job.LegacyConfig {
-			msg = fmt.Sprintf("WARNING: using legacy template based job for this cluster. This is unsupported and the cluster may not install as expected. Contact #forum-crt for more information.\n%s", msg)
-		}
+	msg = ""
+	if (job.Mode == JobTypeLaunch || job.Mode == JobTypeTest) && job.LegacyConfig {
+		msg = "WARNING: using legacy template based job for this cluster. This is unsupported and the cluster may not install as expected. Contact #forum-crt for more information.\n"
+	}
+
+	if job.Mode == JobTypeLaunch {
+		msg = fmt.Sprintf("%sa cluster is being created - I'll send you the credentials in about %d minutes", msg, m.estimateCompletion(req.RequestedAt)/time.Minute)
 		return "", errors.New(msg)
 	}
-	return "", fmt.Errorf("job started, you will be notified on completion")
+	return "", fmt.Errorf("%sjob started, you will be notified on completion", msg)
 }
 
 func (m *jobManager) clusterDetailsForUser(user string) (string, string, error) {
@@ -1364,7 +1388,7 @@ func (m *jobManager) finishedJob(job Job) {
 	defer m.lock.Unlock()
 
 	// track the 10 most recent starts in sorted order
-	if job.Mode == "launch" && len(job.Credentials) > 0 && job.StartDuration > 0 {
+	if job.Mode == JobTypeLaunch && len(job.Credentials) > 0 && job.StartDuration > 0 {
 		m.recentStartEstimates = append(m.recentStartEstimates, job.StartDuration)
 		if len(m.recentStartEstimates) > 10 {
 			m.recentStartEstimates = m.recentStartEstimates[:10]

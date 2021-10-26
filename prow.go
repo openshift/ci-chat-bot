@@ -86,6 +86,68 @@ var multistageParameters = map[string]envVar{
 	},
 }
 
+// envsForTestType maps tests given by users to corresponding parameters/env vars that need to be set on the test. Currently not platform dependent, so the platforms
+// list for the envs will be left blank
+var envsForTestType = map[string][]envVar{
+	"e2e": {{
+		name:  "TEST_SUITE",
+		value: "openshift/conformance/parallel",
+	}},
+	"e2e-serial": {{
+		name:  "TEST_SUITE",
+		value: "openshift/conformance/serial",
+	}},
+	"e2e-all": {{
+		name:  "TEST_SUITE",
+		value: "openshift/conformance",
+	}},
+	"e2e-builds": {{
+		name:  "TEST_SUITE",
+		value: "openshift/build",
+	}},
+	"e2e-image-ecosystem": {{
+		name:  "TEST_SUITE",
+		value: "openshift/image-ecosystem",
+	}},
+	"e2e-image-registry": {{
+		name:  "TEST_SUITE",
+		value: "openshift/image-registry",
+	}},
+	"e2e-network-stress": {{
+		name:  "TEST_SUITE",
+		value: "openshift/network/stress",
+	}},
+	"e2e-disruptive": {{
+		name:  "TEST_REQUIRES_SSH",
+		value: "true",
+	}, {
+		name:  "TEST_SUITE",
+		value: "openshift/disruptive",
+	}},
+	"e2e-disruptive-all": {{
+		name:  "TEST_REQUIRES_SSH",
+		value: "true",
+	}, {
+		name:  "TEST_SUITE",
+		value: "openshift/disruptive",
+	}, {
+		name:  "TEST_TYPE",
+		value: "suite-conformance",
+	}},
+}
+
+func testStepForPlatform(platform string) string {
+	switch platform {
+	case "aws", "gcp", "azure", "vsphere", "ovirt", "openstack", "openstack-kuryr":
+		return "openshift-e2e-test"
+	case "metal":
+		return "baremetalds-e2e-test"
+	default:
+		// currently hypershift has no workflows that do any tests, so we can't override a launch job for e2e tests
+		return ""
+	}
+}
+
 // supportedArchitectures are the allowed architectures that can be passed to jobs
 var supportedArchitectures = []string{"amd64"}
 
@@ -329,7 +391,8 @@ func (m *jobManager) newJob(job *Job) error {
 			targetName = testName
 		}
 	} else {
-		targetName = multistageLaunchNameFromParams(job.JobParams, job.Platform)
+		// errors should never occur here as this has already been checked by the calling function
+		_, targetName, _ = configContainsVariant(job.JobParams, job.Platform, sourceEnv.Value, job.Mode)
 	}
 
 	var matchedTarget *citools.TestStepConfiguration
@@ -363,6 +426,23 @@ func (m *jobManager) newJob(job *Job) error {
 			for param := range envParams {
 				envForParam := multistageParameters[param]
 				matchedTarget.MultiStageTestConfiguration.Environment[envForParam.name] = envForParam.value
+			}
+		}
+		if job.Mode == JobTypeTest {
+			if strings.HasPrefix(targetName, "launch") {
+				testStep := testStepForPlatform(job.Platform)
+				matchedTarget.MultiStageTestConfiguration.Test = []citools.TestStep{{
+					Reference: &testStep,
+				}}
+			}
+			// CLUSTER_DURATION unused by tests; remove to prevent ci-operator from complaining
+			delete(matchedTarget.MultiStageTestConfiguration.Environment, "CLUSTER_DURATION")
+			if envs, ok := envsForTestType[job.JobParams["test"]]; ok {
+				for _, env := range envs {
+					matchedTarget.MultiStageTestConfiguration.Environment[env.name] = env.value
+				}
+			} else {
+				return fmt.Errorf("unknown test type %s", job.JobParams["test"])
 			}
 		}
 	}
@@ -687,7 +767,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	started := pj.Status.StartTime.Time
 
-	if job.Mode != "launch" {
+	if job.Mode != JobTypeLaunch {
 		klog.Infof("Job %s will report results at %s (to %s / %s)", job.Name, job.URL, job.RequestedBy, job.RequestedChannel)
 
 		// loop waiting for job to complete

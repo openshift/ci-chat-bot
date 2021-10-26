@@ -345,7 +345,7 @@ func (b *Bot) jobResponder(s *slacker.Slacker) func(Job) {
 			return
 		}
 		switch job.Mode {
-		case "launch":
+		case JobTypeLaunch:
 			if len(job.Credentials) == 0 && len(job.Failure) == 0 {
 				klog.Infof("no credentials or failure, still pending")
 				return
@@ -362,7 +362,7 @@ func (b *Bot) jobResponder(s *slacker.Slacker) func(Job) {
 
 func (b *Bot) notifyJob(response slacker.ResponseWriter, job *Job) {
 	switch job.Mode {
-	case "launch":
+	case JobTypeLaunch:
 		if job.LegacyConfig {
 			response.Reply(fmt.Sprintf("WARNING: using legacy template based job for this cluster. This is unsupported and the cluster may not install as expected. Contact #forum-crt for more information."))
 		}
