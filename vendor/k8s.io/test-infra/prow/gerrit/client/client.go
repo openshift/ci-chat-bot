@@ -29,6 +29,8 @@ import (
 
 	gerrit "github.com/andygrunwald/go-gerrit"
 	"github.com/sirupsen/logrus"
+
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 )
 
 const (
@@ -252,9 +254,48 @@ func (c *Client) Authenticate(cookiefilePath, tokenPath string) {
 	}
 }
 
+// UpdateClients update gerrit clients with new instances map
+func (c *Client) UpdateClients(instances map[string][]string) error {
+	// Recording in newHandlers, so that deleted instances can be handled.
+	newHandlers := make(map[string]*gerritInstanceHandler)
+	var errs []error
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	for instance := range instances {
+		if handler, ok := c.handlers[instance]; ok {
+			// Already initialized, no need to re-initialize handler. But still need
+			// to remember to update projects underneath.
+			handler.projects = instances[instance]
+			newHandlers[instance] = handler
+			continue
+		}
+		gc, err := gerrit.NewClient(instance, nil)
+		if err != nil {
+			logrus.WithField("instance", instance).WithError(err).Error("Creating gerrit client.")
+			errs = append(errs, err)
+			continue
+		}
+
+		newHandlers[instance] = &gerritInstanceHandler{
+			instance:       instance,
+			projects:       instances[instance],
+			authService:    gc.Authentication,
+			accountService: gc.Accounts,
+			changeService:  gc.Changes,
+			projectService: gc.Projects,
+			log:            logrus.WithField("host", instance),
+		}
+	}
+	c.handlers = newHandlers
+
+	return utilerrors.NewAggregate(errs)
+}
+
 // QueryChanges queries for all changes from all projects after lastUpdate time
 // returns an instance:changes map
 func (c *Client) QueryChanges(lastState LastSyncState, rateLimit int) map[string][]ChangeInfo {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 	result := map[string][]ChangeInfo{}
 	for _, h := range c.handlers {
 		lastStateForInstance := lastState[h.instance]
@@ -269,6 +310,8 @@ func (c *Client) QueryChanges(lastState LastSyncState, rateLimit int) map[string
 }
 
 func (c *Client) GetChange(instance, id string) (*ChangeInfo, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 	h, ok := c.handlers[instance]
 	if !ok {
 		return nil, fmt.Errorf("not activated gerrit instance: %s", instance)
@@ -284,6 +327,8 @@ func (c *Client) GetChange(instance, id string) (*ChangeInfo, error) {
 
 // SetReview writes a review comment base on the change id + revision
 func (c *Client) SetReview(instance, id, revision, message string, labels map[string]string) error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 	h, ok := c.handlers[instance]
 	if !ok {
 		return fmt.Errorf("not activated gerrit instance: %s", instance)
@@ -301,6 +346,8 @@ func (c *Client) SetReview(instance, id, revision, message string, labels map[st
 
 // GetBranchRevision returns SHA of HEAD of a branch
 func (c *Client) GetBranchRevision(instance, project, branch string) (string, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 	h, ok := c.handlers[instance]
 	if !ok {
 		return "", fmt.Errorf("not activated gerrit instance: %s", instance)
