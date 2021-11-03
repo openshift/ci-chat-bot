@@ -9,3 +9,8 @@
 
    1. Authenticate to one of the CI Registires and update your pull secret as defined [here](https://docs.ci.openshift.org/docs/how-tos/use-registries-in-build-farm/#how-do-i-log-in-to-pull-images-that-require-authentication) 
    2. Follow the instructions [here](https://docs.openshift.com/container-platform/4.7/support/remote_health_monitoring/opting-out-of-remote-health-reporting.html#images-update-global-pull-secret_opting-out-remote-health-reporting).
+
+3. **How can I access to cluster-bot created metal IPI cluster via web browser**
+
+   1. Copy IP address and port number from kubeconfig's `proxy-url` field
+   2. Change web browser's proxy settings with these values
