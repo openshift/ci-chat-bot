@@ -1087,6 +1087,8 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 		prefix = "launch"
 	case JobTypeTest:
 		prefix = "e2e"
+	case JobTypeUpgrade:
+		prefix = "upgrade"
 	default:
 		return "", fmt.Errorf("Unknown job type %s", jobType)
 	}
@@ -1097,7 +1099,7 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 			variants.Insert(k)
 		}
 	}
-	if len(variants) == 0 {
+	if _, ok := params["test"]; len(params) == 0 || (len(params) == 1 && ok) {
 		return prefix, nil
 	}
 	return fmt.Sprintf("%s-%s", prefix, strings.Join(variants.List(), "-")), nil
@@ -1149,9 +1151,10 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		}
 	}
 	if prowJob == nil {
-		// TODO: currently support only for launch jobs and tests; add support for upgrades later
 		var primaryHasVariant bool
-		if job.Mode == JobTypeLaunch || job.Mode == JobTypeTest {
+		// Currently, there is an important difference between the template e2e-upgrade-all test and what can be done with the step-registry tests.
+		// For now, fallback to templates for this test until this difference can be resolved.
+		if test := job.JobParams["test"]; test != "e2e-upgrade-all" {
 			primarySelector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "modern"} // these jobs will only contain configs using non-deprecated features
 			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(primarySelector))
 			if prowJob != nil {
@@ -1255,7 +1258,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	go m.handleJobStartup(*job, "start")
 
 	msg = ""
-	if (job.Mode == JobTypeLaunch || job.Mode == JobTypeTest) && job.LegacyConfig {
+	if job.LegacyConfig {
 		msg = "WARNING: using legacy template based job for this cluster. This is unsupported and the cluster may not install as expected. Contact #forum-crt for more information.\n"
 	}
 
