@@ -821,7 +821,43 @@ type Gerrit struct {
 	RateLimit int `json:"ratelimit,omitempty"`
 	// DeckURL is the root URL of Deck. This is used to construct links to
 	// job runs for a given CL.
-	DeckURL string `json:"deck_url,omitempty"`
+	DeckURL        string                `json:"deck_url,omitempty"`
+	OrgReposConfig *GerritOrgRepoConfigs `json:"org_repos_config,omitempty"`
+}
+
+// GerritOrgRepoConfigs is config for repos
+type GerritOrgRepoConfigs []GerritOrgRepoConfig
+
+// GerritOrgRepoConfig is config for repos
+type GerritOrgRepoConfig struct {
+	Org        string   `json:"org,omitempty"`
+	Repos      []string `json:"repos,omitempty"`
+	OptOutHelp bool     `json:"opt_out_help,omitempty"`
+}
+
+func (goc *GerritOrgRepoConfigs) AllRepos() map[string][]string {
+	var res map[string][]string
+	for _, orgConfig := range *goc {
+		if res == nil {
+			res = make(map[string][]string)
+		}
+		res[orgConfig.Org] = append(res[orgConfig.Org], orgConfig.Repos...)
+	}
+	return res
+}
+
+func (goc *GerritOrgRepoConfigs) OptOutHelpRepos() map[string]sets.String {
+	var res map[string]sets.String
+	for _, orgConfig := range *goc {
+		if !orgConfig.OptOutHelp {
+			continue
+		}
+		if res == nil {
+			res = make(map[string]sets.String)
+		}
+		res[orgConfig.Org] = res[orgConfig.Org].Union(sets.NewString(orgConfig.Repos...))
+	}
+	return res
 }
 
 // Horologium is config for the Horologium.
@@ -857,6 +893,10 @@ type GitHubReporter struct {
 	// NoCommentRepos is a list of orgs and org/repos for which failure report
 	// comments should not be maintained. Status contexts will still be written.
 	NoCommentRepos []string `json:"no_comment_repos,omitempty"`
+	// SummaryCommentRepos is a list of orgs and org/repos for which failure report
+	// comments is only sent when all jobs from current SHA are finished. Status
+	// contexts will still be written.
+	SummaryCommentRepos []string `json:"summary_comment_repos,omitempty"`
 }
 
 // Sinker is config for the sinker controller.
@@ -955,6 +995,10 @@ type Spyglass struct {
 	// TestGridRoot is the root URL to the TestGrid frontend, e.g. "https://testgrid.k8s.io/".
 	// If left blank, TestGrid links will not appear.
 	TestGridRoot string `json:"testgrid_root,omitempty"`
+	// HidePRHistLink allows prow hiding PR History link from deck, this is handy especially for
+	// prow instances that only serves gerrit.
+	// This might become obsolete once https://github.com/kubernetes/test-infra/issues/24130 is fixed.
+	HidePRHistLink bool `json:"hide_pr_history_link,omitempty"`
 }
 
 type GCSBrowserPrefixes map[string]string
@@ -1256,13 +1300,23 @@ func (cfg *SlackReporter) DefaultAndValidate() error {
 
 // Load loads and parses the config at path.
 func Load(prowConfig, jobConfig string, supplementalProwConfigDirs []string, supplementalProwConfigsFileNameSuffix string, additionals ...func(*Config) error) (c *Config, err error) {
+	return loadWithYamlOpts(nil, prowConfig, jobConfig, supplementalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...)
+}
+
+// LoadStrict loads and parses the config at path.
+// Unlike Load it unmarshalls yaml with strict parsing.
+func LoadStrict(prowConfig, jobConfig string, supplementalProwConfigDirs []string, supplementalProwConfigsFileNameSuffix string, additionals ...func(*Config) error) (c *Config, err error) {
+	return loadWithYamlOpts([]yaml.JSONOpt{yaml.DisallowUnknownFields}, prowConfig, jobConfig, supplementalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...)
+}
+
+func loadWithYamlOpts(yamlOpts []yaml.JSONOpt, prowConfig, jobConfig string, supplementalProwConfigDirs []string, supplementalProwConfigsFileNameSuffix string, additionals ...func(*Config) error) (c *Config, err error) {
 	// we never want config loading to take down the prow components
 	defer func() {
 		if r := recover(); r != nil {
 			c, err = nil, fmt.Errorf("panic loading config: %v\n%s", r, string(debug.Stack()))
 		}
 	}()
-	c, err = loadConfig(prowConfig, jobConfig, supplementalProwConfigDirs, supplementalProwConfigsFileNameSuffix)
+	c, err = loadConfig(prowConfig, jobConfig, supplementalProwConfigDirs, supplementalProwConfigsFileNameSuffix, yamlOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1285,7 +1339,7 @@ func Load(prowConfig, jobConfig string, supplementalProwConfigDirs []string, sup
 }
 
 // ReadJobConfig reads the JobConfig yaml, but does not expand or validate it.
-func ReadJobConfig(jobConfig string) (JobConfig, error) {
+func ReadJobConfig(jobConfig string, yamlOpts ...yaml.JSONOpt) (JobConfig, error) {
 	stat, err := os.Stat(jobConfig)
 	if err != nil {
 		return JobConfig{}, err
@@ -1294,7 +1348,7 @@ func ReadJobConfig(jobConfig string) (JobConfig, error) {
 	if !stat.IsDir() {
 		// still support a single file
 		var jc JobConfig
-		if err := yamlToConfig(jobConfig, &jc); err != nil {
+		if err := yamlToConfig(jobConfig, &jc, yamlOpts...); err != nil {
 			return JobConfig{}, err
 		}
 		return jc, nil
@@ -1339,7 +1393,7 @@ func ReadJobConfig(jobConfig string) (JobConfig, error) {
 
 		fileStart := time.Now()
 		var subConfig JobConfig
-		if err := yamlToConfig(path, &subConfig); err != nil {
+		if err := yamlToConfig(path, &subConfig, yamlOpts...); err != nil {
 			return err
 		}
 		jc, err = mergeJobConfigs(jc, subConfig)
@@ -1359,7 +1413,7 @@ func ReadJobConfig(jobConfig string) (JobConfig, error) {
 }
 
 // loadConfig loads one or multiple config files and returns a config object.
-func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string, supplementalProwConfigsFileNameSuffix string) (*Config, error) {
+func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string, supplementalProwConfigsFileNameSuffix string, yamlOpts ...yaml.JSONOpt) (*Config, error) {
 	stat, err := os.Stat(prowConfig)
 	if err != nil {
 		return nil, err
@@ -1370,7 +1424,7 @@ func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string,
 	}
 
 	var nc Config
-	if err := yamlToConfig(prowConfig, &nc); err != nil {
+	if err := yamlToConfig(prowConfig, &nc, yamlOpts...); err != nil {
 		return nil, err
 	}
 
@@ -1487,7 +1541,7 @@ func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string,
 		return &nc, nil
 	}
 
-	jc, err := ReadJobConfig(jobConfig)
+	jc, err := ReadJobConfig(jobConfig, yamlOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1499,12 +1553,12 @@ func loadConfig(prowConfig, jobConfig string, additionalProwConfigDirs []string,
 }
 
 // yamlToConfig converts a yaml file into a Config object.
-func yamlToConfig(path string, nc interface{}) error {
+func yamlToConfig(path string, nc interface{}, opts ...yaml.JSONOpt) error {
 	b, err := ReadFileMaybeGZIP(path)
 	if err != nil {
 		return fmt.Errorf("error reading %s: %w", path, err)
 	}
-	if err := yaml.Unmarshal(b, nc); err != nil {
+	if err := yaml.Unmarshal(b, nc, opts...); err != nil {
 		return fmt.Errorf("error unmarshaling %s: %w", path, err)
 	}
 	var jc *JobConfig
