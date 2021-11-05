@@ -1224,19 +1224,12 @@ mkdir -p "$(ARTIFACTS)/initial" "$(ARTIFACTS)/final"
 cd "/home/prow/go/src"
 working_dir="$(pwd)"
 
-targets=()
+targets=("--target=[release:latest]")
 if [[ -z "${RELEASE_IMAGE_INITIAL-}" ]]; then
   unset RELEASE_IMAGE_INITIAL
-else
-  targets+=("--target=[release:initial]")
 fi
 if [[ -z "${RELEASE_IMAGE_LATEST-}" ]]; then
   unset RELEASE_IMAGE_LATEST
-else
-  targets+=("--target=[release:latest]")
-fi
-if [[ "${#targets[@]}" -eq 0 ]]; then
-  targets+=("--target=[images]")
 fi
 
 # import the initial release, if any
