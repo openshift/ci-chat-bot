@@ -134,6 +134,34 @@ var envsForTestType = map[string][]envVar{
 		name:  "TEST_TYPE",
 		value: "suite-conformance",
 	}},
+	"e2e-upgrade": {{
+		name:  "TEST_TYPE",
+		value: "upgrade",
+	}},
+	// Currently, the openshift-e2e-test `upgrade-conformance` test type hardcodes the parallel conformance suite to run after the upgrade test.
+	// However, the template based cluster-bot jobs use the full conformance suite, so there is not a 1-to-1 replacement that can be done here.
+	// This is not an issue for the upgrade-partial and upgrade-rollback tests, as those were using the parallel conformance suite.
+	// TODO: Talk with installer about this difference and see if it can be changed to allow for a full conformance test post-upgrade.
+	/*
+		"e2e-upgrade-all": {{
+			name:  "TEST_TYPE",
+			value: "upgrade-conformance",
+		}},
+	*/
+	"e2e-upgrade-partial": {{
+		name:  "TEST_TYPE",
+		value: "upgrade-conformance",
+	}, {
+		name:  "TEST_UPGRADE_OPTIONS",
+		value: "abort-at=random",
+	}},
+	"e2e-upgrade-rollback": {{
+		name:  "TEST_TYPE",
+		value: "upgrade-conformance",
+	}, {
+		name:  "TEST_UPGRADE_OPTIONS",
+		value: "abort-at=100",
+	}},
 }
 
 func testStepForPlatform(platform string) string {
@@ -437,6 +465,18 @@ func (m *jobManager) newJob(job *Job) error {
 			}
 			// CLUSTER_DURATION unused by tests; remove to prevent ci-operator from complaining
 			delete(matchedTarget.MultiStageTestConfiguration.Environment, "CLUSTER_DURATION")
+		}
+		if job.Mode == JobTypeUpgrade {
+			if matchedTarget.MultiStageTestConfiguration.Dependencies == nil {
+				matchedTarget.MultiStageTestConfiguration.Dependencies = make(citools.TestDependencies)
+			}
+			matchedTarget.MultiStageTestConfiguration.Dependencies["OPENSHIFT_INSTALL_RELEASE_IMAGE_OVERRIDE"] = "release:initial"
+			matchedTarget.MultiStageTestConfiguration.Dependencies["OPENSHIFT_UPGRADE_RELEASE_IMAGE_OVERRIDE"] = "release:latest"
+		}
+		if job.Mode == JobTypeTest || job.Mode == JobTypeUpgrade {
+			if matchedTarget.MultiStageTestConfiguration.Environment == nil {
+				matchedTarget.MultiStageTestConfiguration.Environment = make(citools.TestEnvironment)
+			}
 			if envs, ok := envsForTestType[job.JobParams["test"]]; ok {
 				for _, env := range envs {
 					matchedTarget.MultiStageTestConfiguration.Environment[env.name] = env.value
@@ -457,6 +497,12 @@ func (m *jobManager) newJob(job *Job) error {
 	// set releases field and unset tag_specification for all modern jobs
 	if !job.LegacyConfig {
 		sourceConfig.Releases = map[string]citools.UnresolvedRelease{
+			"initial": {
+				Integration: &citools.Integration{
+					Name:      "ocp",
+					Namespace: "$(BRANCH)",
+				},
+			},
 			"latest": {
 				Integration: &citools.Integration{
 					Name:               "ocp",
@@ -1227,6 +1273,8 @@ working_dir="$(pwd)"
 targets=("--target=[release:latest]")
 if [[ -z "${RELEASE_IMAGE_INITIAL-}" ]]; then
   unset RELEASE_IMAGE_INITIAL
+else
+  targets+=("--target=[release:initial]")
 fi
 if [[ -z "${RELEASE_IMAGE_LATEST-}" ]]; then
   unset RELEASE_IMAGE_LATEST
