@@ -1083,7 +1083,7 @@ func multistageParamsForPlatform(platform string) sets.String {
 func multistageNameFromParams(params map[string]string, platform, jobType string) (string, error) {
 	var prefix string
 	switch jobType {
-	case JobTypeLaunch:
+	case JobTypeLaunch, JobTypeBuild:
 		prefix = "launch"
 	case JobTypeTest:
 		prefix = "e2e"
