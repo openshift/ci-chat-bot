@@ -423,75 +423,111 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		_, targetName, _ = configContainsVariant(job.JobParams, job.Platform, sourceEnv.Value, job.Mode)
 	}
 
-	var matchedTarget *citools.TestStepConfiguration
-	for _, test := range sourceConfig.Tests {
-		if test.As == targetName {
-			matchedTarget = &test
-			break
-		}
-	}
-	if matchedTarget == nil {
-		return "", fmt.Errorf("no test definition matched the expected name %q", targetName)
-	}
-	commands := matchedTarget.Commands
-	stepBasedTarget := len(commands) == 0 // if commands are specified, this is a template based target
+	var stepBasedTarget bool
 
-	if !stepBasedTarget {
-		// TODO: Remove once all launch jobs are step based
-		prow.SetJobEnvVar(&pj.Spec, "TEST_COMMAND", commands)
+	// For workflows, we configure the tests we run; for others, we need to load and modify the tests
+	if job.Mode == JobTypeWorkflowLaunch {
+		// use "launch" test name to identify proper cluster profile
+		var profile citools.ClusterProfile
+		for _, test := range sourceConfig.Tests {
+			if test.As == "launch" {
+				profile = test.MultiStageTestConfiguration.ClusterProfile
+			}
+		}
+		environment := citools.TestEnvironment{}
+		for name, value := range job.JobParams {
+			environment[name] = value
+		}
+		waitRef := "clusterbot-wait"
+		test := citools.TestStepConfiguration{
+			As: "launch",
+			MultiStageTestConfiguration: &citools.MultiStageTestConfiguration{
+				ClusterProfile: profile,
+				Workflow:       &job.WorkflowName,
+				Environment:    environment,
+				Test: []citools.TestStep{{
+					Reference: &waitRef,
+				}},
+			},
+		}
+		baseImages := sourceConfig.BaseImages
+		for imageName, imageDef := range m.workflowConfig.Workflows[job.WorkflowName].BaseImages {
+			baseImages[imageName] = imageDef
+		}
+		sourceConfig.BaseImages = baseImages
+		sourceConfig.Tests = []citools.TestStepConfiguration{test}
+		stepBasedTarget = true
 	} else {
-		envParams := sets.NewString()
-		platformParams := multistageParamsForPlatform(job.Platform)
-		for k := range job.JobParams {
-			if platformParams.Has(k) {
-				envParams.Insert(k)
+		var matchedTarget *citools.TestStepConfiguration
+		for _, test := range sourceConfig.Tests {
+			if test.As == targetName {
+				matchedTarget = &test
+				break
 			}
 		}
-		if len(envParams) != 0 {
-			if matchedTarget.MultiStageTestConfiguration.Environment == nil {
-				matchedTarget.MultiStageTestConfiguration.Environment = citools.TestEnvironment{}
-			}
-			for param := range envParams {
-				envForParam := multistageParameters[param]
-				matchedTarget.MultiStageTestConfiguration.Environment[envForParam.name] = envForParam.value
-			}
+		if matchedTarget == nil {
+			return "", fmt.Errorf("no test definition matched the expected name %q", targetName)
 		}
-		if job.Mode == JobTypeTest {
-			if strings.HasPrefix(targetName, "launch") {
-				testStep := testStepForPlatform(job.Platform)
-				matchedTarget.MultiStageTestConfiguration.Test = []citools.TestStep{{
-					Reference: &testStep,
-				}}
-			}
-			// CLUSTER_DURATION unused by tests; remove to prevent ci-operator from complaining
-			delete(matchedTarget.MultiStageTestConfiguration.Environment, "CLUSTER_DURATION")
-		}
-		if job.Mode == JobTypeUpgrade {
-			if matchedTarget.MultiStageTestConfiguration.Dependencies == nil {
-				matchedTarget.MultiStageTestConfiguration.Dependencies = make(citools.TestDependencies)
-			}
-			matchedTarget.MultiStageTestConfiguration.Dependencies["OPENSHIFT_INSTALL_RELEASE_IMAGE_OVERRIDE"] = "release:initial"
-			matchedTarget.MultiStageTestConfiguration.Dependencies["OPENSHIFT_UPGRADE_RELEASE_IMAGE_OVERRIDE"] = "release:latest"
-		}
-		if job.Mode == JobTypeTest || job.Mode == JobTypeUpgrade {
-			if matchedTarget.MultiStageTestConfiguration.Environment == nil {
-				matchedTarget.MultiStageTestConfiguration.Environment = make(citools.TestEnvironment)
-			}
-			if envs, ok := envsForTestType[job.JobParams["test"]]; ok {
-				for _, env := range envs {
-					matchedTarget.MultiStageTestConfiguration.Environment[env.name] = env.value
-				}
-			} else {
-				return "", fmt.Errorf("unknown test type %s", job.JobParams["test"])
-			}
-		}
-	}
+		commands := matchedTarget.Commands
+		stepBasedTarget = len(commands) == 0 // if commands are specified, this is a template based target
 
-	if targetName != "launch" {
-		// launch jobs always target 'launch'. If we have selected a different target, rename
-		// it in the configuration so that it will be run.
-		matchedTarget.As = "launch"
-		sourceConfig.Tests = []citools.TestStepConfiguration{*matchedTarget}
+		if !stepBasedTarget {
+			// TODO: Remove once all launch jobs are step based
+			prow.SetJobEnvVar(&pj.Spec, "TEST_COMMAND", commands)
+		} else {
+			envParams := sets.NewString()
+			platformParams := multistageParamsForPlatform(job.Platform)
+			for k := range job.JobParams {
+				if platformParams.Has(k) {
+					envParams.Insert(k)
+				}
+			}
+			if len(envParams) != 0 {
+				if matchedTarget.MultiStageTestConfiguration.Environment == nil {
+					matchedTarget.MultiStageTestConfiguration.Environment = citools.TestEnvironment{}
+				}
+				for param := range envParams {
+					envForParam := multistageParameters[param]
+					matchedTarget.MultiStageTestConfiguration.Environment[envForParam.name] = envForParam.value
+				}
+			}
+			if job.Mode == JobTypeTest {
+				if strings.HasPrefix(targetName, "launch") {
+					testStep := testStepForPlatform(job.Platform)
+					matchedTarget.MultiStageTestConfiguration.Test = []citools.TestStep{{
+						Reference: &testStep,
+					}}
+				}
+				// CLUSTER_DURATION unused by tests; remove to prevent ci-operator from complaining
+				delete(matchedTarget.MultiStageTestConfiguration.Environment, "CLUSTER_DURATION")
+			}
+			if job.Mode == JobTypeUpgrade {
+				if matchedTarget.MultiStageTestConfiguration.Dependencies == nil {
+					matchedTarget.MultiStageTestConfiguration.Dependencies = make(citools.TestDependencies)
+				}
+				matchedTarget.MultiStageTestConfiguration.Dependencies["OPENSHIFT_INSTALL_RELEASE_IMAGE_OVERRIDE"] = "release:initial"
+				matchedTarget.MultiStageTestConfiguration.Dependencies["OPENSHIFT_UPGRADE_RELEASE_IMAGE_OVERRIDE"] = "release:latest"
+			}
+			if job.Mode == JobTypeTest || job.Mode == JobTypeUpgrade {
+				if matchedTarget.MultiStageTestConfiguration.Environment == nil {
+					matchedTarget.MultiStageTestConfiguration.Environment = make(citools.TestEnvironment)
+				}
+				if envs, ok := envsForTestType[job.JobParams["test"]]; ok {
+					for _, env := range envs {
+						matchedTarget.MultiStageTestConfiguration.Environment[env.name] = env.value
+					}
+				} else {
+					return "", fmt.Errorf("unknown test type %s", job.JobParams["test"])
+				}
+			}
+		}
+
+		if targetName != "launch" {
+			// launch jobs always target 'launch'. If we have selected a different target, rename
+			// it in the configuration so that it will be run.
+			matchedTarget.As = "launch"
+			sourceConfig.Tests = []citools.TestStepConfiguration{*matchedTarget}
+		}
 	}
 
 	// set releases field and unset tag_specification for all modern jobs
@@ -836,7 +872,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	started := pj.Status.StartTime.Time
 
-	if job.Mode != JobTypeLaunch {
+	if job.Mode != JobTypeLaunch && job.Mode != JobTypeWorkflowLaunch {
 		klog.Infof("Job %s will report results at %s (to %s / %s)", job.Name, job.URL, job.RequestedBy, job.RequestedChannel)
 
 		// loop waiting for job to complete
