@@ -106,6 +106,11 @@ func run() error {
 		return fmt.Errorf("the environment variable BOT_TOKEN must be set")
 	}
 
+	botAppToken := os.Getenv("BOT_APP_TOKEN")
+	if len(botToken) == 0 {
+		return fmt.Errorf("the environment variable BOT_APP_TOKEN must be set")
+	}
+
 	prowJobKubeconfig, _, _, err := loadKubeconfig()
 	if err != nil {
 		return err
@@ -154,7 +159,7 @@ func run() error {
 		return fmt.Errorf("unable to load initial configuration: %v", err)
 	}
 
-	bot := NewBot(botToken, &workflows)
+	bot := NewBot(botToken, botAppToken, &workflows)
 	for {
 		if err := bot.Start(manager); err != nil && !isRetriable(err) {
 			return err

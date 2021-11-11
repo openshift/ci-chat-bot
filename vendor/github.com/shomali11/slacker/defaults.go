@@ -12,14 +12,24 @@ func WithDebug(debug bool) ClientOption {
 	}
 }
 
+// WithBotInteractionMode instructs Slacker on how to handle message events coming from a
+// bot.
+func WithBotInteractionMode(mode BotInteractionMode) ClientOption {
+	return func(defaults *ClientDefaults) {
+		defaults.BotMode = mode
+	}
+}
+
 // ClientDefaults configuration
 type ClientDefaults struct {
-	Debug bool
+	Debug   bool
+	BotMode BotInteractionMode
 }
 
 func newClientDefaults(options ...ClientOption) *ClientDefaults {
 	config := &ClientDefaults{
-		Debug: false,
+		Debug:   false,
+		BotMode: BotInteractionModeIgnoreAll,
 	}
 
 	for _, option := range options {
@@ -59,7 +69,8 @@ type ReplyDefaults struct {
 	ThreadResponse bool
 }
 
-func newReplyDefaults(options ...ReplyOption) *ReplyDefaults {
+// NewReplyDefaults builds our ReplyDefaults from zero or more ReplyOption.
+func NewReplyDefaults(options ...ReplyOption) *ReplyDefaults {
 	config := &ReplyDefaults{
 		Attachments:    []slack.Attachment{},
 		Blocks:         []slack.Block{},
@@ -87,7 +98,9 @@ func WithThreadError(useThread bool) ReportErrorOption {
 	}
 }
 
-func newReportErrorDefaults(options ...ReportErrorOption) *ReportErrorDefaults {
+// NewReportErrorDefaults builds our ReportErrorDefaults from zero or more
+// ReportErrorOption.
+func NewReportErrorDefaults(options ...ReportErrorOption) *ReportErrorDefaults {
 	config := &ReportErrorDefaults{
 		ThreadResponse: false,
 	}

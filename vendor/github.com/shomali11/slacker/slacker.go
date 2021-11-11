@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/shomali11/proper"
 	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/slackevents"
+	"github.com/slack-go/slack/socketmode"
 )
 
 const (
@@ -28,37 +29,51 @@ const (
 )
 
 var (
-	unAuthorizedError = errors.New("You are not authorized to execute this command")
+	errUnauthorized = errors.New("you are not authorized to execute this command")
 )
 
 // NewClient creates a new client using the Slack API
-func NewClient(token string, options ...ClientOption) *Slacker {
+func NewClient(botToken, appToken string, options ...ClientOption) *Slacker {
 	defaults := newClientDefaults(options...)
 
-	client := slack.New(token, slack.OptionDebug(defaults.Debug))
+	api := slack.New(
+		botToken,
+		slack.OptionDebug(defaults.Debug),
+		slack.OptionAppLevelToken(appToken),
+	)
+
+	smc := socketmode.New(
+		api,
+		socketmode.OptionDebug(defaults.Debug),
+	)
 	slacker := &Slacker{
-		client:            client,
-		rtm:               client.NewRTM(),
-		commandChannel:    make(chan *CommandEvent, 100),
-		unAuthorizedError: unAuthorizedError,
+		client:             api,
+		socketModeClient:   smc,
+		commandChannel:     make(chan *CommandEvent, 100),
+		errUnauthorized:    errUnauthorized,
+		botInteractionMode: defaults.BotMode,
 	}
 	return slacker
 }
 
 // Slacker contains the Slack API, botCommands, and handlers
 type Slacker struct {
-	client                *slack.Client
-	rtm                   *slack.RTM
-	botCommands           []BotCommand
-	requestConstructor    func(ctx context.Context, event *slack.MessageEvent, properties *proper.Properties) Request
-	responseConstructor   func(event *slack.MessageEvent, client *slack.Client, rtm *slack.RTM) ResponseWriter
-	initHandler           func()
-	errorHandler          func(err string)
-	helpDefinition        *CommandDefinition
-	defaultMessageHandler func(request Request, response ResponseWriter)
-	defaultEventHandler   func(interface{})
-	unAuthorizedError     error
-	commandChannel        chan *CommandEvent
+	client                  *slack.Client
+	socketModeClient        *socketmode.Client
+	botCommands             []BotCommand
+	botContextConstructor   func(ctx context.Context, api *slack.Client, client *socketmode.Client, evt *MessageEvent) BotContext
+	requestConstructor      func(botCtx BotContext, properties *proper.Properties) Request
+	responseConstructor     func(botCtx BotContext) ResponseWriter
+	initHandler             func()
+	errorHandler            func(err string)
+	interactiveEventHandler func(*Slacker, *socketmode.Event, *slack.InteractionCallback)
+	helpDefinition          *CommandDefinition
+	defaultMessageHandler   func(botCtx BotContext, request Request, response ResponseWriter)
+	defaultEventHandler     func(interface{})
+	errUnauthorized         error
+	commandChannel          chan *CommandEvent
+	appID                   string
+	botInteractionMode      BotInteractionMode
 }
 
 // BotCommands returns Bot Commands
@@ -71,9 +86,9 @@ func (s *Slacker) Client() *slack.Client {
 	return s.client
 }
 
-// RTM returns returns the internal slack.RTM of Slacker struct
-func (s *Slacker) RTM() *slack.RTM {
-	return s.rtm
+// SocketMode returns the internal socketmode.Client of Slacker struct
+func (s *Slacker) SocketMode() *socketmode.Client {
+	return s.socketModeClient
 }
 
 // Init handle the event when the bot is first connected
@@ -86,18 +101,23 @@ func (s *Slacker) Err(errorHandler func(err string)) {
 	s.errorHandler = errorHandler
 }
 
+// Interactive assigns an interactive event handler
+func (s *Slacker) Interactive(interactiveEventHandler func(*Slacker, *socketmode.Event, *slack.InteractionCallback)) {
+	s.interactiveEventHandler = interactiveEventHandler
+}
+
 // CustomRequest creates a new request
-func (s *Slacker) CustomRequest(requestConstructor func(ctx context.Context, event *slack.MessageEvent, properties *proper.Properties) Request) {
+func (s *Slacker) CustomRequest(requestConstructor func(botCtx BotContext, properties *proper.Properties) Request) {
 	s.requestConstructor = requestConstructor
 }
 
 // CustomResponse creates a new response writer
-func (s *Slacker) CustomResponse(responseConstructor func(event *slack.MessageEvent, client *slack.Client, rtm *slack.RTM) ResponseWriter) {
+func (s *Slacker) CustomResponse(responseConstructor func(botCtx BotContext) ResponseWriter) {
 	s.responseConstructor = responseConstructor
 }
 
 // DefaultCommand handle messages when none of the commands are matched
-func (s *Slacker) DefaultCommand(defaultMessageHandler func(request Request, response ResponseWriter)) {
+func (s *Slacker) DefaultCommand(defaultMessageHandler func(botCtx BotContext, request Request, response ResponseWriter)) {
 	s.defaultMessageHandler = defaultMessageHandler
 }
 
@@ -107,8 +127,8 @@ func (s *Slacker) DefaultEvent(defaultEventHandler func(interface{})) {
 }
 
 // UnAuthorizedError error message
-func (s *Slacker) UnAuthorizedError(unAuthorizedError error) {
-	s.unAuthorizedError = unAuthorizedError
+func (s *Slacker) UnAuthorizedError(errUnauthorized error) {
+	s.errUnauthorized = errUnauthorized
 }
 
 // Help handle the help message, it will use the default if not set
@@ -130,50 +150,74 @@ func (s *Slacker) CommandEvents() <-chan *CommandEvent {
 func (s *Slacker) Listen(ctx context.Context) error {
 	s.prependHelpHandle()
 
-	go s.rtm.ManageConnection()
-	for {
-		select {
-		case <-ctx.Done():
-			s.rtm.Disconnect()
-			return ctx.Err()
-		case msg, ok := <-s.rtm.IncomingEvents:
-			if !ok {
-				return nil
-			}
-			switch event := msg.Data.(type) {
-			case *slack.ConnectedEvent:
-				if s.initHandler == nil {
-					continue
-				}
-				go s.initHandler()
-
-			case *slack.MessageEvent:
-				if s.isFromBot(event) {
-					continue
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case evt, ok := <-s.socketModeClient.Events:
+				if !ok {
+					return
 				}
 
-				if !s.isBotMentioned(event) && !s.isDirectMessage(event) {
-					continue
-				}
-				go s.handleMessage(ctx, event)
+				switch evt.Type {
+				case socketmode.EventTypeConnecting:
+					fmt.Println("Connecting to Slack with Socket Mode.")
+					if s.initHandler == nil {
+						continue
+					}
+					go s.initHandler()
+				case socketmode.EventTypeConnectionError:
+					fmt.Println("Connection failed. Retrying later...")
+				case socketmode.EventTypeConnected:
+					fmt.Println("Connected to Slack with Socket Mode.")
+				case socketmode.EventTypeHello:
+					s.appID = evt.Request.ConnectionInfo.AppID
+					fmt.Printf("Connected as App ID %v\n", s.appID)
 
-			case *slack.RTMError:
-				if s.errorHandler == nil {
-					continue
-				}
-				go s.errorHandler(event.Error())
+				case socketmode.EventTypeEventsAPI:
+					ev, ok := evt.Data.(slackevents.EventsAPIEvent)
+					if !ok {
+						fmt.Printf("Ignored %+v\n", evt)
+						continue
+					}
 
-			case *slack.InvalidAuthEvent:
-				return errors.New(invalidToken)
+					switch ev.InnerEvent.Type {
+					case "message", "app_mention": // message-based events
+						go s.handleMessageEvent(ctx, ev.InnerEvent.Data)
 
-			default:
-				if s.defaultEventHandler == nil {
-					continue
+					default:
+						fmt.Printf("unsupported inner event: %+v\n", ev.InnerEvent.Type)
+					}
+
+					s.socketModeClient.Ack(*evt.Request)
+				case socketmode.EventTypeInteractive:
+					if s.interactiveEventHandler == nil {
+						s.unsupportedEventReceived()
+						continue
+					}
+
+					callback, ok := evt.Data.(slack.InteractionCallback)
+					if !ok {
+						fmt.Printf("Ignored %+v\n", evt)
+						continue
+					}
+
+					go s.interactiveEventHandler(s, &evt, &callback)
+				default:
+					s.unsupportedEventReceived()
 				}
-				go s.defaultEventHandler(event)
 			}
 		}
-	}
+	}()
+
+	// blocking call that handles listening for events and placing them in the
+	// Events channel as well as handling outgoing events.
+	return s.socketModeClient.RunContext(ctx)
+}
+
+func (s *Slacker) unsupportedEventReceived() {
+	s.socketModeClient.Debugf("unsupported Events API event received")
 }
 
 // GetUserInfo retrieve complete user information
@@ -181,64 +225,7 @@ func (s *Slacker) GetUserInfo(user string) (*slack.User, error) {
 	return s.client.GetUserInfo(user)
 }
 
-func (s *Slacker) sendMessage(text string, channel string) {
-	s.rtm.SendMessage(s.rtm.NewOutgoingMessage(text, channel))
-}
-
-func (s *Slacker) isFromBot(event *slack.MessageEvent) bool {
-	info := s.rtm.GetInfo()
-	return len(event.User) == 0 || event.User == slackBotUser || event.User == info.User.ID || len(event.BotID) > 0
-}
-
-func (s *Slacker) isBotMentioned(event *slack.MessageEvent) bool {
-	info := s.rtm.GetInfo()
-	return strings.Contains(event.Text, fmt.Sprintf(userMentionFormat, info.User.ID))
-}
-
-func (s *Slacker) isDirectMessage(event *slack.MessageEvent) bool {
-	return strings.HasPrefix(event.Channel, directChannelMarker)
-}
-
-func (s *Slacker) handleMessage(ctx context.Context, message *slack.MessageEvent) {
-	if s.requestConstructor == nil {
-		s.requestConstructor = NewRequest
-	}
-
-	if s.responseConstructor == nil {
-		s.responseConstructor = NewResponse
-	}
-
-	response := s.responseConstructor(message, s.client, s.rtm)
-
-	for _, cmd := range s.botCommands {
-		parameters, isMatch := cmd.Match(message.Text)
-		if !isMatch {
-			continue
-		}
-
-		request := s.requestConstructor(ctx, message, parameters)
-		if cmd.Definition().AuthorizationFunc != nil && !cmd.Definition().AuthorizationFunc(request) {
-			response.ReportError(s.unAuthorizedError)
-			return
-		}
-
-		select {
-		case s.commandChannel <- NewCommandEvent(cmd.Usage(), parameters, message):
-		default:
-			// full channel, dropped event
-		}
-
-		cmd.Execute(request, response)
-		return
-	}
-
-	if s.defaultMessageHandler != nil {
-		request := s.requestConstructor(ctx, message, &proper.Properties{})
-		s.defaultMessageHandler(request, response)
-	}
-}
-
-func (s *Slacker) defaultHelp(request Request, response ResponseWriter) {
+func (s *Slacker) defaultHelp(botCtx BotContext, request Request, response ResponseWriter) {
 	authorizedCommandAvailable := false
 	helpMessage := empty
 	for _, command := range s.botCommands {
@@ -287,4 +274,108 @@ func (s *Slacker) prependHelpHandle() {
 	}
 
 	s.botCommands = append([]BotCommand{NewBotCommand(helpCommand, s.helpDefinition)}, s.botCommands...)
+}
+
+func (s *Slacker) handleMessageEvent(ctx context.Context, evt interface{}) {
+	if s.botContextConstructor == nil {
+		s.botContextConstructor = NewBotContext
+	}
+
+	if s.requestConstructor == nil {
+		s.requestConstructor = NewRequest
+	}
+
+	if s.responseConstructor == nil {
+		s.responseConstructor = NewResponse
+	}
+
+	ev := newMessageEvent(evt)
+	if ev == nil {
+		// event doesn't appear to be a valid message type
+		return
+	} else if ev.IsBot() {
+		switch s.botInteractionMode {
+		case BotInteractionModeIgnoreApp:
+			bot, err := s.client.GetBotInfo(ev.BotID)
+			if err != nil {
+				if err.Error() == "missing_scope" {
+					fmt.Println("unable to determine if bot response is from me -- please add users:read scope to your app")
+				} else {
+					fmt.Printf("unable to get bot that sent message information: %v", err)
+				}
+				return
+			}
+			if bot.AppID == s.appID {
+				fmt.Printf("Ignoring event that originated from my App ID: %v\n", bot.AppID)
+				return
+			}
+		case BotInteractionModeIgnoreAll:
+			fmt.Printf("Ignoring event that originated from Bot ID: %v\n", ev.BotID)
+			return
+		default:
+			// BotInteractionModeIgnoreNone is handled in the default case
+		}
+
+	}
+
+	botCtx := s.botContextConstructor(ctx, s.client, s.socketModeClient, ev)
+	response := s.responseConstructor(botCtx)
+
+	for _, cmd := range s.botCommands {
+		parameters, isMatch := cmd.Match(ev.Text)
+		if !isMatch {
+			continue
+		}
+
+		request := s.requestConstructor(botCtx, parameters)
+		if cmd.Definition().AuthorizationFunc != nil && !cmd.Definition().AuthorizationFunc(botCtx, request) {
+			response.ReportError(s.errUnauthorized)
+			return
+		}
+
+		select {
+		case s.commandChannel <- NewCommandEvent(cmd.Usage(), parameters, ev):
+		default:
+			// full channel, dropped event
+		}
+
+		cmd.Execute(botCtx, request, response)
+		return
+	}
+
+	if s.defaultMessageHandler != nil {
+		request := s.requestConstructor(botCtx, nil)
+		s.defaultMessageHandler(botCtx, request, response)
+	}
+}
+
+func newMessageEvent(evt interface{}) *MessageEvent {
+	var me *MessageEvent
+
+	switch ev := evt.(type) {
+	case *slackevents.MessageEvent:
+		me = &MessageEvent{
+			Channel:         ev.Channel,
+			User:            ev.User,
+			Text:            ev.Text,
+			Data:            evt,
+			Type:            ev.Type,
+			TimeStamp:       ev.TimeStamp,
+			ThreadTimeStamp: ev.ThreadTimeStamp,
+			BotID:           ev.BotID,
+		}
+	case *slackevents.AppMentionEvent:
+		me = &MessageEvent{
+			Channel:         ev.Channel,
+			User:            ev.User,
+			Text:            ev.Text,
+			Data:            evt,
+			Type:            ev.Type,
+			TimeStamp:       ev.TimeStamp,
+			ThreadTimeStamp: ev.ThreadTimeStamp,
+			BotID:           ev.BotID,
+		}
+	}
+
+	return me
 }
