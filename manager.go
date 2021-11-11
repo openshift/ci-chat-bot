@@ -1251,7 +1251,8 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		return msg, err
 	}
 
-	if err := m.newJob(job); err != nil {
+	prowJobUrl, err := m.newJob(job)
+	if err != nil {
 		return "", fmt.Errorf("the requested job cannot be started: %v", err)
 	}
 
@@ -1263,10 +1264,10 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	}
 
 	if job.Mode == JobTypeLaunch {
-		msg = fmt.Sprintf("%sa cluster is being created - I'll send you the credentials in about %d minutes", msg, m.estimateCompletion(req.RequestedAt)/time.Minute)
+		msg = fmt.Sprintf("%sa <%s|cluster is being created> - I'll send you the credentials in about %d minutes", msg, prowJobUrl, m.estimateCompletion(req.RequestedAt)/time.Minute)
 		return "", errors.New(msg)
 	}
-	return "", fmt.Errorf("%sjob started, you will be notified on completion", msg)
+	return "", fmt.Errorf("%s<%s|job> started, you will be notified on completion", msg, prowJobUrl)
 }
 
 func (m *jobManager) clusterDetailsForUser(user string) (string, string, error) {
