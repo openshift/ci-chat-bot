@@ -6,7 +6,7 @@ You'll be placed in a new channel with the App, and you'll be ready to begin lau
 
 To see the available commands, type `help`.
 
-For any questions, concerns, comments, etc, please reach out in either the `#forum-dp-cr` or `#forum-release-controller` channels.
+For any questions, concerns, comments, etc, please reach out in the `#forum-crt` channel.
 
 ## Links
 * [OpenShift Releases](https://amd64.ocp.releases.ci.openshift.org/)
