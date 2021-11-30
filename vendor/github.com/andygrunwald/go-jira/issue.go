@@ -268,9 +268,10 @@ type AvatarUrls struct {
 // Component represents a "component" of a Jira issue.
 // Components can be user defined in every Jira instance.
 type Component struct {
-	Self string `json:"self,omitempty" structs:"self,omitempty"`
-	ID   string `json:"id,omitempty" structs:"id,omitempty"`
-	Name string `json:"name,omitempty" structs:"name,omitempty"`
+	Self        string `json:"self,omitempty" structs:"self,omitempty"`
+	ID          string `json:"id,omitempty" structs:"id,omitempty"`
+	Name        string `json:"name,omitempty" structs:"name,omitempty"`
+	Description string `json:"description,omitempty" structs:"description,omitempty"`
 }
 
 // Progress represents the progress of a Jira issue.
@@ -533,9 +534,10 @@ type GetQueryOptions struct {
 
 // GetWorklogsQueryOptions specifies the optional parameters for the Get Worklogs method
 type GetWorklogsQueryOptions struct {
-	StartAt    int64  `url:"startAt,omitempty"`
-	MaxResults int32  `url:"maxResults,omitempty"`
-	Expand     string `url:"expand,omitempty"`
+	StartAt      int64  `url:"startAt,omitempty"`
+	MaxResults   int32  `url:"maxResults,omitempty"`
+	StartedAfter int64  `url:"startedAfter,omitempty"`
+	Expand       string `url:"expand,omitempty"`
 }
 
 type AddWorklogQueryOptions struct {
@@ -585,8 +587,8 @@ type RemoteLinkIcon struct {
 
 // RemoteLinkStatus if the link is a resolvable object (issue, epic) - the structure represent its status
 type RemoteLinkStatus struct {
-	Resolved bool
-	Icon     *RemoteLinkIcon
+	Resolved bool            `json:"resolved,omitempty" structs:"resolved,omitempty"`
+	Icon     *RemoteLinkIcon `json:"icon,omitempty" structs:"icon,omitempty"`
 }
 
 // GetWithContext returns a full representation of the issue for the given issue key.
@@ -718,6 +720,29 @@ func (s *IssueService) DeleteAttachment(attachmentID string) (*Response, error) 
 	return s.DeleteAttachmentWithContext(context.Background(), attachmentID)
 }
 
+// DeleteLinkWithContext deletes a link of a given linkID
+func (s *IssueService) DeleteLinkWithContext(ctx context.Context, linkID string) (*Response, error) {
+	apiEndpoint := fmt.Sprintf("rest/api/2/issueLink/%s", linkID)
+
+	req, err := s.client.NewRequestWithContext(ctx, "DELETE", apiEndpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.client.Do(req, nil)
+	if err != nil {
+		jerr := NewJiraError(resp, err)
+		return resp, jerr
+	}
+
+	return resp, nil
+}
+
+// DeleteLink wraps DeleteLinkWithContext using the background context.
+func (s *IssueService) DeleteLink(linkID string) (*Response, error) {
+	return s.DeleteLinkWithContext(context.Background(), linkID)
+}
+
 // GetWorklogsWithContext gets all the worklogs for an issue.
 // This method is especially important if you need to read all the worklogs, not just the first page.
 //
@@ -833,7 +858,7 @@ func (s *IssueService) UpdateWithOptions(issue *Issue, opts *UpdateQueryOptions)
 //
 // Jira API docs: https://docs.atlassian.com/jira/REST/cloud/#api/2/issue-editIssue
 func (s *IssueService) UpdateWithContext(ctx context.Context, issue *Issue) (*Issue, *Response, error) {
-	return s.UpdateWithOptions(issue, nil)
+	return s.UpdateWithOptionsWithContext(ctx, issue, nil)
 }
 
 // Update wraps UpdateWithContext using the background context.
@@ -1095,7 +1120,7 @@ func (s *IssueService) SearchPagesWithContext(ctx context.Context, jql string, o
 		options.MaxResults = 50
 	}
 
-	issues, resp, err := s.Search(jql, options)
+	issues, resp, err := s.SearchWithContext(ctx, jql, options)
 	if err != nil {
 		return err
 	}
@@ -1117,7 +1142,7 @@ func (s *IssueService) SearchPagesWithContext(ctx context.Context, jql string, o
 		}
 
 		options.StartAt += resp.MaxResults
-		issues, resp, err = s.Search(jql, options)
+		issues, resp, err = s.SearchWithContext(ctx, jql, options)
 		if err != nil {
 			return err
 		}

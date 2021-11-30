@@ -1,7 +1,7 @@
 # go-jira
 
 [![GoDoc](https://godoc.org/github.com/andygrunwald/go-jira?status.svg)](https://godoc.org/github.com/andygrunwald/go-jira)
-[![Build Status](https://travis-ci.org/andygrunwald/go-jira.svg?branch=master)](https://travis-ci.org/andygrunwald/go-jira)
+[![Build Status](https://github.com/andygrunwald/go-jira/actions/workflows/testing.yml/badge.svg)](https://github.com/andygrunwald/go-jira/actions/workflows/testing.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/andygrunwald/go-jira)](https://goreportcard.com/report/github.com/andygrunwald/go-jira)
 
 [Go](https://golang.org/) client library for [Atlassian Jira](https://www.atlassian.com/software/jira).
@@ -19,8 +19,11 @@ This package is not Jira API complete (yet), but you can call every API endpoint
 
 ## Requirements
 
-* Go >= 1.8
+* Go >= 1.14
 * Jira v6.3.4 & v7.1.2.
+
+Note that we also run our tests against 1.13, though only the last two versions
+of Go are officially supported.
 
 ## Installation
 
@@ -218,6 +221,14 @@ func main() {
 	fmt.Printf("Status after transition: %+v\n", issue.Fields.Status.Name)
 }
 ```
+### Get all the issues for JQL with Pagination
+Jira API has limit on maxResults it can return. You may have a usecase where you need to get all issues for given JQL.
+This example shows reference implementation of GetAllIssues function which does pagination on Jira API to get all the issues for given JQL
+
+please look at [Pagination Example](https://github.com/andygrunwald/go-jira/blob/master/examples/pagination/main.go)
+
+
+
 
 ### Call a not implemented API endpoint
 
