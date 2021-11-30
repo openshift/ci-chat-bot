@@ -31,7 +31,7 @@ github.com/GoogleCloudPlatform/testgrid/pb/test_status
 github.com/GoogleCloudPlatform/testgrid/util/gcs
 # github.com/andygrunwald/go-gerrit v0.0.0-20210709065208-9d38b0be0268
 github.com/andygrunwald/go-gerrit
-# github.com/andygrunwald/go-jira v1.13.0
+# github.com/andygrunwald/go-jira v1.14.0
 github.com/andygrunwald/go-jira
 # github.com/aws/aws-sdk-go v1.37.22
 github.com/aws/aws-sdk-go/aws
@@ -98,8 +98,6 @@ github.com/cespare/xxhash/v2
 github.com/clarketm/json
 # github.com/davecgh/go-spew v1.1.1
 github.com/davecgh/go-spew/spew
-# github.com/dgrijalva/jwt-go v3.2.0+incompatible
-github.com/dgrijalva/jwt-go
 # github.com/dgrijalva/jwt-go/v4 v4.0.0-preview1
 github.com/dgrijalva/jwt-go/v4
 # github.com/elazarl/goproxy v0.0.0-20200315184450-1f3cb6622dad
@@ -123,6 +121,8 @@ github.com/go-logr/logr
 # github.com/gogo/protobuf v1.3.2
 github.com/gogo/protobuf/proto
 github.com/gogo/protobuf/sortkeys
+# github.com/golang-jwt/jwt v3.2.1+incompatible
+github.com/golang-jwt/jwt
 # github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da
 github.com/golang/groupcache/lru
 # github.com/golang/protobuf v1.5.2
@@ -277,7 +277,7 @@ github.com/tektoncd/pipeline/pkg/contexts
 github.com/tektoncd/pipeline/pkg/list
 github.com/tektoncd/pipeline/pkg/reconciler/pipeline/dag
 github.com/tektoncd/pipeline/pkg/substitution
-# github.com/trivago/tgo v1.0.1
+# github.com/trivago/tgo v1.0.7
 github.com/trivago/tgo/tcontainer
 github.com/trivago/tgo/treflect
 # go.opencensus.io v0.23.0
@@ -491,6 +491,8 @@ google.golang.org/protobuf/types/pluginpb
 gopkg.in/fsnotify.v1
 # gopkg.in/inf.v0 v0.9.1
 gopkg.in/inf.v0
+# gopkg.in/ini.v1 v1.62.0
+gopkg.in/ini.v1
 # gopkg.in/robfig/cron.v2 v2.0.0-20150107220207-be2e0b0deed5
 gopkg.in/robfig/cron.v2
 # gopkg.in/yaml.v2 v2.4.0
@@ -838,7 +840,7 @@ k8s.io/klog
 k8s.io/klog/v2
 # k8s.io/kube-openapi v0.0.0-20210421082810-95288971da7e
 k8s.io/kube-openapi/pkg/util/proto
-# k8s.io/test-infra v0.0.0-20211110153326-74a5a2f770f3
+# k8s.io/test-infra v0.0.0-20211130120656-618b931b1fca
 ## explicit
 k8s.io/test-infra/ghproxy/ghcache
 k8s.io/test-infra/ghproxy/ghmetrics
