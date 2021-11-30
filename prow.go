@@ -97,6 +97,16 @@ var envsForTestType = map[string][]envVar{
 		name:  "TEST_SUITE",
 		value: "openshift/conformance/serial",
 	}},
+	// Metal IPI specific IPv6 cluster
+	"e2e-ipv6": {{
+		name:  "TEST_SUITE",
+		value: "openshift/conformance/parallel",
+	}},
+	// Metal IPI specific IPv4v6 dualstack cluster
+	"e2e-dualstack": {{
+		name:  "TEST_SUITE",
+		value: "openshift/conformance/parallel",
+	}},
 	"e2e-all": {{
 		name:  "TEST_SUITE",
 		value: "openshift/conformance",
