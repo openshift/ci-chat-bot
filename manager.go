@@ -63,6 +63,9 @@ type JobRequest struct {
 	// An optional string controlling the platform type for jobs that launch clusters. Required for install or upgrade jobs.
 	Platform string
 
+	// WorkflowName is a field used to store the name of the workflow to run for workflow commands
+	WorkflowName string
+
 	Channel     string
 	RequestedAt time.Time
 	Name        string
@@ -78,10 +81,11 @@ type JobType string
 const (
 	JobTypeBuild = "build"
 	// TODO: remove this const. It seems out of date and replaced by launch everywhere except for in JobRequest.JobType. Gets changed to "launch" for job.Mode
-	JobTypeInstall = "install"
-	JobTypeLaunch  = "launch"
-	JobTypeTest    = "test"
-	JobTypeUpgrade = "upgrade"
+	JobTypeInstall        = "install"
+	JobTypeLaunch         = "launch"
+	JobTypeTest           = "test"
+	JobTypeUpgrade        = "upgrade"
+	JobTypeWorkflowLaunch = "workflow-launch"
 )
 
 // JobManager responds to user actions and tracks the state of the launched
@@ -144,6 +148,8 @@ type Job struct {
 	BuildCluster string
 
 	LegacyConfig bool
+
+	WorkflowName string
 }
 
 func (j Job) IsComplete() bool {
@@ -176,7 +182,8 @@ type jobManager struct {
 		running map[string]struct{}
 	}
 
-	notifierFn JobCallbackFunc
+	notifierFn     JobCallbackFunc
+	workflowConfig *WorkflowConfig
 }
 
 // NewJobManager creates a manager that will track the requests made by a user to create clusters
@@ -190,6 +197,7 @@ func NewJobManager(
 	imageClient imageclientset.Interface,
 	buildClusterClientConfigMap BuildClusterClientConfigMap,
 	githubURL, forcePROwner string,
+	workflowConfig *WorkflowConfig,
 ) *jobManager {
 	m := &jobManager{
 		requests:      make(map[string]*JobRequest),
@@ -207,6 +215,7 @@ func NewJobManager(
 		forcePROwner:     forcePROwner,
 
 		configResolver: configResolver,
+		workflowConfig: workflowConfig,
 	}
 	m.muJob.running = make(map[string]struct{})
 	return m
@@ -373,7 +382,7 @@ func (m *jobManager) sync() error {
 			j.State = prowapiv1.PendingState
 			j.Failure = ""
 
-			if j.Mode == JobTypeLaunch && (previous != nil && !previous.Complete) {
+			if (j.Mode == JobTypeLaunch || j.Mode == JobTypeWorkflowLaunch) && (previous != nil && !previous.Complete) {
 				if user := j.RequestedBy; len(user) > 0 {
 					if _, ok := m.requests[user]; !ok {
 						var inputStrings [][]string
@@ -487,7 +496,7 @@ func (m *jobManager) ListJobs(users ...string) string {
 	var totalJobs int
 	var runningClusters int
 	for _, job := range m.jobs {
-		if job.Mode == JobTypeLaunch {
+		if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
 			if !job.Complete {
 				runningClusters++
 			}
@@ -1005,6 +1014,7 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		ExpiresAt: req.RequestedAt.Add(m.maxAge),
 
 		Architecture: req.Architecture,
+		WorkflowName: req.WorkflowName,
 	}
 
 	// default install type jobs to "ci"
@@ -1062,6 +1072,14 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 			return nil, fmt.Errorf("a test type is required for testing, see help")
 		}
 		job.Mode = JobTypeTest
+	case JobTypeWorkflowLaunch:
+		if len(jobInputs) != 1 {
+			return nil, fmt.Errorf("launching a cluster requires one image, version, or pull request")
+		}
+		if len(req.Platform) == 0 {
+			return nil, fmt.Errorf("platform must be set when launching clusters")
+		}
+		job.Mode = JobTypeWorkflowLaunch
 	default:
 		return nil, fmt.Errorf("unexpected job type: %q", req.Type)
 	}
@@ -1081,9 +1099,12 @@ func multistageParamsForPlatform(platform string) sets.String {
 }
 
 func multistageNameFromParams(params map[string]string, platform, jobType string) (string, error) {
+	if jobType == JobTypeWorkflowLaunch || jobType == JobTypeBuild {
+		return "launch", nil
+	}
 	var prefix string
 	switch jobType {
-	case JobTypeLaunch, JobTypeBuild:
+	case JobTypeLaunch:
 		prefix = "launch"
 	case JobTypeTest:
 		prefix = "e2e"
@@ -1106,6 +1127,9 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 }
 
 func configContainsVariant(params map[string]string, platform, unresolvedConfig, jobType string) (bool, string, error) {
+	if jobType == JobTypeWorkflowLaunch {
+		return true, "launch", nil
+	}
 	name, err := multistageNameFromParams(params, platform, jobType)
 	if err != nil {
 		return false, "", err
@@ -1185,7 +1209,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		defer m.lock.Unlock()
 
 		user := req.User
-		if job.Mode == JobTypeLaunch {
+		if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
 			existing, ok := m.requests[user]
 			if ok {
 				if len(existing.Name) == 0 {
@@ -1211,7 +1235,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 
 			launchedClusters := 0
 			for _, job := range m.jobs {
-				if job != nil && job.Mode == JobTypeLaunch && !job.Complete && len(job.Failure) == 0 {
+				if job != nil && (job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch) && !job.Complete && len(job.Failure) == 0 {
 					launchedClusters++
 				}
 			}
@@ -1219,7 +1243,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 				klog.Infof("user %q is will have to wait", user)
 				var waitUntil time.Time
 				for _, c := range m.jobs {
-					if c == nil || c.Mode != JobTypeLaunch {
+					if c == nil || (c.Mode != JobTypeLaunch && c.Mode != JobTypeWorkflowLaunch) {
 						continue
 					}
 					if waitUntil.Before(c.ExpiresAt) {
@@ -1235,7 +1259,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		} else {
 			running := 0
 			for _, job := range m.jobs {
-				if job != nil && job.Mode != JobTypeLaunch && job.RequestedBy == user {
+				if job != nil && job.Mode != JobTypeLaunch && job.Mode != JobTypeWorkflowLaunch && job.RequestedBy == user {
 					running++
 				}
 			}
@@ -1263,7 +1287,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		msg = "WARNING: using legacy template based job for this cluster. This is unsupported and the cluster may not install as expected. Contact #forum-crt for more information.\n"
 	}
 
-	if job.Mode == JobTypeLaunch {
+	if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
 		msg = fmt.Sprintf("%sa <%s|cluster is being created> - I'll send you the credentials in about %d minutes", msg, prowJobUrl, m.estimateCompletion(req.RequestedAt)/time.Minute)
 		return "", errors.New(msg)
 	}
@@ -1392,7 +1416,7 @@ func (m *jobManager) finishedJob(job Job) {
 	defer m.lock.Unlock()
 
 	// track the 10 most recent starts in sorted order
-	if job.Mode == JobTypeLaunch && len(job.Credentials) > 0 && job.StartDuration > 0 {
+	if (job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch) && len(job.Credentials) > 0 && job.StartDuration > 0 {
 		m.recentStartEstimates = append(m.recentStartEstimates, job.StartDuration)
 		if len(m.recentStartEstimates) > 10 {
 			m.recentStartEstimates = m.recentStartEstimates[:10]

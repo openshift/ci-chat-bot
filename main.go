@@ -9,15 +9,18 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"sync"
 	"time"
 
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
 	"gopkg.in/fsnotify.v1"
+	"gopkg.in/yaml.v2"
 
 	"github.com/spf13/pflag"
 
+	citools "github.com/openshift/ci-tools/pkg/api"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
@@ -40,6 +43,7 @@ type options struct {
 	BuildClusterKubeconfigsLocation string
 	ReleaseClusterKubeconfig        string
 	ConfigResolver                  string
+	WorkflowConfigPath              string
 }
 
 func main() {
@@ -67,6 +71,7 @@ func run() error {
 	pflag.StringVar(&ignored, "build-cluster-kubeconfig", ignored, "REMOVED: Kubeconfig to use for buildcluster. Defaults to normal kubeconfig if unset.")
 	pflag.StringVar(&opt.BuildClusterKubeconfigsLocation, "build-cluster-kubeconfigs-location", opt.BuildClusterKubeconfigsLocation, "Path to the location of the Kubeconfigs for the various buildclusters. Default is \"/var/build-cluster-kubeconfigs\".")
 	pflag.StringVar(&opt.ReleaseClusterKubeconfig, "release-cluster-kubeconfig", "", "Kubeconfig to use for cluster housing the release imagestreams. Defaults to normal kubeconfig if unset.")
+	pflag.StringVar(&opt.WorkflowConfigPath, "workflow-config-path", "", "Path to config file used for workflow commands")
 	opt.prowconfig.AddFlags(emptyFlags)
 	pflag.CommandLine.AddGoFlagSet(emptyFlags)
 	pflag.Parse()
@@ -114,12 +119,15 @@ func run() error {
 		return err
 	}
 
-	manager := NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, opt.GithubEndpoint, opt.ForcePROwner)
+	workflows := WorkflowConfig{}
+	go manageWorkflowConfig(opt.WorkflowConfigPath, &workflows)
+
+	manager := NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, opt.GithubEndpoint, opt.ForcePROwner, &workflows)
 	if err := manager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %v", err)
 	}
 
-	bot := NewBot(botToken)
+	bot := NewBot(botToken, &workflows)
 	for {
 		if err := bot.Start(manager); err != nil && !isRetriable(err) {
 			return err
@@ -212,4 +220,40 @@ func setupKubeconfigWatches(clusters BuildClusterClientConfigMap) error {
 	}()
 
 	return nil
+}
+
+type WorkflowConfig struct {
+	Workflows map[string]WorkflowConfigItem `yaml:"workflows"`
+	mutex     sync.RWMutex                  `yaml:"-"` // this field just allows us to update the above values without races
+}
+
+type WorkflowConfigItem struct {
+	BaseImages   map[string]citools.ImageStreamTagReference `yaml:"base_images,omitempty"`
+	Architecture string                                     `yaml:"architecture,omitempty"`
+	Platform     string                                     `yaml:"platform"`
+}
+
+func manageWorkflowConfig(path string, workflows *WorkflowConfig) {
+	for {
+		// To prevent the ci-chat-bot from crashlooping due to a bad config change,
+		// we will only log that the config is broken and set the workflows to an
+		// empty map. To prevent broken configs in the future, a presubmit should
+		// be creating for openshift/release that verifies this config.
+		var config *WorkflowConfig
+		rawConfig, err := ioutil.ReadFile(path)
+		if err != nil {
+			klog.Errorf("Failed to load workflow config file at %s: %v", path, err)
+		} else if err := yaml.Unmarshal(rawConfig, config); err != nil {
+			klog.Errorf("Failed to unmarshal workflow config: %v", err)
+		}
+
+		workflows.mutex.Lock()
+		if config != nil {
+			workflows.Workflows = config.Workflows
+		} else {
+			workflows.Workflows = make(map[string]WorkflowConfigItem)
+		}
+		workflows.mutex.Unlock()
+		time.Sleep(2 * time.Minute)
+	}
 }
