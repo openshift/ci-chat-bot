@@ -239,16 +239,16 @@ func manageWorkflowConfig(path string, workflows *WorkflowConfig) {
 		// we will only log that the config is broken and set the workflows to an
 		// empty map. To prevent broken configs in the future, a presubmit should
 		// be creating for openshift/release that verifies this config.
-		var config *WorkflowConfig
+		var config WorkflowConfig
 		rawConfig, err := ioutil.ReadFile(path)
 		if err != nil {
 			klog.Errorf("Failed to load workflow config file at %s: %v", path, err)
-		} else if err := yaml.Unmarshal(rawConfig, config); err != nil {
+		} else if err := yaml.Unmarshal(rawConfig, &config); err != nil {
 			klog.Errorf("Failed to unmarshal workflow config: %v", err)
 		}
 
 		workflows.mutex.Lock()
-		if config != nil {
+		if config.Workflows != nil {
 			workflows.Workflows = config.Workflows
 		} else {
 			workflows.Workflows = make(map[string]WorkflowConfigItem)
