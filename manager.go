@@ -655,7 +655,7 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 	if refs == nil || len(refs.BaseRef) == 0 {
 		return ""
 	}
-	if refs.BaseRef == "master" {
+	if refs.BaseRef == "master" || refs.BaseRef == "main" {
 		return "4.10.0-0.latest"
 	}
 	if m := reBranchVersion.FindStringSubmatch(refs.BaseRef); m != nil {
