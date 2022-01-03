@@ -310,7 +310,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 	pj, err := m.generateProwJob(job)
 	if err != nil {
-		return fmt.Errorf("unable to generate prow job: %v", err)
+		return "", fmt.Errorf("unable to generate prow job: %v", err)
 	}
 
 	_, err = m.prowClient.Namespace(m.prowNamespace).Create(context.TODO(), prow.ObjectToUnstructured(pj), metav1.CreateOptions{})
@@ -828,33 +828,6 @@ func (m *jobManager) generateProwJob(job *Job) (*prowapiv1.ProwJob, error) {
 	if klog.V(2) {
 		data, _ := json.MarshalIndent(pj, "", "  ")
 		klog.Infof("Job %q will create prow job:\n%s", job.Name, string(data))
-	}
-
-	_, err = m.prowClient.Namespace(m.prowNamespace).Create(context.TODO(), prow.ObjectToUnstructured(pj), metav1.CreateOptions{})
-	if err != nil && !errors.IsAlreadyExists(err) {
-		return nil, err
-	}
-
-	var prowJobURL string
-	// Wait for ProwJob URL to be assigned
-	err = wait.PollImmediate(10*time.Second, 5*time.Minute, func() (bool, error) {
-		uns, err := m.prowClient.Namespace(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
-		if err != nil {
-			return false, err
-		}
-		var latestPJ prowapiv1.ProwJob
-		if err := prow.UnstructuredToObject(uns, &latestPJ); err != nil {
-			return false, err
-		}
-
-		if len(latestPJ.Status.URL) > 0 {
-			prowJobURL = latestPJ.Status.URL
-			return true, nil
-		}
-		return false, nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("did not retrieve job url due to an error: %v", err)
 	}
 
 	return pj, nil
