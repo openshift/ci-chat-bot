@@ -57,10 +57,10 @@ var supportedUpgradeTests = []string{"e2e-upgrade", "e2e-upgrade-all", "e2e-upgr
 
 // supportedPlatforms requires a job within the release periodics that can launch a
 // cluster that has the label job-env: platform-name.
-var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "hypershift", "ovirt", "openstack", "openstack-kuryr"}
+var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "hypershift", "ovirt", "openstack"}
 
 // supportedParameters are the allowed parameter keys that can be passed to jobs
-var supportedParameters = []string{"ovn", "ovn-hybrid", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv6", "preserve-bootstrap", "test", "rt", "single-node", "cgroupsv2", "techpreview", "upi", "crun", "nfv"}
+var supportedParameters = []string{"ovn", "ovn-hybrid", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv6", "preserve-bootstrap", "test", "rt", "single-node", "cgroupsv2", "techpreview", "upi", "crun", "nfv", "kuryr"}
 
 // multistageParameters is the mapping of supportedParameters that can be configured via multistage parameters to the correct environment variable format
 var multistageParameters = map[string]envVar{
@@ -176,7 +176,7 @@ var envsForTestType = map[string][]envVar{
 
 func testStepForPlatform(platform string) string {
 	switch platform {
-	case "aws", "gcp", "azure", "vsphere", "ovirt", "openstack", "openstack-kuryr":
+	case "aws", "gcp", "azure", "vsphere", "ovirt", "openstack":
 		return "openshift-e2e-test"
 	case "metal":
 		return "baremetalds-e2e-test"
