@@ -34,10 +34,10 @@ require (
 	github.com/spf13/pflag v1.0.5
 	gopkg.in/fsnotify.v1 v1.4.7
 	gopkg.in/yaml.v2 v2.4.0
-	k8s.io/api v0.22.0
-	k8s.io/apimachinery v0.22.0
+	k8s.io/api v0.22.2
+	k8s.io/apimachinery v0.22.2
 	k8s.io/client-go v11.0.1-0.20190805182717-6502b5e7b1b5+incompatible
 	k8s.io/klog v1.0.0
-	k8s.io/test-infra v0.0.0-20211201201517-885e4a13b661
+	k8s.io/test-infra v0.0.0-20220204183202-5bc58aa2c904
 	sigs.k8s.io/yaml v1.2.0
 )

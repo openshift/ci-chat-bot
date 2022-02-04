@@ -17,6 +17,7 @@ limitations under the License.
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -25,6 +26,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	gitignore "github.com/denormal/go-gitignore"
 	"github.com/sirupsen/logrus"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 
@@ -45,6 +47,10 @@ type ProwYAML struct {
 	Presets     []Preset     `json:"presets"`
 	Presubmits  []Presubmit  `json:"presubmits"`
 	Postsubmits []Postsubmit `json:"postsubmits"`
+
+	// ProwIgnored is a well known, unparsed field where non-Prow fields can
+	// be defined without conflicting with unknown field validation.
+	ProwIgnored *json.RawMessage `json:"prow_ignored,omitempty"`
 }
 
 // ProwYAMLGetter is used to retrieve a ProwYAML. Tests should provide
@@ -128,12 +134,20 @@ func ReadProwYAML(log *logrus.Entry, dir string, strict bool) (*ProwYAML, error)
 
 			return c
 		}
-
-		err := filepath.Walk(prowYAMLDirPath, func(p string, info os.FileInfo, err error) error {
+		prowIgnore, err := gitignore.NewRepositoryWithFile(dir, ProwIgnoreFileName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create `%s` parser: %w", ProwIgnoreFileName, err)
+		}
+		err = filepath.Walk(prowYAMLDirPath, func(p string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			if !info.IsDir() && (filepath.Ext(p) == ".yaml" || filepath.Ext(p) == ".yml") {
+				// Use 'Match' directly because 'Ignore' and 'Include' don't work properly for repositories.
+				match := prowIgnore.Match(p)
+				if match != nil && match.Ignore() {
+					return nil
+				}
 				log.Debugf("Reading YAML file %q", p)
 				bytes, err := ioutil.ReadFile(p)
 				if err != nil {
@@ -268,8 +282,13 @@ func (c *InRepoConfigGitCache) ClientFor(org, repo string) (git.RepoClient, erro
 					return nil, nil
 				}
 			}
-			// Don't unlock the client unless we get an error or the consumer indicates they are done by Clean()ing.
-			if err := client.Fetch(); err != nil {
+			// Don't unlock the client unless we get an error or the consumer
+			// indicates they are done by Clean()ing.
+			// This fetch operation is repeated executed in the clone repo,
+			// which fails if there is a commit being deleted from remote. This
+			// is a corner case, but when it happens it would be really
+			// annoying, adding `--prune` tag here for mitigation.
+			if err := client.Fetch("--prune"); err != nil {
 				client.Unlock()
 				return nil, err
 			}

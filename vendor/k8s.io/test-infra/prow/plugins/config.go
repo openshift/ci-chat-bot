@@ -160,6 +160,9 @@ type Blunderbuss struct {
 	// additional token per successful reviewer (and potentially more depending on
 	// how many busy reviewers it had to pass over).
 	UseStatusAvailability bool `json:"use_status_availability,omitempty"`
+	// IgnoreDrafts instructs the plugin to ignore assigning reviewers
+	// to the PR that is in Draft state. Default it's false.
+	IgnoreDrafts bool `json:"ignore_drafts,omitempty"`
 }
 
 // Owners contains configuration related to handling OWNERS files.
@@ -429,6 +432,10 @@ type AssignOnLabel struct {
 type Trigger struct {
 	// Repos is either of the form org/repos or just org.
 	Repos []string `json:"repos,omitempty"`
+	// TrustedApps is the explicit list of GitHub apps whose PRs will be automatically
+	// considered as trusted. The list should contain usernames of each GitHub App without [bot] suffix.
+	// By default, trigger will ignore this list.
+	TrustedApps []string `json:"trusted_apps,omitempty"`
 	// TrustedOrg is the org whose members' PRs will be automatically built for
 	// PRs to the above repos. The default is the PR's org.
 	//
@@ -445,6 +452,8 @@ type Trigger struct {
 	// IgnoreOkToTest makes trigger ignore /ok-to-test comments.
 	// This is a security mitigation to only allow testing from trusted users.
 	IgnoreOkToTest bool `json:"ignore_ok_to_test,omitempty"`
+	// TriggerGitHubWorkflows enables workflows run by github to be triggered by prow.
+	TriggerGitHubWorkflows bool `json:"trigger_github_workflows,omitempty"`
 }
 
 // Heart contains the configuration for the heart plugin.
@@ -658,6 +667,10 @@ type Welcome struct {
 type Dco struct {
 	// SkipDCOCheckForMembers is used to skip DCO check for trusted org members
 	SkipDCOCheckForMembers bool `json:"skip_dco_check_for_members,omitempty"`
+	// TrustedApps defines list of apps which commits will not be checked for DCO singoff.
+	// The list should contain usernames of each GitHub App without [bot] suffix.
+	// By default, this option is ignored.
+	TrustedApps []string `json:"trusted_apps,omitempty"`
 	// TrustedOrg is the org whose members' commits will not be checked for DCO signoff
 	// if the skip DCO option is enabled. The default is the PR's org.
 	TrustedOrg string `json:"trusted_org,omitempty"`
