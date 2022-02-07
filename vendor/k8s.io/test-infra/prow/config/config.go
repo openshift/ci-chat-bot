@@ -37,6 +37,7 @@ import (
 	"text/template"
 	"time"
 
+	gitignore "github.com/denormal/go-gitignore"
 	"github.com/google/go-cmp/cmp"
 	"github.com/sirupsen/logrus"
 	pipelinev1alpha1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
@@ -72,6 +73,8 @@ const (
 	ConfigVersionFileName = "VERSION"
 
 	DefaultTenantID = "GlobalDefaultID"
+
+	ProwIgnoreFileName = ".prowignore"
 )
 
 // Config is a read-only snapshot of the config.
@@ -115,6 +118,10 @@ type JobConfig struct {
 
 	// DecorateAllJobs determines whether all jobs are decorated by default
 	DecorateAllJobs bool `json:"decorate_all_jobs,omitempty"`
+
+	// ProwIgnored is a well known, unparsed field where non-Prow fields can
+	// be defined without conflicting with unknown field validation.
+	ProwIgnored *json.RawMessage `json:"prow_ignored,omitempty"`
 }
 
 // ProwConfig is config for all prow controllers
@@ -209,14 +216,36 @@ type InRepoConfig struct {
 	AllowedClusters map[string][]string `json:"allowed_clusters,omitempty"`
 }
 
-// InRepoConfigEnabled returns whether InRepoConfig is enabled for a given repository.
-func (c *Config) InRepoConfigEnabled(identifier string) bool {
-	if c.InRepoConfig.Enabled[identifier] != nil {
-		return *c.InRepoConfig.Enabled[identifier]
+func trimRepoPrefix(repo string) string {
+	repo = strings.TrimPrefix(repo, "http://")
+	repo = strings.TrimPrefix(repo, "https://")
+	return repo
+}
+
+// TODO(mpherman): Do not return error, just use org == ""
+func SplitRepoName(repo string) (string, string, error) {
+	// Normalize repo name to remove http:// or https://, this is the case for some
+	// of the gerrit instances.
+	repo = trimRepoPrefix(repo)
+	s := strings.SplitN(repo, "/", 2)
+	if len(s) != 2 {
+		return "", "", fmt.Errorf("repo %s cannot be split into org/repo", repo)
 	}
-	identifierSlashSplit := strings.Split(identifier, "/")
-	if len(identifierSlashSplit) == 2 && c.InRepoConfig.Enabled[identifierSlashSplit[0]] != nil {
-		return *c.InRepoConfig.Enabled[identifierSlashSplit[0]]
+	return s[0], s[1], nil
+}
+
+// InRepoConfigEnabled returns whether InRepoConfig is enabled for a given repository.
+// Assumes that config will not include http:// or https://
+func (c *Config) InRepoConfigEnabled(identifier string) bool {
+	normalizedIdentifier := trimRepoPrefix(identifier)
+
+	if c.InRepoConfig.Enabled[normalizedIdentifier] != nil {
+		return *c.InRepoConfig.Enabled[normalizedIdentifier]
+	}
+
+	// Errors if failed to split. We are ignoring this and just checking if org != "" instead
+	if org, _, _ := SplitRepoName(identifier); org != "" && c.InRepoConfig.Enabled[org] != nil {
+		return *c.InRepoConfig.Enabled[org]
 	}
 	if c.InRepoConfig.Enabled["*"] != nil {
 		return *c.InRepoConfig.Enabled["*"]
@@ -225,16 +254,18 @@ func (c *Config) InRepoConfigEnabled(identifier string) bool {
 }
 
 // InRepoConfigAllowsCluster determines if a given cluster may be used for a given repository
+// Assumes that config will not include http:// or https://
 func (c *Config) InRepoConfigAllowsCluster(clusterName, repoIdentifier string) bool {
-	for _, allowedCluster := range c.InRepoConfig.AllowedClusters[repoIdentifier] {
+	normalizedIdentifier := trimRepoPrefix(repoIdentifier)
+	for _, allowedCluster := range c.InRepoConfig.AllowedClusters[normalizedIdentifier] {
 		if allowedCluster == clusterName {
 			return true
 		}
 	}
 
-	identifierSlashSplit := strings.Split(repoIdentifier, "/")
-	if len(identifierSlashSplit) == 2 {
-		for _, allowedCluster := range c.InRepoConfig.AllowedClusters[identifierSlashSplit[0]] {
+	// Errors if failed to split. We are ignoring this and just checking if org != "" instead
+	if org, _, _ := SplitRepoName(repoIdentifier); org != "" {
+		for _, allowedCluster := range c.InRepoConfig.AllowedClusters[org] {
 			if allowedCluster == clusterName {
 				return true
 			}
@@ -1357,6 +1388,10 @@ func ReadJobConfig(jobConfig string, yamlOpts ...yaml.JSONOpt) (JobConfig, error
 		return jc, nil
 	}
 
+	prowIgnore, err := gitignore.NewRepositoryWithFile(jobConfig, ProwIgnoreFileName)
+	if err != nil {
+		return JobConfig{}, fmt.Errorf("failed to create `%s` parser: %w", ProwIgnoreFileName, err)
+	}
 	// we need to ensure all config files have unique basenames,
 	// since updateconfig plugin will use basename as a key in the configmap
 	uniqueBasenames := sets.String{}
@@ -1379,8 +1414,12 @@ func ReadJobConfig(jobConfig string, yamlOpts ...yaml.JSONOpt) (JobConfig, error
 			}
 			return nil
 		}
-
 		if filepath.Ext(path) != ".yaml" && filepath.Ext(path) != ".yml" {
+			return nil
+		}
+		// Use 'Match' directly because 'Ignore' and 'Include' don't work properly for repositories.
+		match := prowIgnore.Match(path)
+		if match != nil && match.Ignore() {
 			return nil
 		}
 
@@ -2814,15 +2853,13 @@ func (repo OrgRepo) String() string {
 
 // NewOrgRepo creates a OrgRepo from org/repo string
 func NewOrgRepo(orgRepo string) *OrgRepo {
-	parts := strings.Split(orgRepo, "/")
-	switch len(parts) {
-	case 1:
-		return &OrgRepo{Org: parts[0]}
-	case 2:
-		return &OrgRepo{Org: parts[0], Repo: parts[1]}
-	default:
-		return nil
+	org, repo, err := SplitRepoName(orgRepo)
+	// SplitRepoName errors when Unable to split to Org/Repo
+	// If we error, that means there is no slash, so org == OrgRepo
+	if err != nil {
+		return &OrgRepo{Org: orgRepo}
 	}
+	return &OrgRepo{Org: org, Repo: repo}
 }
 
 // OrgReposToStrings converts a list of OrgRepo to its String() equivalent

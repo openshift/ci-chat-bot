@@ -399,6 +399,11 @@ type RepoRequest struct {
 	AllowRebaseMerge *bool   `json:"allow_rebase_merge,omitempty"`
 }
 
+type WorkflowRuns struct {
+	Count       int           `json:"total_count,omitempty"`
+	WorflowRuns []WorkflowRun `json:"workflow_runs"`
+}
+
 // RepoCreateRequest contains metadata used in requests to create a repo.
 // See also: https://developer.github.com/v3/repos/#create
 type RepoCreateRequest struct {
@@ -1452,4 +1457,51 @@ type DirectoryContent struct {
 	Type string `json:"type"`
 	Name string `json:"name"`
 	Path string `json:"path"`
+}
+
+// WorkflowRunEvent holds information about an `workflow_run` GitHub webhook event.
+// see // https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#workflow_run
+type WorkflowRunEvent struct {
+	Action       string       `json:"action"`
+	WorkflowRun  WorkflowRun  `json:"workflow_run"`
+	Workflow     Workflow     `json:"workflow"`
+	Repo         *Repo        `json:"repository"`
+	Organization Organization `json:"organization"`
+	Sender       User         `json:"sender"`
+
+	// GUID is included in the header of the request received by GitHub.
+	GUID string
+}
+
+type WorkflowRun struct {
+	ID               int           `json:"id"`
+	Name             string        `json:"name"`
+	NodeID           string        `json:"node_id"`
+	HeadBranch       string        `json:"head_branch"`
+	HeadSha          string        `json:"head_sha"`
+	RunNumber        int           `json:"run_number"`
+	Event            string        `json:"event"`
+	Status           string        `json:"status"`
+	Conclusion       string        `json:"conclusion"`
+	WorkflowID       int           `json:"workflow_id"`
+	CheckSuiteID     int64         `json:"check_suite_id"`
+	CheckSuiteNodeID string        `json:"check_suite_node_id"`
+	URL              string        `json:"url"`
+	PullRequests     []PullRequest `json:"pull_requests"`
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
+	RunAttempt       int           `json:"run_attempt"`
+	RunStartedAt     time.Time     `json:"run_started_at"`
+	HeadCommit       *Commit       `json:"head_commit"`
+	Repository       *Repo         `json:"repository"`
+}
+
+type Workflow struct {
+	ID        int       `json:"id"`
+	NodeID    string    `json:"node_id"`
+	Name      string    `json:"name"`
+	Path      string    `json:"path"`
+	State     string    `json:"state"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }

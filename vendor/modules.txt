@@ -96,8 +96,12 @@ github.com/bwmarrin/snowflake
 github.com/cespare/xxhash/v2
 # github.com/clarketm/json v1.13.4
 github.com/clarketm/json
+# github.com/danwakefield/fnmatch v0.0.0-20160403171240-cbb64ac3d964
+github.com/danwakefield/fnmatch
 # github.com/davecgh/go-spew v1.1.1
 github.com/davecgh/go-spew/spew
+# github.com/denormal/go-gitignore v0.0.0-20180930084346-ae8ad1d07817
+github.com/denormal/go-gitignore
 # github.com/dgrijalva/jwt-go/v4 v4.0.0-preview1
 github.com/dgrijalva/jwt-go/v4
 # github.com/elazarl/goproxy v0.0.0-20200315184450-1f3cb6622dad
@@ -501,7 +505,7 @@ gopkg.in/robfig/cron.v2
 gopkg.in/yaml.v2
 # gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b
 gopkg.in/yaml.v3
-# k8s.io/api v0.22.0 => k8s.io/api v0.22.0
+# k8s.io/api v0.22.2 => k8s.io/api v0.22.0
 ## explicit
 k8s.io/api/admission/v1
 k8s.io/api/admission/v1beta1
@@ -548,7 +552,7 @@ k8s.io/api/scheduling/v1beta1
 k8s.io/api/storage/v1
 k8s.io/api/storage/v1alpha1
 k8s.io/api/storage/v1beta1
-# k8s.io/apimachinery v0.22.0 => k8s.io/apimachinery v0.22.0
+# k8s.io/apimachinery v0.22.2 => k8s.io/apimachinery v0.22.0
 ## explicit
 k8s.io/apimachinery/pkg/api/equality
 k8s.io/apimachinery/pkg/api/errors
@@ -830,8 +834,9 @@ k8s.io/client-go/util/flowcontrol
 k8s.io/client-go/util/homedir
 k8s.io/client-go/util/jsonpath
 k8s.io/client-go/util/keyutil
+k8s.io/client-go/util/retry
 k8s.io/client-go/util/workqueue
-# k8s.io/component-base v0.22.0 => k8s.io/component-base v0.22.0
+# k8s.io/component-base v0.22.2 => k8s.io/component-base v0.22.0
 k8s.io/component-base/config
 k8s.io/component-base/config/v1alpha1
 # k8s.io/klog v1.0.0
@@ -841,7 +846,7 @@ k8s.io/klog
 k8s.io/klog/v2
 # k8s.io/kube-openapi v0.0.0-20210421082810-95288971da7e
 k8s.io/kube-openapi/pkg/util/proto
-# k8s.io/test-infra v0.0.0-20211201201517-885e4a13b661
+# k8s.io/test-infra v0.0.0-20220207120743-5d21ef72b685
 ## explicit
 k8s.io/test-infra/ghproxy/ghcache
 k8s.io/test-infra/ghproxy/ghmetrics
@@ -857,6 +862,7 @@ k8s.io/test-infra/prow/clonerefs
 k8s.io/test-infra/prow/commentpruner
 k8s.io/test-infra/prow/config
 k8s.io/test-infra/prow/config/secret
+k8s.io/test-infra/prow/crier/reporters/criercommonlib
 k8s.io/test-infra/prow/crier/reporters/github
 k8s.io/test-infra/prow/entrypoint
 k8s.io/test-infra/prow/flagutil
@@ -892,7 +898,7 @@ k8s.io/test-infra/prow/sidecar
 k8s.io/test-infra/prow/simplifypath
 k8s.io/test-infra/prow/slack
 k8s.io/test-infra/prow/version
-# k8s.io/utils v0.0.0-20210802155522-efc7438f0176
+# k8s.io/utils v0.0.0-20210819203725-bdf08cb9a70a
 k8s.io/utils/buffer
 k8s.io/utils/integer
 k8s.io/utils/pointer
@@ -905,7 +911,7 @@ knative.dev/pkg/apis/duck/v1beta1
 knative.dev/pkg/configmap
 knative.dev/pkg/kmeta
 knative.dev/pkg/kmp
-# sigs.k8s.io/controller-runtime v0.9.3-0.20210826145723-8f9d0dfc8446
+# sigs.k8s.io/controller-runtime v0.10.3
 sigs.k8s.io/controller-runtime/pkg/cache
 sigs.k8s.io/controller-runtime/pkg/cache/internal
 sigs.k8s.io/controller-runtime/pkg/certwatcher
