@@ -26,3 +26,7 @@
    definition as in a `ci-operator` config file. An `architecture` field also
    exists that can be used to configure the architecture to run openshift on
    once `ci-chat-bot` adds support outside of `amd64`.
+
+5. **It's been more than 30mins I did not get auth credentials yet, what do I do?**
+
+   Issuing an `auth` command will attempt to fetch the credentials for the cluster.  It will return a "your cluster is still getting created" message or the cluster's kube-config file if the cluster has launched successfully.
