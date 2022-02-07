@@ -203,7 +203,8 @@ github.com/openshift/api/image/docker10
 github.com/openshift/api/image/dockerpre012
 github.com/openshift/api/image/v1
 github.com/openshift/api/project/v1
-# github.com/openshift/ci-tools v0.0.0-20211007121324-f8d157db67da
+github.com/openshift/api/route/v1
+# github.com/openshift/ci-tools v0.0.0-20220203161918-dbab1f148fc5
 ## explicit
 github.com/openshift/ci-tools/pkg/api
 # github.com/openshift/client-go v3.9.0+incompatible => github.com/openshift/client-go v0.0.0-20210730113412-1811c1b3fc0e
@@ -321,7 +322,7 @@ golang.org/x/lint/golint
 # golang.org/x/mod v0.4.2
 golang.org/x/mod/module
 golang.org/x/mod/semver
-# golang.org/x/net v0.0.0-20210520170846-37e1c6afe023
+# golang.org/x/net v0.0.0-20211020060615-d418f374d309
 golang.org/x/net/context
 golang.org/x/net/context/ctxhttp
 golang.org/x/net/http/httpguts
@@ -349,7 +350,7 @@ golang.org/x/sys/unix
 golang.org/x/sys/windows
 # golang.org/x/term v0.0.0-20210220032956-6a3ed077a48d
 golang.org/x/term
-# golang.org/x/text v0.3.6
+# golang.org/x/text v0.3.7
 golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi

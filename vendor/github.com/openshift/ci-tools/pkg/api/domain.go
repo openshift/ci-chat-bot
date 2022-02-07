@@ -1,8 +1,14 @@
 package api
 
 import (
+	"context"
 	"fmt"
+	"regexp"
 	"strings"
+
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	routev1 "github.com/openshift/api/route/v1"
 )
 
 const (
@@ -11,7 +17,8 @@ const (
 	ServiceDomainCI    = "ci.openshift.org"
 	ServiceDomainAPPCI = "apps.ci.l2s4.p1.openshiftapps.com"
 
-	ServiceDomainAPPCIRegistry = "registry.ci.openshift.org"
+	ServiceDomainAPPCIRegistry   = "registry.ci.openshift.org"
+	ServiceDomainVSphereRegistry = "registry.apps.build01-us-west-2.vmc.ci.openshift.org"
 )
 
 type Service string
@@ -44,20 +51,76 @@ func DomainForService(service Service) string {
 	return fmt.Sprintf("%s.%s", service, serviceDomain)
 }
 
-// PublicDomainForImage replaces the registry service DNS name and port with the public domain for the registry for the given cluster
-// It will raise an error when the cluster is not recognized
-func PublicDomainForImage(ClusterName, potentiallyPrivate string) (string, error) {
-	d, err := RegistryDomainForClusterName(ClusterName)
-	if err != nil {
-		return "", err
-	}
-	return strings.ReplaceAll(potentiallyPrivate, "image-registry.openshift-image-registry.svc:5000", d), nil
-}
+var (
+	buildClusterRegEx = regexp.MustCompile(`build\d\d+`)
+)
 
-func RegistryDomainForClusterName(ClusterName string) (string, error) {
-	switch ClusterName {
-	case string(ClusterAPPCI):
+func RegistryDomainForClusterName(clusterName string) (string, error) {
+	if clusterName == string(ClusterAPPCI) {
 		return ServiceDomainAPPCIRegistry, nil
 	}
-	return "", fmt.Errorf("failed to get the domain for cluster %s", ClusterName)
+	if clusterName == string(ClusterVSphere) {
+		return ServiceDomainVSphereRegistry, nil
+	}
+	if buildClusterRegEx.MatchString(clusterName) {
+		return fmt.Sprintf("registry.%s.ci.openshift.org", clusterName), nil
+	}
+	return "", fmt.Errorf("failed to get the domain for cluster %s", clusterName)
+}
+
+// ResolveConsoleHost resolves the console host
+func ResolveConsoleHost(ctx context.Context, client ctrlruntimeclient.Client) (string, error) {
+	routes := &routev1.RouteList{}
+	namespace := "openshift-console"
+	if err := client.List(ctx, routes, ctrlruntimeclient.InNamespace(namespace)); err != nil {
+		return "", fmt.Errorf("failed to list routes in namespace %s: %w", namespace, err)
+	}
+
+	hostForRoute := func(name string, routes []routev1.Route) string {
+		for _, route := range routes {
+			if route.Name == name {
+				return route.Spec.Host
+			}
+		}
+		return ""
+	}
+	// the canonical route for the console may be in one of two routes,
+	// and we want to prefer the custom one if it is present
+	for _, routeName := range []string{"console-custom", "console"} {
+		if host := hostForRoute(routeName, routes.Items); host != "" {
+			return host, nil
+		}
+	}
+	return "", fmt.Errorf("failed to resolve the console host")
+}
+
+// ResolveImageRegistryHost resolves the image registry host
+func ResolveImageRegistryHost(ctx context.Context, client ctrlruntimeclient.Client) (string, error) {
+	routes := &routev1.RouteList{}
+	namespace := "openshift-image-registry"
+	if err := client.List(ctx, routes, ctrlruntimeclient.InNamespace(namespace)); err != nil {
+		return "", fmt.Errorf("failed to list routes in namespace %s: %w", namespace, err)
+	}
+
+	var someHost, defaultHost, customHost string
+	for _, route := range routes.Items {
+		if route.Name == "default-route" {
+			defaultHost = route.Spec.Host
+		}
+		if strings.HasSuffix(route.Spec.Host, "ci.openshift.org") {
+			customHost = route.Spec.Host
+		}
+		someHost = route.Spec.Host
+	}
+	if customHost != "" {
+		return customHost, nil
+	}
+	if someHost != "" {
+		return someHost, nil
+	}
+	if defaultHost != "" {
+		return defaultHost, nil
+	}
+
+	return "", fmt.Errorf("failed to resolve the image registry host")
 }

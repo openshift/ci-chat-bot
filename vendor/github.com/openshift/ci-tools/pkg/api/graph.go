@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -293,16 +294,25 @@ func (c *GraphConfiguration) InputImages() (ret []*InputImageTagStepConfiguratio
 	return
 }
 
+// +k8s:deepcopy-gen=false
+// StepGraph is a DAG of steps referenced by its roots
+type StepGraph []*StepNode
+
+// +k8s:deepcopy-gen=false
+// OrderedStepList is a topologically-ordered sequence of steps
+// Edges are determined based on the Creates/Requires methods.
+type OrderedStepList []*StepNode
+
 // BuildGraph returns a graph or graphs that include
 // all steps given.
-func BuildGraph(steps []Step) []*StepNode {
+func BuildGraph(steps []Step) StepGraph {
 	var allNodes []*StepNode
 	for _, step := range steps {
 		node := StepNode{Step: step, Children: []*StepNode{}}
 		allNodes = append(allNodes, &node)
 	}
 
-	var roots []*StepNode
+	var ret StepGraph
 	for _, node := range allNodes {
 		isRoot := true
 		for _, other := range allNodes {
@@ -316,16 +326,16 @@ func BuildGraph(steps []Step) []*StepNode {
 			}
 		}
 		if isRoot {
-			roots = append(roots, node)
+			ret = append(ret, node)
 		}
 	}
 
-	return roots
+	return ret
 }
 
 // BuildPartialGraph returns a graph or graphs that include
 // only the dependencies of the named steps.
-func BuildPartialGraph(steps []Step, names []string) ([]*StepNode, error) {
+func BuildPartialGraph(steps []Step, names []string) (StepGraph, error) {
 	if len(names) == 0 {
 		return BuildGraph(steps), nil
 	}
@@ -376,20 +386,82 @@ func BuildPartialGraph(steps []Step, names []string) ([]*StepNode, error) {
 	return BuildGraph(targeted), nil
 }
 
-// ValidateGraph performs validations on each step in the graph once.
-func ValidateGraph(nodes []*StepNode) []error {
-	var errs []error
-	IterateAllEdges(nodes, func(n *StepNode) {
-		if err := n.Step.Validate(); err != nil {
-			errs = append(errs, fmt.Errorf("step %q failed validation: %w", n.Step.Name(), err))
+// TopologicalSort validates nodes form a DAG and orders them topologically.
+func (g StepGraph) TopologicalSort() (OrderedStepList, []error) {
+	var ret OrderedStepList
+	var satisfied []StepLink
+	if err := iterateDAG(g, nil, sets.NewString(), func(*StepNode) {}); err != nil {
+		return nil, err
+	}
+	seen := make(map[Step]struct{})
+	for len(g) > 0 {
+		var changed bool
+		var waiting []*StepNode
+		for _, node := range g {
+			for _, child := range node.Children {
+				if _, ok := seen[child.Step]; !ok {
+					waiting = append(waiting, child)
+				}
+			}
+			if _, ok := seen[node.Step]; ok {
+				continue
+			}
+			if !HasAllLinks(node.Step.Requires(), satisfied) {
+				waiting = append(waiting, node)
+				continue
+			}
+			satisfied = append(satisfied, node.Step.Creates()...)
+			ret = append(ret, node)
+			seen[node.Step] = struct{}{}
+			changed = true
 		}
-	})
-	return errs
+		if !changed && len(waiting) > 0 {
+			errMessages := sets.String{}
+			for _, node := range waiting {
+				missing := sets.String{}
+				for _, link := range node.Step.Requires() {
+					if !HasAllLinks([]StepLink{link}, satisfied) {
+						if msg := link.UnsatisfiableError(); msg != "" {
+							missing.Insert(msg)
+						} else {
+							missing.Insert(fmt.Sprintf("<%#v>", link))
+						}
+					}
+				}
+				// De-Duplicate errors
+				errMessages.Insert(fmt.Sprintf("step %s is missing dependencies: %s", node.Step.Name(), strings.Join(missing.List(), ", ")))
+			}
+			ret := make([]error, 0, errMessages.Len()+1)
+			ret = append(ret, errors.New("steps are missing dependencies"))
+			for _, message := range errMessages.List() {
+				ret = append(ret, errors.New(message))
+			}
+			return nil, ret
+		}
+		g = waiting
+	}
+	return ret, nil
+}
+
+// iterateDAG applies a function to every node of a DAG, detecting cycles.
+func iterateDAG(graph StepGraph, path []string, inPath sets.String, f func(*StepNode)) (ret []error) {
+	for _, node := range graph {
+		name := node.Step.Name()
+		if inPath.Has(name) {
+			ret = append(ret, fmt.Errorf("cycle in graph: %s -> %s", strings.Join(path, " -> "), name))
+			continue
+		}
+		inPath.Insert(name)
+		ret = append(ret, iterateDAG(node.Children, append(path, name), inPath, f)...)
+		inPath.Delete(name)
+		f(node)
+	}
+	return ret
 }
 
 // IterateAllEdges applies an operation to every node in the graph once.
-func IterateAllEdges(nodes []*StepNode, f func(*StepNode)) {
-	iterateAllEdges(nodes, sets.NewString(), f)
+func (g StepGraph) IterateAllEdges(f func(*StepNode)) {
+	iterateAllEdges(g, sets.NewString(), f)
 }
 
 func iterateAllEdges(nodes []*StepNode, alreadyIterated sets.String, f func(*StepNode)) {
