@@ -1,6 +1,8 @@
 package api
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
@@ -18,8 +20,13 @@ const (
 	// DPTPRequesterLabel is the label on a Kubernates CR whose value indicates the automated tool that requests the CR
 	DPTPRequesterLabel = "dptp.openshift.io/requester"
 
-	KVMDeviceLabel = "devices.kubevirt.io/kvm"
-	ClusterLabel   = "ci-operator.openshift.io/cluster"
+	KVMDeviceLabel           = "devices.kubevirt.io/kvm"
+	ClusterLabel             = "ci-operator.openshift.io/cluster"
+	CloudLabel               = "ci-operator.openshift.io/cloud"
+	CloudClusterProfileLabel = "ci-operator.openshift.io/cloud-cluster-profile"
+
+	NoBuildsLabel = "ci.openshift.io/no-builds"
+	NoBuildsValue = "true"
 
 	// HiveCluster is the cluster where Hive is deployed
 	HiveCluster = ClusterHive
@@ -49,14 +56,27 @@ const (
 	OauthTokenSecretKey  = "oauth"
 	OauthTokenSecretName = "github-credentials-openshift-ci-robot-private-git-cloner"
 
-	GroupSuffix = "-group"
+	CIAdminsGroupName = "test-platform-ci-admins"
+
+	ShmResource = "ci-operator.openshift.io/shm"
 )
 
 var (
-	ValidClusterNames = sets.NewString(
+	clusterNames = sets.NewString(
 		string(ClusterAPPCI),
 		string(ClusterBuild01),
 		string(ClusterBuild02),
+		string(ClusterBuild03),
 		string(ClusterVSphere),
 	)
 )
+
+// GitHubUserGroup returns the group name for a GitHub user
+func GitHubUserGroup(username string) string {
+	return fmt.Sprintf("%s-group", username)
+}
+
+// ValidClusterName checks if a cluster name is valid
+func ValidClusterName(clusterName string) bool {
+	return clusterNames.Has(clusterName) || buildClusterRegEx.MatchString(clusterName)
+}

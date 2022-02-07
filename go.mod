@@ -24,7 +24,7 @@ require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/elazarl/goproxy v0.0.0-20200315184450-1f3cb6622dad // indirect
 	github.com/openshift/api v0.0.0-20210730095913-85e1d547cdee
-	github.com/openshift/ci-tools v0.0.0-20211007121324-f8d157db67da
+	github.com/openshift/ci-tools v0.0.0-20220203161918-dbab1f148fc5
 	github.com/openshift/client-go v3.9.0+incompatible
 	github.com/sbstjn/allot v0.0.0-20161025071122-1f2349af5ccd // indirect
 	github.com/sbstjn/hanu v0.1.0

@@ -122,14 +122,19 @@ func (config *ReleaseBuildConfiguration) WithPresubmitFrom(source *ReleaseBuildC
 
 	for name, isTagRef := range source.BaseImages {
 		// TODO: handle conflicts better
-		if _, ok := result.BaseImages[name]; ok {
+		if destIsTagRef, ok := result.BaseImages[name]; ok && isTagRef != destIsTagRef {
 			return nil, fmt.Errorf("conflicting base_images: %s", name)
 		}
 		result.BaseImages[name] = isTagRef
 	}
 
+	var hasLatestRelease bool
+	if result.Releases != nil {
+		_, hasLatestRelease = result.Releases[LatestReleaseName]
+	}
+
 	for name, release := range source.Releases {
-		if name == "latest" && result.ReleaseTagConfiguration != nil {
+		if name == LatestReleaseName && (result.ReleaseTagConfiguration != nil || hasLatestRelease) {
 			continue
 		}
 		if result.Releases == nil {
