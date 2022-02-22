@@ -354,42 +354,17 @@ func (b *Bot) Start(manager JobManager) error {
 				response.Reply(fmt.Sprintf("you must specify the name of a workflow: %s", strings.Join(codeSlice(supportedTests), ", ")))
 				return
 			}
-			platform := ""
-			architecture := "amd64"
-			b.workflowConfig.mutex.RLock()
-			if workflow, ok := b.workflowConfig.Workflows[name]; !ok {
-				response.Reply(fmt.Sprintf("Workflow %s not in workflow list. Please add %s to the workflows list before retrying this command", name, name))
+			platform, architecture, err := getPlatformArchFromWorkflowConfig(b.workflowConfig, name)
+			if err != nil {
+				response.Reply(err.Error())
 				return
-			} else {
-				platform = workflow.Platform
-				if workflow.Architecture != "" {
-					if contains(supportedArchitectures, workflow.Architecture) {
-						architecture = workflow.Architecture
-					} else {
-						response.Reply(fmt.Sprintf("Architecture %s not supported by cluster-bot", workflow.Architecture))
-						return
-					}
-				}
 			}
-			b.workflowConfig.mutex.RUnlock()
 
 			params := request.StringParam("parameters", "")
-			splitParams := []string{}
-			if len(params) > 0 {
-				splitParams = strings.Split(params, "\",\"")
-				// first item will have a double quote at the beginning
-				splitParams[0] = strings.TrimPrefix(splitParams[0], "\"")
-				// last item will have a double quote at the end
-				splitParams[len(splitParams)-1] = strings.TrimSuffix(splitParams[len(splitParams)-1], "\"")
-			}
-			jobParams := make(map[string]string)
-			for _, combinedParam := range splitParams {
-				split := strings.Split(combinedParam, "=")
-				if len(split) != 2 {
-					response.Reply(fmt.Sprintf("Unable to interpret `%s` as a parameter. Please ensure that all paramters are in the form of KEY=VALUE", combinedParam))
-					return
-				}
-				jobParams[split[0]] = split[1]
+			jobParams, err := buildJobParams(params)
+			if err != nil {
+				response.Reply(err.Error())
+				return
 			}
 
 			msg, err := manager.LaunchJobForUser(&JobRequest{
@@ -397,6 +372,73 @@ func (b *Bot) Start(manager JobManager) error {
 				User:            user,
 				Inputs:          [][]string{from},
 				Type:            JobTypeWorkflowLaunch,
+				Channel:         channel,
+				Platform:        platform,
+				JobParams:       jobParams,
+				Architecture:    architecture,
+				WorkflowName:    name,
+			})
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+			response.Reply(msg)
+		},
+	})
+
+	slack.Command("workflow-upgrade <name> <from_image_or_version_or_pr> <to_image_or_version_or_pr> <parameters>", &slacker.CommandDefinition{
+		Description: fmt.Sprintf("Run a custom upgrade using the requested workflow from an image or release or built PRs to a specified version/image/pr from https://amd64.ocp.releases.ci.openshift.org. "),
+		Handler: func(request slacker.Request, response slacker.ResponseWriter) {
+			user := request.Event().User
+			channel := request.Event().Channel
+			if !isDirectMessage(channel) {
+				response.Reply("this command is only accepted via direct message")
+				return
+			}
+
+			from, err := parseImageInput(request.StringParam("from_image_or_version_or_pr", ""))
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+			if len(from) == 0 {
+				response.Reply("you must specify initial release")
+				return
+			}
+
+			to, err := parseImageInput(request.StringParam("to_image_or_version_or_pr", ""))
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+			if len(to) == 0 {
+				response.Reply("you must specify the target release")
+				return
+			}
+
+			name := request.StringParam("name", "")
+			if len(name) == 0 {
+				response.Reply(fmt.Sprintf("you must specify the name of a workflow: %s", strings.Join(codeSlice(supportedTests), ", ")))
+				return
+			}
+			platform, architecture, err := getPlatformArchFromWorkflowConfig(b.workflowConfig, name)
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+
+			params := request.StringParam("parameters", "")
+			jobParams, err := buildJobParams(params)
+			if err != nil {
+				response.Reply(err.Error())
+				return
+			}
+
+			msg, err := manager.LaunchJobForUser(&JobRequest{
+				OriginalMessage: stripLinks(request.Event().Text),
+				User:            user,
+				Inputs:          [][]string{from, to},
+				Type:            JobTypeWorkflowUpgrade,
 				Channel:         channel,
 				Platform:        platform,
 				JobParams:       jobParams,
@@ -420,6 +462,46 @@ func (b *Bot) Start(manager JobManager) error {
 
 	klog.Infof("ci-chat-bot up and listening to slack")
 	return slack.Listen(context.Background())
+}
+
+func getPlatformArchFromWorkflowConfig(workflowConfig *WorkflowConfig, name string) (string, string, error) {
+	platform := ""
+	architecture := "amd64"
+	workflowConfig.mutex.RLock()
+	defer workflowConfig.mutex.RUnlock()
+	if workflow, ok := workflowConfig.Workflows[name]; !ok {
+		return "", "", fmt.Errorf("Workflow %s not in workflow list. Please add %s to the workflows list before retrying this command", name, name)
+	} else {
+		platform = workflow.Platform
+		if workflow.Architecture != "" {
+			if contains(supportedArchitectures, workflow.Architecture) {
+				architecture = workflow.Architecture
+			} else {
+				return "", "", fmt.Errorf("Architecture %s not supported by cluster-bot", workflow.Architecture)
+			}
+		}
+	}
+	return platform, architecture, nil
+}
+
+func buildJobParams(params string) (map[string]string, error) {
+	splitParams := []string{}
+	if len(params) > 0 {
+		splitParams = strings.Split(params, "\",\"")
+		// first item will have a double quote at the beginning
+		splitParams[0] = strings.TrimPrefix(splitParams[0], "\"")
+		// last item will have a double quote at the end
+		splitParams[len(splitParams)-1] = strings.TrimSuffix(splitParams[len(splitParams)-1], "\"")
+	}
+	jobParams := make(map[string]string)
+	for _, combinedParam := range splitParams {
+		split := strings.Split(combinedParam, "=")
+		if len(split) != 2 {
+			return nil, fmt.Errorf("Unable to interpret `%s` as a parameter. Please ensure that all parameters are in the form of KEY=VALUE", combinedParam)
+		}
+		jobParams[split[0]] = split[1]
+	}
+	return jobParams, nil
 }
 
 func (b *Bot) jobResponder(s *slacker.Slacker) func(Job) {
