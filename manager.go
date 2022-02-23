@@ -656,7 +656,7 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 		return ""
 	}
 	if refs.BaseRef == "master" || refs.BaseRef == "main" {
-		return "4.10.0-0.latest"
+		return "4.11.0-0.latest"
 	}
 	if m := reBranchVersion.FindStringSubmatch(refs.BaseRef); m != nil {
 		return fmt.Sprintf("%s.0-0.latest", m[2])
@@ -708,11 +708,11 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 			}
 			return "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
 		} else if unresolved == "nightly" {
-			unresolved = "4.10.0-0.nightly"
+			unresolved = "4.11.0-0.nightly"
 		} else if unresolved == "ci" {
-			unresolved = "4.10.0-0.ci"
+			unresolved = "4.11.0-0.ci"
 		} else if unresolved == "prerelease" {
-			unresolved = "4.10.0-0.ci"
+			unresolved = "4.11.0-0.ci"
 		}
 
 		if tag, name := findImageStatusTag(is, unresolved); tag != nil {
