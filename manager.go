@@ -81,11 +81,12 @@ type JobType string
 const (
 	JobTypeBuild = "build"
 	// TODO: remove this const. It seems out of date and replaced by launch everywhere except for in JobRequest.JobType. Gets changed to "launch" for job.Mode
-	JobTypeInstall        = "install"
-	JobTypeLaunch         = "launch"
-	JobTypeTest           = "test"
-	JobTypeUpgrade        = "upgrade"
-	JobTypeWorkflowLaunch = "workflow-launch"
+	JobTypeInstall         = "install"
+	JobTypeLaunch          = "launch"
+	JobTypeTest            = "test"
+	JobTypeUpgrade         = "upgrade"
+	JobTypeWorkflowLaunch  = "workflow-launch"
+	JobTypeWorkflowUpgrade = "workflow-upgrade"
 )
 
 // JobManager responds to user actions and tracks the state of the launched
@@ -1072,6 +1073,14 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 			return nil, fmt.Errorf("a test type is required for testing, see help")
 		}
 		job.Mode = JobTypeTest
+	case JobTypeWorkflowUpgrade:
+		if len(jobInputs) != 2 {
+			return nil, fmt.Errorf("upgrade test requires two images, versions, or pull requests")
+		}
+		if len(req.Platform) == 0 {
+			return nil, fmt.Errorf("platform must be set when launching clusters")
+		}
+		job.Mode = JobTypeWorkflowLaunch
 	case JobTypeWorkflowLaunch:
 		if len(jobInputs) != 1 {
 			return nil, fmt.Errorf("launching a cluster requires one image, version, or pull request")
