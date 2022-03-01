@@ -436,7 +436,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	var stepBasedTarget bool
 
 	// For workflows, we configure the tests we run; for others, we need to load and modify the tests
-	if job.Mode == JobTypeWorkflowLaunch {
+	if job.Mode == JobTypeWorkflowLaunch || job.Mode == JobTypeWorkflowUpgrade {
 		// use "launch" test name to identify proper cluster profile
 		var profile citools.ClusterProfile
 		for _, test := range sourceConfig.Tests {
@@ -448,17 +448,19 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		for name, value := range job.JobParams {
 			environment[name] = value
 		}
-		waitRef := "clusterbot-wait"
 		test := citools.TestStepConfiguration{
 			As: "launch",
 			MultiStageTestConfiguration: &citools.MultiStageTestConfiguration{
 				ClusterProfile: profile,
 				Workflow:       &job.WorkflowName,
 				Environment:    environment,
-				Test: []citools.TestStep{{
-					Reference: &waitRef,
-				}},
 			},
+		}
+		if job.Mode == JobTypeWorkflowLaunch {
+			waitRef := "clusterbot-wait"
+			test.MultiStageTestConfiguration.Test = []citools.TestStep{{
+				Reference: &waitRef,
+			}}
 		}
 		baseImages := sourceConfig.BaseImages
 		for imageName, imageDef := range m.workflowConfig.Workflows[job.WorkflowName].BaseImages {
