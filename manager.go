@@ -1111,6 +1111,9 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 	if jobType == JobTypeWorkflowLaunch || jobType == JobTypeBuild {
 		return "launch", nil
 	}
+	if jobType == JobTypeWorkflowUpgrade {
+		return "upgrade", nil
+	}
 	var prefix string
 	switch jobType {
 	case JobTypeLaunch:
