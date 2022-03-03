@@ -1179,7 +1179,11 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	// try to pick a job that matches the install version, if we can, otherwise use the first that
 	// matches us (we can do better)
 	var prowJob *prowapiv1.ProwJob
-	selector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch} // TODO: handle versioned variants better
+	jobType := JobTypeLaunch
+	if req.Type == JobTypeWorkflowUpgrade {
+		jobType = JobTypeUpgrade
+	}
+	selector := labels.Set{"job-env": req.Platform, "job-type": jobType} // TODO: handle versioned variants better
 	if len(job.Inputs[0].Version) > 0 {
 		if v, err := semver.ParseTolerant(job.Inputs[0].Version); err == nil {
 			withRelease := labels.Merge(selector, labels.Set{"job-release": fmt.Sprintf("%d.%d", v.Major, v.Minor)})
