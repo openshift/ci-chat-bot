@@ -1080,7 +1080,7 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		if len(req.Platform) == 0 {
 			return nil, fmt.Errorf("platform must be set when launching clusters")
 		}
-		job.Mode = JobTypeWorkflowLaunch
+		job.Mode = JobTypeWorkflowUpgrade
 	case JobTypeWorkflowLaunch:
 		if len(jobInputs) != 1 {
 			return nil, fmt.Errorf("launching a cluster requires one image, version, or pull request")
