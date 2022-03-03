@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"k8s.io/test-infra/prow/flagutil"
+	"k8s.io/test-infra/prow/github"
 	"log"
 	"net/url"
 	"os"
@@ -37,13 +39,20 @@ var (
 
 type options struct {
 	prowconfig                      configflagutil.ConfigOptions
-	GithubEndpoint                  string
+	GitHubOptions                   flagutil.GitHubOptions
 	ForcePROwner                    string
 	BuildClusterKubeconfig          string
 	BuildClusterKubeconfigsLocation string
 	ReleaseClusterKubeconfig        string
 	ConfigResolver                  string
 	WorkflowConfigPath              string
+}
+
+func (o *options) Validate() error {
+	if err := o.GitHubOptions.Validate(false); err != nil {
+		return err
+	}
+	return nil
 }
 
 func main() {
@@ -60,22 +69,25 @@ func run() error {
 			ConfigPathFlagName:    "prow-config",
 			JobConfigPathFlagName: "job-config",
 		},
-		GithubEndpoint:                  "https://api.github.com",
 		ConfigResolver:                  "http://config.ci.openshift.org/config",
 		BuildClusterKubeconfigsLocation: "/var/build-cluster-kubeconfigs",
 	}
 	var ignored string
 	pflag.StringVar(&opt.ConfigResolver, "config-resolver", opt.ConfigResolver, "A URL pointing to a config resolver for retrieving ci-operator config. You may pass a location on disk with file://<abs_path_to_ci_operator_config>")
-	pflag.StringVar(&opt.GithubEndpoint, "github-endpoint", opt.GithubEndpoint, "An optional proxy for connecting to github.")
 	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
 	pflag.StringVar(&ignored, "build-cluster-kubeconfig", ignored, "REMOVED: Kubeconfig to use for buildcluster. Defaults to normal kubeconfig if unset.")
 	pflag.StringVar(&opt.BuildClusterKubeconfigsLocation, "build-cluster-kubeconfigs-location", opt.BuildClusterKubeconfigsLocation, "Path to the location of the Kubeconfigs for the various buildclusters. Default is \"/var/build-cluster-kubeconfigs\".")
 	pflag.StringVar(&opt.ReleaseClusterKubeconfig, "release-cluster-kubeconfig", "", "Kubeconfig to use for cluster housing the release imagestreams. Defaults to normal kubeconfig if unset.")
 	pflag.StringVar(&opt.WorkflowConfigPath, "workflow-config-path", "", "Path to config file used for workflow commands")
 	opt.prowconfig.AddFlags(emptyFlags)
+	opt.GitHubOptions.AddFlags(emptyFlags)
 	pflag.CommandLine.AddGoFlagSet(emptyFlags)
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
+
+	if err := opt.Validate(); err != nil {
+		return fmt.Errorf("unable to validate program arguments: %v", err)
+	}
 
 	buildClusterClientConfigs, err := readBuildClusterKubeConfigs(opt.BuildClusterKubeconfigsLocation)
 	if err != nil {
@@ -122,7 +134,22 @@ func run() error {
 	workflows := WorkflowConfig{}
 	go manageWorkflowConfig(opt.WorkflowConfigPath, &workflows)
 
-	manager := NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, opt.GithubEndpoint, opt.ForcePROwner, &workflows)
+	var ghClient github.Client
+
+	if token := os.Getenv("GITHUB_TOKEN"); len(token) > 0 {
+		ghClient = opt.GitHubOptions.GitHubClientWithAccessToken(token)
+		_, err := ghClient.BotUser()
+		if err != nil {
+			return fmt.Errorf("unable to get github bot user: %v", err)
+		}
+	} else {
+		ghClient, err = opt.GitHubOptions.GitHubClient(false)
+		if err != nil {
+			return fmt.Errorf("unable to create github client: %v", err)
+		}
+	}
+
+	manager := NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, ghClient, opt.ForcePROwner, &workflows)
 	if err := manager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %v", err)
 	}
