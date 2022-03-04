@@ -904,7 +904,7 @@ func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) 
 	if pr.Merged {
 		return nil, fmt.Errorf("pull request %s has already been merged to %s", spec, pr.Base.Ref)
 	}
-	if !*pr.Mergable {
+	if pr.Mergable != nil && !*pr.Mergable {
 		return nil, fmt.Errorf("pull request %s needs to be rebased to branch %s", spec, pr.Base.Ref)
 	}
 

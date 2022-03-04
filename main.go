@@ -49,10 +49,7 @@ type options struct {
 }
 
 func (o *options) Validate() error {
-	if err := o.GitHubOptions.Validate(false); err != nil {
-		return err
-	}
-	return nil
+	return o.GitHubOptions.Validate(false)
 }
 
 func main() {
