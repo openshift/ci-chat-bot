@@ -6,11 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"k8s.io/test-infra/prow/github"
 	"math"
-	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -173,7 +171,7 @@ type jobManager struct {
 	imageClient      imageclientset.Interface
 	clusterClients   BuildClusterClientConfigMap
 	prowNamespace    string
-	githubURL        string
+	githubClient     github.Client
 	forcePROwner     string
 
 	configResolver ConfigResolver
@@ -197,17 +195,17 @@ func NewJobManager(
 	prowClient dynamic.NamespaceableResourceInterface,
 	imageClient imageclientset.Interface,
 	buildClusterClientConfigMap BuildClusterClientConfigMap,
-	githubURL, forcePROwner string,
+	githubClient github.Client,
+	forcePROwner string,
 	workflowConfig *WorkflowConfig,
 ) *jobManager {
 	m := &jobManager{
-		requests:      make(map[string]*JobRequest),
-		jobs:          make(map[string]*Job),
-		clusterPrefix: "chat-bot-",
-		maxClusters:   maxTotalClusters,
-		maxAge:        3 * time.Hour,
-		githubURL:     githubURL,
-
+		requests:         make(map[string]*JobRequest),
+		jobs:             make(map[string]*Job),
+		clusterPrefix:    "chat-bot-",
+		maxClusters:      maxTotalClusters,
+		maxAge:           3 * time.Hour,
+		githubClient:     githubClient,
 		prowConfigLoader: prowConfigLoader,
 		prowClient:       prowClient,
 		imageClient:      imageClient,
@@ -870,34 +868,6 @@ func (m *jobManager) lookupInputs(inputs [][]string) ([]JobInput, error) {
 	return jobInputs, nil
 }
 
-type GitHubPullRequest struct {
-	ID        int    `json:"id"`
-	Number    int    `json:"number"`
-	UpdatedAt string `json:"updated_at"`
-	State     string `json:"state"`
-
-	User GitHubPullRequestUser `json:"user"`
-
-	Merged    bool `json:"merged"`
-	Mergeable bool `json:"mergeable"`
-
-	Head GitHubPullRequestHead `json:"head"`
-	Base GitHubPullRequestBase `json:"base"`
-}
-
-type GitHubPullRequestUser struct {
-	Login string `json:"login"`
-}
-
-type GitHubPullRequestHead struct {
-	SHA string `json:"sha"`
-}
-
-type GitHubPullRequestBase struct {
-	Ref string `json:"ref"`
-	SHA string `json:"sha"`
-}
-
 func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) {
 	var parts []string
 	switch {
@@ -926,41 +896,15 @@ func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) 
 		return nil, fmt.Errorf("when specifying a pull request, you must provide ORG/REPO#NUMBER")
 	}
 
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/repos/%s/%s/pulls/%d", m.githubURL, url.PathEscape(locationParts[0]), url.PathEscape(locationParts[1]), num), nil)
+	pr, err := m.githubClient.GetPullRequest(url.PathEscape(locationParts[0]), url.PathEscape(locationParts[1]), num)
 	if err != nil {
 		return nil, fmt.Errorf("unable to lookup pull request %s: %v", spec, err)
 	}
-	if token := os.Getenv("GITHUB_TOKEN"); len(token) > 0 {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	}
-	req.Header.Add("User-Agent", "ci-chat-bot")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("unable to lookup pull request %s: %v", spec, err)
-	}
-	defer resp.Body.Close()
 
-	switch resp.StatusCode {
-	case 200:
-		// retrieve
-	case 403:
-		data, _ := ioutil.ReadAll(resp.Body)
-		klog.Errorf("Failed to access server:\n%s", string(data))
-		return nil, fmt.Errorf("unable to lookup pull request %s: forbidden", spec)
-	case 404:
-		return nil, fmt.Errorf("pull request %s not found", spec)
-	default:
-		return nil, fmt.Errorf("unable to lookup pull request %s: %d %s", spec, resp.StatusCode, resp.Status)
-	}
-
-	var pr GitHubPullRequest
-	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
-		return nil, fmt.Errorf("unable to retrieve pull request info: %v", err)
-	}
 	if pr.Merged {
 		return nil, fmt.Errorf("pull request %s has already been merged to %s", spec, pr.Base.Ref)
 	}
-	if !pr.Mergeable {
+	if pr.Mergable != nil && !*pr.Mergable {
 		return nil, fmt.Errorf("pull request %s needs to be rebased to branch %s", spec, pr.Base.Ref)
 	}
 
@@ -969,12 +913,17 @@ func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) 
 		owner = pr.User.Login
 	}
 
+	baseRefSHA, err := m.githubClient.GetRef(url.PathEscape(locationParts[0]), url.PathEscape(locationParts[1]), "heads/"+pr.Base.Ref)
+	if err != nil {
+		return nil, fmt.Errorf("unable to lookup pull request ref: %v", err)
+	}
+
 	return &prowapiv1.Refs{
 		Org:  locationParts[0],
 		Repo: locationParts[1],
 
 		BaseRef: pr.Base.Ref,
-		BaseSHA: pr.Base.SHA,
+		BaseSHA: baseRefSHA,
 
 		Pulls: []prowapiv1.Pull{
 			{
