@@ -884,11 +884,17 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	started := pj.Status.StartTime.Time
 
+	// Some platforms take longer to set up
+	setupContainerTimeout := 60 * time.Minute
+	if job.Platform == "metal" {
+		setupContainerTimeout = 90 * time.Minute
+	}
+
 	if job.Mode != JobTypeLaunch && job.Mode != JobTypeWorkflowLaunch {
 		klog.Infof("Job %s will report results at %s (to %s / %s)", job.Name, job.URL, job.RequestedBy, job.RequestedChannel)
 
 		// loop waiting for job to complete
-		err = wait.PollImmediate(time.Minute, 5*60*time.Minute, func() (bool, error) {
+		err = wait.PollImmediate(time.Minute, 5*setupContainerTimeout, func() (bool, error) {
 			if m.jobIsComplete(job) {
 				return false, errJobCompleted
 			}
@@ -970,7 +976,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	seen = false
 	var lastErr error
-	err = wait.PollImmediate(15*time.Second, 60*time.Minute, func() (bool, error) {
+	err = wait.PollImmediate(15*time.Second, setupContainerTimeout, func() (bool, error) {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
