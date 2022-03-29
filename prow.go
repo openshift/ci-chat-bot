@@ -368,7 +368,8 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	pj.Annotations["ci-chat-bot.openshift.io/expires"] = strconv.Itoa(int(m.maxAge.Seconds() + launchDeadline.Seconds()))
 	prow.OverrideJobEnvVar(&pj.Spec, "CLUSTER_DURATION", strconv.Itoa(int(m.maxAge.Seconds())))
 	if job.Mode == "build" {
-		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "12h")
+		// keep the built payload images around for a week
+		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "168h")
 	} else {
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "1h")
 	}
@@ -1358,6 +1359,7 @@ UNRESOLVED_CONFIG=$INITIAL ARTIFACTS=$(ARTIFACTS)/initial ci-operator \
   --gcs-upload-secret=/secrets/gcs/service-account.json \
   --namespace=$(NAMESPACE) \
   --delete-when-idle=$(PRESERVE_DURATION) \
+  --delete-after=$(PRESERVE_DURATION) \
   "${targets[@]}"
 
 unset RELEASE_IMAGE_INITIAL
