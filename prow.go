@@ -370,8 +370,10 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	if job.Mode == "build" {
 		// keep the built payload images around for a week
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "168h")
+		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "168h")
 	} else {
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "1h")
+		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "12h")
 	}
 
 	// guess the most recent branch used by an input (taken from the last possible job input)
@@ -1365,7 +1367,7 @@ UNRESOLVED_CONFIG=$INITIAL ARTIFACTS=$(ARTIFACTS)/initial ci-operator \
   --gcs-upload-secret=/secrets/gcs/service-account.json \
   --namespace=$(NAMESPACE) \
   --delete-when-idle=$(PRESERVE_DURATION) \
-  --delete-after=$(PRESERVE_DURATION) \
+  --delete-after=$(DELETE_AFTER) \
   "${targets[@]}"
 
 unset RELEASE_IMAGE_INITIAL
