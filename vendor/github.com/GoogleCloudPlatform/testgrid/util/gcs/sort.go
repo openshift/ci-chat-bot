@@ -18,6 +18,7 @@ package gcs
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"sync"
 	"time"
@@ -27,36 +28,79 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// StatResult contains the result of calling Stat, including any error
+type StatResult struct {
+	Attrs *storage.ObjectAttrs
+	Err   error
+}
+
+// Stat multiple paths using concurrent workers. Result indexes match paths.
+func Stat(ctx context.Context, client Stater, workers int, paths ...Path) []StatResult {
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	out := make([]StatResult, len(paths))
+	ch := make(chan int)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			for idx := range ch {
+				out[idx].Attrs, out[idx].Err = client.Stat(ctx, paths[idx])
+			}
+		}()
+	}
+	for idx := range paths {
+		ch <- idx
+	}
+	close(ch)
+	wg.Wait()
+	return out
+}
+
+// StatExisting reduces Stat() to an array of ObjectAttrs.
+//
+// Non-existent objects will return a pointer to a zero storage.ObjectAttrs.
+// Objects that fail to stat will be nil (and log).
+func StatExisting(ctx context.Context, log logrus.FieldLogger, client Stater, paths ...Path) []*storage.ObjectAttrs {
+	out := make([]*storage.ObjectAttrs, len(paths))
+
+	attrs := Stat(ctx, client, 20, paths...)
+	for i, attrs := range attrs {
+		err := attrs.Err
+		switch {
+		case attrs.Attrs != nil:
+			out[i] = attrs.Attrs
+		case errors.Is(err, storage.ErrObjectNotExist):
+			out[i] = &storage.ObjectAttrs{}
+		default:
+			log.WithError(err).WithField("path", paths[i]).Info("Failed to stat")
+		}
+	}
+	return out
+}
+
 // LeastRecentlyUpdated sorts paths by their update timestamp, noting generations and any errors.
 func LeastRecentlyUpdated(ctx context.Context, log logrus.FieldLogger, client Stater, paths []Path) map[Path]int64 {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	log.Debug("Sorting groups")
+	const workers = 20
+	attrs := Stat(ctx, client, workers, paths...)
 	updated := make(map[Path]time.Time, len(paths))
 	generations := make(map[Path]int64, len(paths))
-	var wg sync.WaitGroup
-	var lock sync.Mutex
-	for _, apath := range paths {
-		wg.Add(1)
-		path := apath
-		go func() {
-			defer wg.Done()
-			attrs, err := client.Stat(ctx, path)
-			lock.Lock()
-			defer lock.Unlock()
-			switch {
-			case err == storage.ErrObjectNotExist:
-				generations[path] = 0
-			case err != nil:
-				log.WithError(err).WithField("path", path).Warning("Stat failed")
-				generations[path] = -1
-			default:
-				updated[path] = attrs.Updated
-				generations[path] = attrs.Generation
-			}
-		}()
+
+	for i, path := range paths {
+		attrs, err := attrs[i].Attrs, attrs[i].Err
+		switch {
+		case err == storage.ErrObjectNotExist:
+			generations[path] = 0
+		case err != nil:
+			log.WithError(err).WithField("path", path).Warning("Stat failed")
+			generations[path] = -1
+		default:
+			updated[path] = attrs.Updated
+			generations[path] = attrs.Generation
+		}
 	}
-	wg.Wait()
 
 	sort.SliceStable(paths, func(i, j int) bool {
 		return !updated[paths[i]].After(updated[paths[j]])
@@ -80,7 +124,7 @@ func LeastRecentlyUpdated(ctx context.Context, log logrus.FieldLogger, client St
 //
 // Cloud copies the current object to itself when the object already exists.
 // Otherwise uploads genZero bytes.
-func Touch(ctx context.Context, client ConditionalClient, path Path, generation int64, genZero []byte) error {
+func Touch(ctx context.Context, client ConditionalClient, path Path, generation int64, genZero []byte) (*storage.ObjectAttrs, error) {
 	var cond storage.Conditions
 	if generation != 0 {
 		// Attempt to cloud-copy the object to its current location
