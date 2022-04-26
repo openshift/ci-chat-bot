@@ -21,7 +21,7 @@ github.com/Azure/go-autorest/autorest/date
 github.com/Azure/go-autorest/logger
 # github.com/Azure/go-autorest/tracing v0.6.0
 github.com/Azure/go-autorest/tracing
-# github.com/GoogleCloudPlatform/testgrid v0.0.68
+# github.com/GoogleCloudPlatform/testgrid v0.0.123
 github.com/GoogleCloudPlatform/testgrid/metadata
 github.com/GoogleCloudPlatform/testgrid/metadata/junit
 github.com/GoogleCloudPlatform/testgrid/pb/config
@@ -846,7 +846,7 @@ k8s.io/klog
 k8s.io/klog/v2
 # k8s.io/kube-openapi v0.0.0-20210421082810-95288971da7e
 k8s.io/kube-openapi/pkg/util/proto
-# k8s.io/test-infra v0.0.0-20220315203149-843d26549556
+# k8s.io/test-infra v0.0.0-20220426122452-a0b004e60a3e
 ## explicit
 k8s.io/test-infra/ghproxy/ghcache
 k8s.io/test-infra/ghproxy/ghmetrics
@@ -870,6 +870,7 @@ k8s.io/test-infra/prow/flagutil/config
 k8s.io/test-infra/prow/gcsupload
 k8s.io/test-infra/prow/gerrit/client
 k8s.io/test-infra/prow/git
+k8s.io/test-infra/prow/git/types
 k8s.io/test-infra/prow/git/v2
 k8s.io/test-infra/prow/github
 k8s.io/test-infra/prow/github/report

@@ -21,6 +21,7 @@ limitations under the License.
 package gcs
 
 import (
+	"bytes"
 	"compress/zlib"
 	"context"
 	"encoding/json"
@@ -29,6 +30,7 @@ import (
 	"hash/crc32"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -36,8 +38,21 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/golang/protobuf/proto"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
+
+// IsPreconditionFailed returns true when the error is an http.StatusPreconditionFailed googleapi.Error.
+func IsPreconditionFailed(err error) bool {
+	if err == nil {
+		return false
+	}
+	var e *googleapi.Error
+	if !errors.As(err, &e) {
+		return false
+	}
+	return e.Code == http.StatusPreconditionFailed
+}
 
 // ClientWithCreds returns a storage client, optionally authenticated with the specified .json creds
 func ClientWithCreds(ctx context.Context, creds ...string) (*storage.Client, error) {
@@ -113,7 +128,7 @@ func (g Path) MarshalJSON() ([]byte, error) {
 	return json.Marshal(g.String())
 }
 
-// MarshalJSON decodes a string into Path
+// UnmarshalJSON decodes a string into Path
 func (g *Path) UnmarshalJSON(buf []byte) error {
 	var str string
 	err := json.Unmarshal(buf, &str)
@@ -160,12 +175,12 @@ const (
 )
 
 // Upload writes bytes to the specified Path by converting the client and path into an ObjectHandle.
-func Upload(ctx context.Context, client *storage.Client, path Path, buf []byte, worldReadable bool, cacheControl string) error {
+func Upload(ctx context.Context, client *storage.Client, path Path, buf []byte, worldReadable bool, cacheControl string) (*storage.ObjectAttrs, error) {
 	return realGCSClient{client: client}.Upload(ctx, path, buf, worldReadable, cacheControl)
 }
 
 // UploadHandle writes bytes to the specified ObjectHandle
-func UploadHandle(ctx context.Context, handle *storage.ObjectHandle, buf []byte, worldReadable bool, cacheControl string) error {
+func UploadHandle(ctx context.Context, handle *storage.ObjectHandle, buf []byte, worldReadable bool, cacheControl string) (*storage.ObjectAttrs, error) {
 	crc := calcCRC(buf)
 	w := handle.NewWriter(ctx)
 	defer w.Close()
@@ -184,35 +199,52 @@ func UploadHandle(ctx context.Context, handle *storage.ObjectHandle, buf []byte,
 		log.Printf("Uploading gs://%s/%s: %d/%d...", handle.BucketName(), handle.ObjectName(), bytes, len(buf))
 	}
 	if n, err := w.Write(buf); err != nil {
-		return fmt.Errorf("write: %w", err)
+		return nil, fmt.Errorf("write: %w", err)
 	} else if n != len(buf) {
-		return fmt.Errorf("partial write: %d < %d", n, len(buf))
+		return nil, fmt.Errorf("partial write: %d < %d", n, len(buf))
 	}
 	if err := w.Close(); err != nil {
-		return fmt.Errorf("close: %w", err)
+		return nil, fmt.Errorf("close: %w", err)
 	}
-	return nil
+	return w.Attrs(), nil
 }
 
 // DownloadGrid downloads and decompresses a grid from the specified path.
-func DownloadGrid(ctx context.Context, opener Opener, path Path) (*statepb.Grid, error) {
+func DownloadGrid(ctx context.Context, opener Opener, path Path) (*statepb.Grid, *storage.ReaderObjectAttrs, error) {
 	var g statepb.Grid
-	r, err := opener.Open(ctx, path)
-	if err != nil && err == storage.ErrObjectNotExist {
-		return &g, nil
+	r, attrs, err := opener.Open(ctx, path)
+	if err != nil && errors.Is(err, storage.ErrObjectNotExist) {
+		return &g, nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("open: %w", err)
+		return nil, nil, fmt.Errorf("open: %w", err)
 	}
 	defer r.Close()
 	zr, err := zlib.NewReader(r)
 	if err != nil {
-		return nil, fmt.Errorf("open zlib: %w", err)
+		return nil, nil, fmt.Errorf("open zlib: %w", err)
 	}
 	pbuf, err := ioutil.ReadAll(zr)
 	if err != nil {
-		return nil, fmt.Errorf("decompress: %w", err)
+		return nil, nil, fmt.Errorf("decompress: %w", err)
 	}
 	err = proto.Unmarshal(pbuf, &g)
-	return &g, err
+	return &g, attrs, err
+}
+
+// MarshalGrid serializes a state proto into zlib-compressed bytes.
+func MarshalGrid(grid *statepb.Grid) ([]byte, error) {
+	buf, err := proto.Marshal(grid)
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+	var zbuf bytes.Buffer
+	zw := zlib.NewWriter(&zbuf)
+	if _, err = zw.Write(buf); err != nil {
+		return nil, fmt.Errorf("compress: %w", err)
+	}
+	if err = zw.Close(); err != nil {
+		return nil, fmt.Errorf("close: %w", err)
+	}
+	return zbuf.Bytes(), nil
 }

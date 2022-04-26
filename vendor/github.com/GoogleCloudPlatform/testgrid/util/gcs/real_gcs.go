@@ -19,9 +19,11 @@ package gcs
 import (
 	"context"
 	"io"
+	"net/http"
 	"strings"
 
 	"cloud.google.com/go/storage"
+	"google.golang.org/api/googleapi"
 )
 
 var (
@@ -55,15 +57,36 @@ func (rgc realGCSClient) handle(path Path, cond *storage.Conditions) *storage.Ob
 	return oh.If(*cond)
 }
 
-func (rgc realGCSClient) Copy(ctx context.Context, from, to Path) error {
+func (rgc realGCSClient) Copy(ctx context.Context, from, to Path) (*storage.ObjectAttrs, error) {
 	fromH := rgc.handle(from, rgc.readCond)
-	_, err := rgc.handle(to, rgc.writeCond).CopierFrom(fromH).Run(ctx)
-	return err
+	return rgc.handle(to, rgc.writeCond).CopierFrom(fromH).Run(ctx)
 }
 
-func (rgc realGCSClient) Open(ctx context.Context, path Path) (io.ReadCloser, error) {
+func (rgc realGCSClient) Open(ctx context.Context, path Path) (io.ReadCloser, *storage.ReaderObjectAttrs, error) {
 	r, err := rgc.handle(path, rgc.readCond).NewReader(ctx)
-	return r, err
+	if r == nil {
+		return nil, nil, err
+	}
+	if err == nil && rgc.readCond != nil {
+		err = checkPreconditions(r.Attrs, rgc.readCond)
+	}
+	return r, &r.Attrs, err
+}
+
+var (
+	errPreconditions = googleapi.Error{
+		Code: http.StatusPreconditionFailed,
+	}
+)
+
+func checkPreconditions(attrs storage.ReaderObjectAttrs, cond *storage.Conditions) error {
+	if g := cond.GenerationMatch; g > 0 && g != attrs.Generation {
+		return &errPreconditions
+	}
+	if g := cond.GenerationNotMatch; g > 0 && g == attrs.Generation {
+		return &errPreconditions
+	}
+	return nil
 }
 
 func (rgc realGCSClient) Objects(ctx context.Context, path Path, delimiter, startOffset string) Iterator {
@@ -78,7 +101,7 @@ func (rgc realGCSClient) Objects(ctx context.Context, path Path, delimiter, star
 	})
 }
 
-func (rgc realGCSClient) Upload(ctx context.Context, path Path, buf []byte, worldReadable bool, cacheControl string) error {
+func (rgc realGCSClient) Upload(ctx context.Context, path Path, buf []byte, worldReadable bool, cacheControl string) (*storage.ObjectAttrs, error) {
 	return UploadHandle(ctx, rgc.handle(path, rgc.writeCond), buf, worldReadable, cacheControl)
 }
 
