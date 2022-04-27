@@ -17,14 +17,17 @@ limitations under the License.
 package gcs
 
 import (
-	"cloud.google.com/go/storage"
 	"context"
-	"google.golang.org/api/iterator"
 	"io"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+
+	"cloud.google.com/go/storage"
+	"google.golang.org/api/iterator"
 )
 
 var (
@@ -44,8 +47,17 @@ func convertIsNotExistsErr(err error) error {
 	return err
 }
 
+// See https://en.wikipedia.org/wiki/File_URI_scheme#How_many_slashes
+var fileRegex = regexp.MustCompile(`file:\/+`)
+
 func cleanFilepath(path Path) string {
-	return strings.Replace(path.String(), "file://", "/", 1)
+	p := fileRegex.ReplaceAllString(path.String(), "/")
+	// TODO(michelle192837): Handle URLs vs. filepaths gracefully.
+	p, err := url.PathUnescape(p)
+	if err != nil {
+		return ""
+	}
+	return p
 }
 
 func (li *localIterator) Next() (*storage.ObjectAttrs, error) {
@@ -75,16 +87,17 @@ func (lc localClient) If(_, _ *storage.Conditions) ConditionalClient {
 	return NewLocalClient()
 }
 
-func (lc localClient) Copy(ctx context.Context, from, to Path) error {
+func (lc localClient) Copy(ctx context.Context, from, to Path) (*storage.ObjectAttrs, error) {
 	buf, err := ioutil.ReadFile(cleanFilepath(from))
 	if err != nil {
-		return err
+		return nil, convertIsNotExistsErr(err)
 	}
 	return lc.Upload(ctx, to, buf, false, "")
 }
 
-func (lc localClient) Open(ctx context.Context, path Path) (io.ReadCloser, error) {
-	return os.Open(cleanFilepath(path))
+func (lc localClient) Open(ctx context.Context, path Path) (io.ReadCloser, *storage.ReaderObjectAttrs, error) {
+	r, err := os.Open(cleanFilepath(path))
+	return r, &storage.ReaderObjectAttrs{}, convertIsNotExistsErr(err)
 }
 
 func (lc localClient) Objects(ctx context.Context, path Path, delimiter, startOffset string) Iterator {
@@ -102,8 +115,12 @@ func (lc localClient) Objects(ctx context.Context, path Path, delimiter, startOf
 	}
 }
 
-func (lc localClient) Upload(ctx context.Context, path Path, buf []byte, _ bool, _ string) error {
-	return ioutil.WriteFile(cleanFilepath(path), buf, 0666)
+func (lc localClient) Upload(ctx context.Context, path Path, buf []byte, _ bool, _ string) (*storage.ObjectAttrs, error) {
+	err := ioutil.WriteFile(cleanFilepath(path), buf, 0666)
+	if err != nil {
+		return nil, convertIsNotExistsErr(err)
+	}
+	return lc.Stat(ctx, path)
 }
 
 func (lc localClient) Stat(ctx context.Context, path Path) (*storage.ObjectAttrs, error) {

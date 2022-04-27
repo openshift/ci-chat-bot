@@ -9,6 +9,10 @@ syntax = "proto3";
 import "google/protobuf/timestamp.proto";
 import "pb/config/config.proto";
 
+message Property {
+  map<string, string> property = 1;
+}
+
 // A metric and its values for each test cycle.
 message Metric {
   string name = 1;  // Name of metric, such as duration
@@ -81,6 +85,9 @@ message AlertInfo {
 
   // A list of IDs for issue hotlists related to this failure.
   repeated string hotlist_ids = 13;
+
+  // Dynamic email list, route email alerts to these instead of the configured defaults.
+  repeated string email_addresses = 15;
 }
 
 // Info on default test metadata for a dashboard tab.
@@ -123,6 +130,9 @@ message Column {
 
   // An optional hint for the updater.
   string hint = 6;
+
+  // Dynamic email list, route email alerts to these instead of the configured defaults.
+  repeated string email_addresses = 7;
 }
 
 // TestGrid rows (also known as TestRow)
@@ -158,14 +168,19 @@ message Row {
   // Present for any column with a non-empty status (not NO_RESULT).
   repeated string icons = 9;
 
-  // IDs for bugs associated with results in this test case.
-  repeated string bug_id = 10;
+  // IDs for issues associated with this row.
+  repeated string issues = 10;
 
-  // An alert for the failure if there's a recent failure for this test case.
+  // An alert for the failure if there's a recent failure for this row.
   AlertInfo alert_info = 11;
 
-  // Values of a user-defined property found in test results for this row.
+  // Values of a user-defined property found in cells for this row.
+  // TODO: Fold this into `properties` field.
   repeated string user_property = 12;
+
+  // General key-value pairs associated with cells in this row.
+  // Present for any column with a non-empty status (not NO_RESULT).
+  repeated Property properties = 13;
 }
 
 // A single table of test results backing a dashboard tab.

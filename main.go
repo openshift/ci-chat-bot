@@ -134,7 +134,10 @@ func run() error {
 	var ghClient github.Client
 
 	if token := os.Getenv("GITHUB_TOKEN"); len(token) > 0 {
-		ghClient = opt.GitHubOptions.GitHubClientWithAccessToken(token)
+		ghClient, err = opt.GitHubOptions.GitHubClientWithAccessToken(token)
+		if err != nil {
+			return fmt.Errorf("unable to create github client: %v", err)
+		}
 		_, err := ghClient.BotUser()
 		if err != nil {
 			return fmt.Errorf("unable to get github bot user: %v", err)
