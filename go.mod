@@ -26,8 +26,9 @@ require (
 	github.com/openshift/ci-tools v0.0.0-20220203161918-dbab1f148fc5
 	github.com/openshift/client-go v3.9.0+incompatible
 	github.com/sbstjn/hanu v0.1.0
-	github.com/shomali11/slacker v0.0.0-20200420173605-4887ab8127b6
-	github.com/slack-go/slack v0.7.3
+	github.com/shomali11/proper v0.0.0-20190608032528-6e70a05688e7 // indirect
+	github.com/shomali11/slacker v0.0.0-20211008114114-4bc69104faba
+	github.com/slack-go/slack v0.9.1
 	github.com/spf13/pflag v1.0.5
 	gopkg.in/fsnotify.v1 v1.4.7
 	gopkg.in/yaml.v2 v2.4.0
@@ -107,7 +108,6 @@ require (
 	github.com/satori/go.uuid v1.2.0 // indirect
 	github.com/sbstjn/allot v0.0.0-20161025071122-1f2349af5ccd // indirect
 	github.com/shomali11/commander v0.0.0-20191122162317-51bc574c29ba // indirect
-	github.com/shomali11/proper v0.0.0-20190608032528-6e70a05688e7 // indirect
 	github.com/shurcooL/githubv4 v0.0.0-20210725200734-83ba7b4c9228 // indirect
 	github.com/shurcooL/graphql v0.0.0-20181231061246-d48a9a75455f // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect

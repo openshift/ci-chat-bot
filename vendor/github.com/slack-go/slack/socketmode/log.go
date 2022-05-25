@@ -1,8 +1,8 @@
-package slack
+package socketmode
 
-import (
-	"fmt"
-)
+import "fmt"
+
+// TODO merge logger, ilogger, and internalLogger with the top-level package's equivalents
 
 // logger is a logger interface compatible with both stdlib and some
 // 3rd party loggers.
@@ -16,15 +16,6 @@ type ilogger interface {
 	Print(...interface{})
 	Printf(string, ...interface{})
 	Println(...interface{})
-}
-
-type Debug interface {
-	Debug() bool
-
-	// Debugf print a formatted debug line.
-	Debugf(format string, v ...interface{})
-	// Debugln print a debug line.
-	Debugln(v ...interface{})
 }
 
 // internalLog implements the additional methods used by our internal logging.
@@ -47,14 +38,14 @@ func (t internalLog) Print(v ...interface{}) {
 	t.Output(2, fmt.Sprint(v...))
 }
 
-type discard struct{}
-
-func (t discard) Debug() bool {
-	return false
+func (smc *Client) Debugf(format string, v ...interface{}) {
+	if smc.debug {
+		smc.log.Output(2, fmt.Sprintf(format, v...))
+	}
 }
 
-// Debugf print a formatted debug line.
-func (t discard) Debugf(format string, v ...interface{}) {}
-
-// Debugln print a debug line.
-func (t discard) Debugln(v ...interface{}) {}
+func (smc *Client) Debugln(v ...interface{}) {
+	if smc.debug {
+		smc.log.Output(2, fmt.Sprintln(v...))
+	}
+}
