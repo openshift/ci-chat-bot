@@ -13,8 +13,13 @@
 
 3. **How can I access to cluster-bot created metal IPI cluster via web browser**
 
+   There are a couple different options you can choose from:
+
+   a. Browser proxy
    1. Copy IP address and port number from kubeconfig's `proxy-url` field
    2. Change web browser's proxy settings with these values
+   
+   b. [Dev-scripts](https://github.com/openshift-metal3/dev-scripts/#gui)
 
 
 4. **It's been more than 30mins I did not get auth credentials yet, what do I do?**
