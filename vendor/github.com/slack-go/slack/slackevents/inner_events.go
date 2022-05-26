@@ -54,6 +54,46 @@ type ChannelCreatedEvent struct {
 	EventTimestamp string             `json:"event_ts"`
 }
 
+// ChannelDeletedEvent represents the Channel deleted event
+type ChannelDeletedEvent struct {
+	Type    string `json:"type"`
+	Channel string `json:"channel"`
+}
+
+// ChannelArchiveEvent represents the Channel archive event
+type ChannelArchiveEvent struct {
+	Type    string `json:"type"`
+	Channel string `json:"channel"`
+	User    string `json:"user"`
+}
+
+// ChannelUnarchiveEvent represents the Channel unarchive event
+type ChannelUnarchiveEvent struct {
+	Type    string `json:"type"`
+	Channel string `json:"channel"`
+	User    string `json:"user"`
+}
+
+// ChannelLeftEvent represents the Channel left event
+type ChannelLeftEvent struct {
+	Type    string `json:"type"`
+	Channel string `json:"channel"`
+}
+
+// ChannelRenameEvent represents the Channel rename event
+type ChannelRenameEvent struct {
+	Type    string            `json:"type"`
+	Channel ChannelRenameInfo `json:"channel"`
+}
+
+// ChannelIDChangedEvent represents the Channel identifier changed event
+type ChannelIDChangedEvent struct {
+	Type           string `json:"type"`
+	OldChannelID   string `json:"old_channel_id"`
+	NewChannelID   string `json:"new_channel_id"`
+	EventTimestamp string `json:"event_ts"`
+}
+
 // ChannelCreatedInfo represents the information associated with the Channel created event
 type ChannelCreatedInfo struct {
 	ID        string `json:"id"`
@@ -61,6 +101,50 @@ type ChannelCreatedInfo struct {
 	Name      string `json:"name"`
 	Created   int    `json:"created"`
 	Creator   string `json:"creator"`
+}
+
+// ChannelRenameInfo represents the information associated with the Channel rename event
+type ChannelRenameInfo struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Created int    `json:"created"`
+}
+
+// GroupDeletedEvent represents the Group deleted event
+type GroupDeletedEvent struct {
+	Type    string `json:"type"`
+	Channel string `json:"channel"`
+}
+
+// GroupArchiveEvent represents the Group archive event
+type GroupArchiveEvent struct {
+	Type    string `json:"type"`
+	Channel string `json:"channel"`
+}
+
+// GroupUnarchiveEvent represents the Group unarchive event
+type GroupUnarchiveEvent struct {
+	Type    string `json:"type"`
+	Channel string `json:"channel"`
+}
+
+// GroupLeftEvent represents the Group left event
+type GroupLeftEvent struct {
+	Type    string `json:"type"`
+	Channel string `json:"channel"`
+}
+
+// GroupRenameEvent represents the Group rename event
+type GroupRenameEvent struct {
+	Type    string          `json:"type"`
+	Channel GroupRenameInfo `json:"channel"`
+}
+
+// GroupRenameInfo represents the information associated with the Group rename event
+type GroupRenameInfo struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Created int    `json:"created"`
 }
 
 // GridMigrationFinishedEvent An enterprise grid migration has finished on this workspace.
@@ -77,11 +161,14 @@ type GridMigrationStartedEvent struct {
 
 // LinkSharedEvent A message was posted containing one or more links relevant to your application
 type LinkSharedEvent struct {
-	Type             string        `json:"type"`
-	User             string        `json:"user"`
-	TimeStamp        string        `json:"ts"`
-	Channel          string        `json:"channel"`
-	MessageTimeStamp json.Number   `json:"message_ts"`
+	Type      string `json:"type"`
+	User      string `json:"user"`
+	TimeStamp string `json:"ts"`
+	Channel   string `json:"channel"`
+	// MessageTimeStamp can be both a numeric timestamp if the LinkSharedEvent corresponds to a sent
+	// message and (contrary to the field name) a uuid if the LinkSharedEvent is generated in the
+	// compose text area.
+	MessageTimeStamp string        `json:"message_ts"`
 	ThreadTimeStamp  string        `json:"thread_ts"`
 	Links            []sharedLinks `json:"links"`
 }
@@ -192,6 +279,12 @@ type tokens struct {
 	Bot   []string `json:"bot"`
 }
 
+// TeamJoinEvent A new member joined a workspace -  https://api.slack.com/events/team_join
+type TeamJoinEvent struct {
+	Type string      `json:"type"`
+	User *slack.User `json:"user"`
+}
+
 // TokensRevokedEvent APP's API tokes are revoked - https://api.slack.com/events/tokens_revoked
 type TokensRevokedEvent struct {
 	Type   string `json:"type"`
@@ -216,6 +309,23 @@ type EmojiChangedEvent struct {
 
 	// filled out when custom emoji added or renamed
 	Value string `json:"value,omitempty"`
+}
+
+// WorkflowStepExecuteEvent is fired, if a workflow step of your app is invoked
+type WorkflowStepExecuteEvent struct {
+	Type         string            `json:"type"`
+	CallbackID   string            `json:"callback_id"`
+	WorkflowStep EventWorkflowStep `json:"workflow_step"`
+	EventTS      string            `json:"event_ts"`
+}
+
+type EventWorkflowStep struct {
+	WorkflowStepExecuteID string                      `json:"workflow_step_execute_id"`
+	WorkflowID            string                      `json:"workflow_id"`
+	WorkflowInstanceID    string                      `json:"workflow_instance_id"`
+	StepID                string                      `json:"step_id"`
+	Inputs                *slack.WorkflowStepInputs   `json:"inputs,omitempty"`
+	Outputs               *[]slack.WorkflowStepOutput `json:"outputs,omitempty"`
 }
 
 // JSONTime exists so that we can have a String method converting the date
@@ -328,6 +438,28 @@ const (
 	AppUninstalled = "app_uninstalled"
 	// ChannelCreated is sent when a new channel is created.
 	ChannelCreated = "channel_created"
+	// ChannelDeleted is sent when a channel is deleted.
+	ChannelDeleted = "channel_deleted"
+	// ChannelArchive is sent when a channel is archived.
+	ChannelArchive = "channel_archive"
+	// ChannelUnarchive is sent when a channel is unarchived.
+	ChannelUnarchive = "channel_unarchive"
+	// ChannelLeft is sent when a channel is left.
+	ChannelLeft = "channel_left"
+	// ChannelRename is sent when a channel is rename.
+	ChannelRename = "channel_rename"
+	// ChannelIDChanged is sent when a channel identifier is changed.
+	ChannelIDChanged = "channel_id_changed"
+	// GroupDeleted is sent when a group is deleted.
+	GroupDeleted = "group_deleted"
+	// GroupArchive is sent when a group is archived.
+	GroupArchive = "group_archive"
+	// GroupUnarchive is sent when a group is unarchived.
+	GroupUnarchive = "group_unarchive"
+	// GroupLeft is sent when a group is left.
+	GroupLeft = "group_left"
+	// GroupRename is sent when a group is renamed.
+	GroupRename = "group_rename"
 	// GridMigrationFinished An enterprise grid migration has finished on this workspace.
 	GridMigrationFinished = "grid_migration_finished"
 	// GridMigrationStarted An enterprise grid migration has started on this workspace.
@@ -348,10 +480,14 @@ const (
 	ReactionAdded = "reaction_added"
 	// ReactionRemoved An reaction was removed from a message
 	ReactionRemoved = "reaction_removed"
+	// TeamJoin A new user joined the workspace
+	TeamJoin = "team_join"
 	// TokensRevoked APP's API tokes are revoked
 	TokensRevoked = "tokens_revoked"
 	// EmojiChanged A custom emoji has been added or changed
 	EmojiChanged = "emoji_changed"
+	// WorkflowStepExecute Happens, if a workflow step of your app is invoked
+	WorkflowStepExecute = "workflow_step_execute"
 )
 
 // EventsAPIInnerEventMapping maps INNER Event API events to their corresponding struct
@@ -362,6 +498,17 @@ var EventsAPIInnerEventMapping = map[string]interface{}{
 	AppHomeOpened:         AppHomeOpenedEvent{},
 	AppUninstalled:        AppUninstalledEvent{},
 	ChannelCreated:        ChannelCreatedEvent{},
+	ChannelDeleted:        ChannelDeletedEvent{},
+	ChannelArchive:        ChannelArchiveEvent{},
+	ChannelUnarchive:      ChannelUnarchiveEvent{},
+	ChannelLeft:           ChannelLeftEvent{},
+	ChannelRename:         ChannelRenameEvent{},
+	ChannelIDChanged:      ChannelIDChangedEvent{},
+	GroupDeleted:          GroupDeletedEvent{},
+	GroupArchive:          GroupArchiveEvent{},
+	GroupUnarchive:        GroupUnarchiveEvent{},
+	GroupLeft:             GroupLeftEvent{},
+	GroupRename:           GroupRenameEvent{},
 	GridMigrationFinished: GridMigrationFinishedEvent{},
 	GridMigrationStarted:  GridMigrationStartedEvent{},
 	LinkShared:            LinkSharedEvent{},
@@ -372,6 +519,8 @@ var EventsAPIInnerEventMapping = map[string]interface{}{
 	PinRemoved:            PinRemovedEvent{},
 	ReactionAdded:         ReactionAddedEvent{},
 	ReactionRemoved:       ReactionRemovedEvent{},
+	TeamJoin:              TeamJoinEvent{},
 	TokensRevoked:         TokensRevokedEvent{},
 	EmojiChanged:          EmojiChangedEvent{},
+	WorkflowStepExecute:   WorkflowStepExecuteEvent{},
 }
