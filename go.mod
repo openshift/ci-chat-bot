@@ -27,8 +27,8 @@ require (
 	github.com/openshift/client-go v3.9.0+incompatible
 	github.com/sbstjn/hanu v0.1.0
 	github.com/shomali11/proper v0.0.0-20190608032528-6e70a05688e7 // indirect
-	github.com/shomali11/slacker v0.0.0-20211008114114-4bc69104faba
-	github.com/slack-go/slack v0.9.1
+	github.com/shomali11/slacker v0.0.0-20220129203130-6c28a41fb7b0
+	github.com/slack-go/slack v0.10.3
 	github.com/spf13/pflag v1.0.5
 	gopkg.in/fsnotify.v1 v1.4.7
 	gopkg.in/yaml.v2 v2.4.0
@@ -36,7 +36,7 @@ require (
 	k8s.io/apimachinery v0.22.2
 	k8s.io/client-go v11.0.1-0.20190805182717-6502b5e7b1b5+incompatible
 	k8s.io/klog v1.0.0
-	k8s.io/test-infra v0.0.0-20220519164521-867981c16cdf
+	k8s.io/test-infra v0.0.0-20220526211155-8f11a9171db9
 	sigs.k8s.io/yaml v1.2.0
 )
 
@@ -76,7 +76,7 @@ require (
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/gomodule/redigo v1.8.5 // indirect
 	github.com/google/btree v1.0.1 // indirect
-	github.com/google/go-cmp v0.5.6 // indirect
+	github.com/google/go-cmp v0.5.7 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/gofuzz v1.2.1-0.20210504230335-f78f29fc09ea // indirect
 	github.com/google/pprof v0.0.0-20210226084205-cbba55b83ad5 // indirect
@@ -85,7 +85,7 @@ require (
 	github.com/googleapis/gax-go v2.0.2+incompatible // indirect
 	github.com/googleapis/gax-go/v2 v2.0.5 // indirect
 	github.com/googleapis/gnostic v0.5.5 // indirect
-	github.com/gorilla/websocket v1.4.2 // indirect
+	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/gregjones/httpcache v0.0.0-20190212212710-3befbb6ad0cc // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.1 // indirect
 	github.com/hashicorp/go-retryablehttp v0.6.6 // indirect
