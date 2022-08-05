@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	corev1 "k8s.io/api/core/v1"
+	rbacapi "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,10 +36,11 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/client-go/transport"
+	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	citools "github.com/openshift/ci-tools/pkg/api"
-	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 )
 
 type envVar struct {
@@ -834,6 +836,23 @@ func getClusterClient(m *jobManager, job *Job) (*BuildClusterClientConfig, error
 	return clusterClient, nil
 }
 
+func createAccessRBAC(namespace string, user string, client ctrlruntimeclient.Client) {
+	roleBinding := &rbacapi.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cluster-bot-user-access",
+			Namespace: namespace,
+		},
+		Subjects: []rbacapi.Subject{{Kind: "User", Name: user}},
+		RoleRef: rbacapi.RoleRef{
+			Kind: "ClusterRole",
+			Name: "admin",
+		},
+	}
+	if err := client.Create(context.Background(), roleBinding); err != nil && !errors.IsAlreadyExists(err) {
+		klog.Infof("could not create role binding for %s: %v", user, err)
+	}
+}
+
 func (m *jobManager) waitForJob(job *Job) error {
 	if job.IsComplete() && len(job.PasswordSnippet) > 0 {
 		return nil
@@ -841,9 +860,23 @@ func (m *jobManager) waitForJob(job *Job) error {
 	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(job.Name))
 	stepBasedMode := job.TargetType == "steps"
 
+	// create an access RoleBinding for the user
+	clusterClient, err := getClusterClient(m, job)
+	if err != nil {
+		return err
+	}
+	if job.RequesterUserID != "" {
+		client, err := ctrlruntimeclient.New(clusterClient.CoreConfig, ctrlruntimeclient.Options{})
+		if err != nil {
+			klog.Infof("Failed to create the Kubernetes client: %v", err)
+		} else {
+			createAccessRBAC(namespace, job.RequesterUserID, client)
+		}
+	}
+
 	klog.Infof("Job %q started a prow job that will create pods in namespace %s", job.Name, namespace)
 	var pj *prowapiv1.ProwJob
-	err := wait.PollImmediate(10*time.Second, 15*time.Minute, func() (bool, error) {
+	err = wait.PollImmediate(10*time.Second, 15*time.Minute, func() (bool, error) {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
@@ -1049,10 +1082,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 	}
 
 	var kubeconfig string
-	clusterClient, err := getClusterClient(m, job)
-	if err != nil {
-		return err
-	}
+
 	if stepBasedMode {
 		launchSecret, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 		if err == nil {

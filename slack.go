@@ -90,10 +90,15 @@ func (b *Bot) Start(manager JobManager) error {
 				b.reply(response, "Test arguments may not be passed from the launch command")
 				return
 			}
-
+			userProfile, err := botCtx.Client().GetUserInfo(user)
+			if err != nil {
+				klog.Warningf("failed to get the user profile for %s: %s", user, err)
+				userProfile = &slack.User{}
+			}
 			msg, err := manager.LaunchJobForUser(&JobRequest{
 				OriginalMessage: stripLinks(botCtx.Event().Text),
 				User:            user,
+				UserProfile:     userProfile,
 				Inputs:          inputs,
 				Type:            JobTypeInstall,
 				Channel:         channel,
