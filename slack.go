@@ -38,6 +38,15 @@ func (b *Bot) reply(response slacker.ResponseWriter, message string) {
 	}
 }
 
+func getUserProfile(client slacker.BotContext) *slack.User {
+	userProfile, err := client.Client().GetUserInfo(client.Event().User)
+	if err != nil {
+		klog.Warningf("failed to get the user profile for %s: %s", client.Event().User, err)
+		return &slack.User{}
+	}
+	return userProfile
+}
+
 func (b *Bot) Start(manager JobManager) error {
 	client := slacker.NewClient(b.botToken, b.botAppToken)
 	// client := slacker.NewClient(b.botToken, b.botAppToken, slacker.WithBotInteractionMode(slacker.BotInteractionModeIgnoreApp))
@@ -90,15 +99,11 @@ func (b *Bot) Start(manager JobManager) error {
 				b.reply(response, "Test arguments may not be passed from the launch command")
 				return
 			}
-			userProfile, err := botCtx.Client().GetUserInfo(user)
-			if err != nil {
-				klog.Warningf("failed to get the user profile for %s: %s", user, err)
-				userProfile = &slack.User{}
-			}
+
 			msg, err := manager.LaunchJobForUser(&JobRequest{
 				OriginalMessage: stripLinks(botCtx.Event().Text),
 				User:            user,
-				UserProfile:     userProfile,
+				UserProfile:     getUserProfile(botCtx),
 				Inputs:          inputs,
 				Type:            JobTypeInstall,
 				Channel:         channel,
@@ -236,6 +241,7 @@ func (b *Bot) Start(manager JobManager) error {
 			msg, err := manager.LaunchJobForUser(&JobRequest{
 				OriginalMessage: stripLinks(botCtx.Event().Text),
 				User:            user,
+				UserProfile:     getUserProfile(botCtx),
 				Inputs:          [][]string{from, to},
 				Type:            JobTypeUpgrade,
 				Channel:         channel,
@@ -296,6 +302,7 @@ func (b *Bot) Start(manager JobManager) error {
 			msg, err := manager.LaunchJobForUser(&JobRequest{
 				OriginalMessage: stripLinks(botCtx.Event().Text),
 				User:            user,
+				UserProfile:     getUserProfile(botCtx),
 				Inputs:          [][]string{from},
 				Type:            JobTypeTest,
 				Channel:         channel,
@@ -340,6 +347,7 @@ func (b *Bot) Start(manager JobManager) error {
 			msg, err := manager.LaunchJobForUser(&JobRequest{
 				OriginalMessage: stripLinks(botCtx.Event().Text),
 				User:            user,
+				UserProfile:     getUserProfile(botCtx),
 				Inputs:          [][]string{from},
 				Type:            JobTypeBuild,
 				Channel:         channel,
@@ -396,6 +404,7 @@ func (b *Bot) Start(manager JobManager) error {
 			msg, err := manager.LaunchJobForUser(&JobRequest{
 				OriginalMessage: stripLinks(botCtx.Event().Text),
 				User:            user,
+				UserProfile:     getUserProfile(botCtx),
 				Inputs:          [][]string{from},
 				Type:            JobTypeWorkflowLaunch,
 				Channel:         channel,
@@ -463,6 +472,7 @@ func (b *Bot) Start(manager JobManager) error {
 			msg, err := manager.LaunchJobForUser(&JobRequest{
 				OriginalMessage: stripLinks(botCtx.Event().Text),
 				User:            user,
+				UserProfile:     getUserProfile(botCtx),
 				Inputs:          [][]string{from, to},
 				Type:            JobTypeWorkflowUpgrade,
 				Channel:         channel,
