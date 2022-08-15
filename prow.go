@@ -836,7 +836,7 @@ func getClusterClient(m *jobManager, job *Job) (*BuildClusterClientConfig, error
 	return clusterClient, nil
 }
 
-func createAccessRBAC(namespace string, user string, client ctrlruntimeclient.Client) {
+func createAccessRBAC(namespace string, user string, client ctrlruntimeclient.Client) error {
 	roleBinding := &rbacapi.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "cluster-bot-user-access",
@@ -849,7 +849,35 @@ func createAccessRBAC(namespace string, user string, client ctrlruntimeclient.Cl
 		},
 	}
 	if err := client.Create(context.Background(), roleBinding); err != nil && !errors.IsAlreadyExists(err) {
-		klog.Infof("could not create role binding for %s: %v", user, err)
+		return err
+	}
+	return nil
+}
+
+func (m *jobManager) setupAccessRBAC(job *Job, namespace string) {
+	err := wait.PollImmediate(5*time.Second, 5*time.Minute, func() (bool, error) {
+		clusterClient, err := getClusterClient(m, job)
+		if err != nil {
+			return false, err
+		}
+		if job.RequesterUserID != "" {
+			client, err := ctrlruntimeclient.New(clusterClient.CoreConfig, ctrlruntimeclient.Options{})
+			if err != nil {
+				return false, err
+			}
+			if err := createAccessRBAC(namespace, job.RequesterUserID, client); err != nil {
+				klog.Infof("could not create role binding for %s: %v", job.RequesterUserID, err)
+				// the namespace might not yet exist when this step is executed
+				// we want to retry if this step fails, hence the nil return
+				return false, nil
+			}
+			klog.Infof("created the access RoleBinding for %s:", job.RequesterUserID)
+			return true, nil
+		}
+		return false, fmt.Errorf("failed to parse the RequesterUserID for %s", job.RequestedBy)
+	})
+	if err != nil {
+		klog.Infof("Failed to create the access role binding for %s: %v", job.RequestedBy, err)
 	}
 }
 
@@ -860,23 +888,12 @@ func (m *jobManager) waitForJob(job *Job) error {
 	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(job.Name))
 	stepBasedMode := job.TargetType == "steps"
 
-	// create an access RoleBinding for the user
-	clusterClient, err := getClusterClient(m, job)
-	if err != nil {
-		return err
-	}
-	if job.RequesterUserID != "" {
-		client, err := ctrlruntimeclient.New(clusterClient.CoreConfig, ctrlruntimeclient.Options{})
-		if err != nil {
-			klog.Infof("Failed to create the Kubernetes client: %v", err)
-		} else {
-			createAccessRBAC(namespace, job.RequesterUserID, client)
-		}
-	}
+	// set up the access RBAC for the cluster Initiator
+	go m.setupAccessRBAC(job, namespace)
 
 	klog.Infof("Job %q started a prow job that will create pods in namespace %s", job.Name, namespace)
 	var pj *prowapiv1.ProwJob
-	err = wait.PollImmediate(10*time.Second, 15*time.Minute, func() (bool, error) {
+	err := wait.PollImmediate(10*time.Second, 15*time.Minute, func() (bool, error) {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
@@ -1082,6 +1099,10 @@ func (m *jobManager) waitForJob(job *Job) error {
 	}
 
 	var kubeconfig string
+	clusterClient, err := getClusterClient(m, job)
+	if err != nil {
+		return err
+	}
 
 	if stepBasedMode {
 		launchSecret, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
