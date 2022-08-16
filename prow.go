@@ -856,6 +856,9 @@ func createAccessRBAC(namespace string, user string, client ctrlruntimeclient.Cl
 
 func (m *jobManager) setupAccessRBAC(job *Job, namespace string) {
 	err := wait.ExponentialBackoff(wait.Backoff{Steps: 10, Duration: 2 * time.Second, Factor: 2}, func() (bool, error) {
+		if job.Complete {
+			return true, nil
+		}
 		clusterClient, err := getClusterClient(m, job)
 		if err != nil {
 			return false, err
@@ -866,18 +869,18 @@ func (m *jobManager) setupAccessRBAC(job *Job, namespace string) {
 				return false, err
 			}
 			if err := createAccessRBAC(namespace, job.RequesterUserID, client); err != nil {
-				klog.Infof("could not create role binding for %s: %v", job.RequesterUserID, err)
+				klog.Errorf("could not create role binding for %s: %v", job.RequestedBy, err)
 				// the namespace might not yet exist when this step is executed
 				// we want to retry if this step fails, hence the nil return
 				return false, nil
 			}
-			klog.Infof("created the access RoleBinding for %s:", job.RequesterUserID)
+			klog.Infof("created the access RoleBinding for %s:", job.RequestedBy)
 			return true, nil
 		}
 		return false, fmt.Errorf("failed to parse the RequesterUserID for %s", job.RequestedBy)
 	})
 	if err != nil {
-		klog.Infof("Failed to create the access role binding for %s: %v", job.RequestedBy, err)
+		klog.Errorf("Failed to create the access role binding for %s: %v", job.RequestedBy, err)
 	}
 }
 
