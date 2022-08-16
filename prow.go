@@ -855,7 +855,7 @@ func createAccessRBAC(namespace string, user string, client ctrlruntimeclient.Cl
 }
 
 func (m *jobManager) setupAccessRBAC(job *Job, namespace string) {
-	err := wait.PollImmediate(5*time.Second, 5*time.Minute, func() (bool, error) {
+	err := wait.ExponentialBackoff(wait.Backoff{Steps: 10, Duration: 2 * time.Second, Factor: 2}, func() (bool, error) {
 		clusterClient, err := getClusterClient(m, job)
 		if err != nil {
 			return false, err
