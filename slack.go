@@ -761,11 +761,18 @@ func parseOptions(options string) (string, string, map[string]string, error) {
 			return "", "", nil, fmt.Errorf("unrecognized option: %s", opt)
 		}
 	}
-	if len(platform) == 0 {
-		platform = "gcp"
-	}
 	if len(architecture) == 0 {
 		architecture = "amd64"
+	}
+	if len(platform) == 0 {
+		switch architecture {
+		case "amd64":
+			platform = "gcp"
+		case "arm64":
+			platform = "aws"
+		default:
+			return "", "", nil, fmt.Errorf("unknown architecture: %s", architecture)
+		}
 	}
 	return platform, architecture, params, nil
 }
