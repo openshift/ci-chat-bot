@@ -9,6 +9,7 @@ import (
 
 	"github.com/shomali11/slacker"
 	"github.com/slack-go/slack"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/pkg/version"
 	"k8s.io/klog"
 	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
@@ -119,7 +120,7 @@ func (b *Bot) Start(manager JobManager) error {
 		},
 	})
 
-	client.Command("lookup <image_or_version_or_pr>", &slacker.CommandDefinition{
+	client.Command("lookup <image_or_version_or_pr> <architecture>", &slacker.CommandDefinition{
 		Description: "Get info about a version.",
 		Handler: func(botCtx slacker.BotContext, request slacker.Request, response slacker.ResponseWriter) {
 			from, err := parseImageInput(request.StringParam("image_or_version_or_pr", ""))
@@ -127,7 +128,22 @@ func (b *Bot) Start(manager JobManager) error {
 				b.reply(response, err.Error())
 				return
 			}
-			msg, err := manager.LookupInputs(from)
+			architectureRaw, err := parseImageInput(request.StringParam("architecture", ""))
+			if err != nil {
+				b.reply(response, err.Error())
+				return
+			} else if len(architectureRaw) > 1 {
+				b.reply(response, "Error: cannot specify more than one architecture for this command")
+				return
+			}
+			architecture := "amd64" // default arch
+			if len(architectureRaw) == 1 {
+				architecture = architectureRaw[0]
+			}
+			if !sets.NewString(supportedArchitectures...).Has(architecture) {
+				b.reply(response, fmt.Sprintf("Error: %s is an invalid architecture. Supported architectures: %v", architecture, supportedArchitectures))
+			}
+			msg, err := manager.LookupInputs(from, architecture)
 			if err != nil {
 				b.reply(response, err.Error())
 				return

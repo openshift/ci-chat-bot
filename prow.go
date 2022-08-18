@@ -189,7 +189,7 @@ func testStepForPlatform(platform string) string {
 }
 
 // supportedArchitectures are the allowed architectures that can be passed to jobs
-var supportedArchitectures = []string{"amd64"}
+var supportedArchitectures = []string{"amd64", "arm64"}
 
 var (
 	// reReleaseVersion detects whether a branch appears to correlate to a release branch
@@ -396,17 +396,35 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	var restoreImageVariableScript []string
 	lastJobInput := len(job.Inputs) - 1
 	image := job.Inputs[lastJobInput].Image
+	runImage := job.Inputs[lastJobInput].RunImage
 	var initialImage string
 	if len(job.Inputs) > 1 {
 		initialImage = job.Inputs[0].Image
 		if len(job.Inputs[0].Refs) == 0 && len(initialImage) > 0 {
 			restoreImageVariableScript = append(restoreImageVariableScript, fmt.Sprintf("RELEASE_IMAGE_INITIAL=%s", initialImage))
 		}
-		if len(job.Inputs[lastJobInput].Refs) == 0 && len(image) > 0 {
-			restoreImageVariableScript = append(restoreImageVariableScript, fmt.Sprintf("RELEASE_IMAGE_LATEST=%s", image))
+		if len(job.Inputs[lastJobInput].Refs) == 0 && len(runImage) > 0 {
+			restoreImageVariableScript = append(restoreImageVariableScript, fmt.Sprintf("RELEASE_IMAGE_LATEST=%s", runImage))
 		}
 	}
-	prow.OverrideJobEnvironment(&pj.Spec, image, initialImage, targetRelease, namespace, variants)
+	prow.OverrideJobEnvironment(&pj.Spec, runImage, initialImage, targetRelease, namespace, variants)
+
+	if job.Architecture == "arm64" {
+		for i := range pj.Spec.PodSpec.Containers {
+			c := &pj.Spec.PodSpec.Containers[i]
+			exists := false
+			for j := range c.Env {
+				switch name := c.Env[j].Name; name {
+				case "RELEASE_IMAGE_ARM64_LATEST":
+					exists = true
+					c.Env[j].Value = image
+				}
+			}
+			if !exists {
+				c.Env = append(c.Env, corev1.EnvVar{Name: "RELEASE_IMAGE_ARM64_LATEST", Value: image})
+			}
+		}
+	}
 
 	// find the ci-operator config for the job we will run
 	sourceEnv, _, ok := firstEnvVar(pj.Spec.PodSpec, "CONFIG_SPEC")
@@ -563,6 +581,17 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 					IncludeBuiltImages: true,
 				},
 			},
+		}
+		if job.Architecture == "arm64" {
+			sourceConfig.Releases["arm64-latest"] = citools.UnresolvedRelease{
+				// as this just gets overridden by the env var, the actual details here don't matter
+				Candidate: &citools.Candidate{
+					Architecture: "arm64",
+					Product:      "ocp",
+					Stream:       "nightly",
+					Version:      "4.12",
+				},
+			}
 		}
 		sourceConfig.ReleaseTagConfiguration = nil
 	}

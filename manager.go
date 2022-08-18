@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"k8s.io/test-infra/prow/github"
 	"math"
 	"net/url"
 	"regexp"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"k8s.io/test-infra/prow/github"
 
 	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -98,7 +99,7 @@ type JobManager interface {
 	SyncJobForUser(user string) (string, error)
 	TerminateJobForUser(user string) (string, error)
 	GetLaunchJob(user string) (*Job, error)
-	LookupInputs(inputs []string) (string, error)
+	LookupInputs(inputs []string, architecture string) (string, error)
 	ListJobs(users ...string) string
 }
 
@@ -108,9 +109,10 @@ type JobCallbackFunc func(Job)
 
 // JobInput defines the input to a job. Different modes need different inputs.
 type JobInput struct {
-	Image   string
-	Version string
-	Refs    []prowapiv1.Refs
+	Image    string
+	RunImage string
+	Version  string
+	Refs     []prowapiv1.Refs
 }
 
 // Job responds to user requests and tracks the state of the launched
@@ -548,7 +550,7 @@ func (m *jobManager) ListJobs(users ...string) string {
 			}
 			switch {
 			case len(jobInput.Version) > 0:
-				inputParts = append(inputParts, fmt.Sprintf("<https://amd64.ocp.releases.ci.openshift.org/releasetag/%s|%s>", url.PathEscape(jobInput.Version), jobInput.Version))
+				inputParts = append(inputParts, fmt.Sprintf("<https://%s.ocp.releases.ci.openshift.org/releasetag/%s|%s>", job.Architecture, url.PathEscape(jobInput.Version), jobInput.Version))
 			case len(jobInput.Image) > 0:
 				inputParts = append(inputParts, "(image)")
 			}
@@ -668,77 +670,172 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 
 var reMajorMinorVersion = regexp.MustCompile(`^(\d+)\.(\d+)$`)
 
-func buildPullSpec(namespace, tagName string) string {
+func buildPullSpec(namespace, tagName, archSuffix string) string {
 	var delimiter = ":"
 	if strings.HasPrefix(tagName, "sha256:") {
 		delimiter = "@"
 	}
-	return fmt.Sprintf("registry.ci.openshift.org/%s/release%s%s", namespace, delimiter, tagName)
+	return fmt.Sprintf("registry.ci.openshift.org/%s/release%s%s%s", namespace, archSuffix, delimiter, tagName)
 }
 
-func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion string) (string, string, error) {
+// resolveImageOrVersion returns installSpec, tag name or version, runSpec, and error
+func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion, architecture string) (string, string, string, error) {
 	if len(strings.TrimSpace(imageOrVersion)) == 0 {
 		if len(defaultImageOrVersion) == 0 {
-			return "", "", nil
+			return "", "", "", nil
 		}
 		imageOrVersion = defaultImageOrVersion
 	}
 
 	unresolved := imageOrVersion
 	if strings.Contains(unresolved, "/") {
-		return unresolved, "", nil
+		return unresolved, "", "", nil
 	}
 
-	for _, ns := range []string{"ocp", "origin"} {
-		is, err := m.imageClient.ImageV1().ImageStreams(ns).Get(context.TODO(), "release", metav1.GetOptions{})
+	imagestreams := make(map[string]string)
+	archSuffix := ""
+	switch architecture {
+	case "amd64":
+		imagestreams["ocp"] = "release"
+		imagestreams["origin"] = "release"
+	case "arm64":
+		imagestreams["ocp-arm64"] = "release-arm64"
+		archSuffix = "-arm64"
+	default:
+		return "", "", "", fmt.Errorf("Unsupported architecture: %s", architecture)
+	}
+
+	for ns, isName := range imagestreams {
+		is, err := m.imageClient.ImageV1().ImageStreams(ns).Get(context.TODO(), isName, metav1.GetOptions{})
 		if err != nil {
 			continue
 		}
 
+		var amd64IS *imagev1.ImageStream
+		if architecture != "amd64" {
+			amd64IS, err = m.imageClient.ImageV1().ImageStreams("ocp").Get(context.TODO(), "release", metav1.GetOptions{})
+			if err != nil {
+				return "", "", "", fmt.Errorf("failed to get ocp release imagstream: %w", err)
+			}
+		}
+
 		if m := reMajorMinorVersion.FindStringSubmatch(unresolved); m != nil {
-			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.nightly", unresolved)); tag != nil {
+			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.nightly%s", unresolved, archSuffix)); tag != nil {
 				klog.Infof("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
-				return buildPullSpec(ns, tag.Name), tag.Name, nil
+				installSpec := buildPullSpec(ns, tag.Name, archSuffix)
+				runSpec := ""
+				if architecture == "amd64" {
+					runSpec = installSpec
+				} else {
+					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("%s.0-0.nightly", unresolved))
+					runSpec = buildPullSpec("ocp", runTag.Name, "")
+				}
+				return installSpec, tag.Name, runSpec, nil
 			}
-			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.ci", unresolved)); tag != nil {
+			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.ci%s", unresolved, archSuffix)); tag != nil {
 				klog.Infof("Resolved major.minor %s to ci tag %s", imageOrVersion, tag.Name)
-				return buildPullSpec(ns, tag.Name), tag.Name, nil
+				installSpec := buildPullSpec(ns, tag.Name, archSuffix)
+				runSpec := ""
+				if architecture == "amd64" {
+					runSpec = installSpec
+				} else {
+					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("%s.0-0.ci", unresolved))
+					runSpec = buildPullSpec("ocp", runTag.Name, "")
+				}
+				return installSpec, tag.Name, runSpec, nil
 			}
-			if tag := findNewestStableImageSpecTagBySemanticMajor(is, unresolved); tag != nil {
+			if tag := findNewestStableImageSpecTagBySemanticMajor(is, unresolved, architecture); tag != nil {
 				klog.Infof("Resolved major.minor %s to semver tag %s", imageOrVersion, tag.Name)
-				return buildPullSpec(ns, tag.Name), tag.Name, nil
+				installSpec := buildPullSpec(ns, tag.Name, archSuffix)
+				runSpec := ""
+				if architecture == "amd64" {
+					runSpec = installSpec
+				} else {
+					runTag := findNewestImageSpecTagWithStream(amd64IS, unresolved)
+					runSpec = buildPullSpec("ocp", runTag.Name, "")
+				}
+				return installSpec, tag.Name, runSpec, nil
 			}
-			return "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
+			return "", "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
 		} else if unresolved == "nightly" {
-			unresolved = "4.12.0-0.nightly"
+			unresolved = fmt.Sprintf("4.12.0-0.nightly%s", archSuffix)
 		} else if unresolved == "ci" {
-			unresolved = "4.12.0-0.ci"
+			unresolved = fmt.Sprintf("4.12.0-0.ci%s", archSuffix)
 		} else if unresolved == "prerelease" {
-			unresolved = "4.12.0-0.ci"
+			unresolved = fmt.Sprintf("4.12.0-0.ci%s", archSuffix)
 		}
 
 		if tag, name := findImageStatusTag(is, unresolved); tag != nil {
 			klog.Infof("Resolved %s to image %s", imageOrVersion, tag.Image)
-			return buildPullSpec(ns, tag.Image), name, nil
+			// identify nightly stream for runspec if not amd64
+			installSpec := buildPullSpec(ns, tag.Image, archSuffix)
+			runSpec := ""
+			if architecture == "amd64" {
+				runSpec = installSpec
+			} else {
+				// if it's a nightly, just get the latest image from the nightly stream
+				if strings.Contains(unresolved, "nightly") {
+					// identify major and minor and use corresponding image
+					ver, err := semver.ParseTolerant(unresolved)
+					if err != nil {
+						return "", "", "", fmt.Errorf("failed to identify semver for image %s: %w", tag.Image, err)
+					}
+					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("4.%d.0-0.nightly", ver.Minor))
+					runSpec = buildPullSpec("ocp", runTag.Name, "")
+				} else {
+					runTag, _ := findImageStatusTag(amd64IS, unresolved)
+					runSpec = buildPullSpec("ocp", runTag.Image, "")
+				}
+			}
+			return installSpec, name, runSpec, nil
 		}
 
 		if tag := findNewestImageSpecTagWithStream(is, unresolved); tag != nil {
 			klog.Infof("Resolved %s to tag %s", imageOrVersion, tag.Name)
-			return buildPullSpec(ns, tag.Name), tag.Name, nil
+			// identify nightly stream for runspec if not amd64
+			installSpec := buildPullSpec(ns, tag.Name, archSuffix)
+			runSpec := ""
+			if architecture == "amd64" {
+				runSpec = installSpec
+			} else {
+				// if it's a nightly, just get the latest image from the nightly stream
+				if strings.Contains(unresolved, "nightly") {
+					// identify major and minor and use corresponding image
+					ver, err := semver.ParseTolerant(unresolved)
+					if err != nil {
+						return "", "", "", fmt.Errorf("failed to identify semver for image %s: %w", tag.Name, err)
+					}
+					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("4.%d.0-0.nightly", ver.Minor))
+					runSpec = buildPullSpec("ocp", runTag.Name, "")
+				} else {
+					runTag := findNewestImageSpecTagWithStream(amd64IS, unresolved)
+					runSpec = buildPullSpec("ocp", runTag.Name, "")
+				}
+			}
+			return installSpec, tag.Name, runSpec, nil
 		}
 	}
 
-	return "", "", fmt.Errorf("unable to find a release matching %q on https://amd64.ocp.releases.ci.openshift.org or https://amd64.origin.releases.ci.openshift.org", imageOrVersion)
+	errMsg := fmt.Errorf("unable to find a release matching %q on https://%s.ocp.releases.ci.openshift.org", imageOrVersion, architecture)
+	if architecture == "amd64" {
+		errMsg = fmt.Errorf("%s or https://amd64.origin.releases.ci.openshift.org", errMsg)
+	}
+
+	return "", "", "", errMsg
 }
 
-func findNewestStableImageSpecTagBySemanticMajor(is *imagev1.ImageStream, majorMinor string) *imagev1.TagReference {
+func findNewestStableImageSpecTagBySemanticMajor(is *imagev1.ImageStream, majorMinor, architecture string) *imagev1.TagReference {
 	base, err := semver.ParseTolerant(majorMinor)
 	if err != nil {
 		return nil
 	}
+	archSuffix := ""
+	if architecture == "arm64" {
+		archSuffix = "-arm64"
+	}
 	var candidates semver.Versions
 	for _, tag := range is.Spec.Tags {
-		if tag.Annotations["release.openshift.io/name"] != "4-stable" {
+		if tag.Annotations["release.openshift.io/name"] != fmt.Sprintf("4-stable%s", archSuffix) {
 			continue
 		}
 		v, err := semver.ParseTolerant(tag.Name)
@@ -792,16 +889,16 @@ func findImageStatusTag(is *imagev1.ImageStream, name string) (*imagev1.TagEvent
 	return nil, ""
 }
 
-func (m *jobManager) LookupInputs(inputs []string) (string, error) {
+func (m *jobManager) LookupInputs(inputs []string, architecture string) (string, error) {
 	// default install type jobs to "ci"
 	if len(inputs) == 0 {
-		_, version, err := m.resolveImageOrVersion("ci", "")
+		_, version, _, err := m.resolveImageOrVersion("ci", "", architecture)
 		if err != nil {
 			return "", err
 		}
 		inputs = []string{version}
 	}
-	jobInputs, err := m.lookupInputs([][]string{inputs})
+	jobInputs, err := m.lookupInputs([][]string{inputs}, architecture)
 	if err != nil {
 		return "", err
 	}
@@ -819,12 +916,12 @@ func (m *jobManager) LookupInputs(inputs []string) (string, error) {
 			out = append(out, fmt.Sprintf("`%s` uses version `%s`", inputs[i], job.Version))
 			continue
 		}
-		out = append(out, fmt.Sprintf("`%s` launches version <https://amd64.ocp.releases.ci.openshift.org/releasetag/%s|%s>", inputs[i], job.Version, job.Version))
+		out = append(out, fmt.Sprintf("`%s` launches version <https://%s.ocp.releases.ci.openshift.org/releasetag/%s|%s>", inputs[i], architecture, job.Version, job.Version))
 	}
 	return strings.Join(out, "\n"), nil
 }
 
-func (m *jobManager) lookupInputs(inputs [][]string) ([]JobInput, error) {
+func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]JobInput, error) {
 	var jobInputs []JobInput
 
 	for _, input := range inputs {
@@ -849,7 +946,7 @@ func (m *jobManager) lookupInputs(inputs [][]string) ([]JobInput, error) {
 				}
 			} else {
 				// otherwise, resolve as a semantic version (as a tag on the release image stream) or as an image
-				image, version, err := m.resolveImageOrVersion(part, "")
+				image, version, runImage, err := m.resolveImageOrVersion(part, "", architecture)
 				if err != nil {
 					return nil, err
 				}
@@ -861,6 +958,7 @@ func (m *jobManager) lookupInputs(inputs [][]string) ([]JobInput, error) {
 				}
 				jobInput.Image = image
 				jobInput.Version = version
+				jobInput.RunImage = runImage
 			}
 		}
 		if len(jobInput.Version) == 0 && len(jobInput.Refs) > 0 {
@@ -981,19 +1079,22 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 
 	// default install type jobs to "ci"
 	if len(req.Inputs) == 0 && req.Type == JobTypeInstall {
-		_, version, err := m.resolveImageOrVersion("ci", "")
+		_, version, _, err := m.resolveImageOrVersion("ci", "", job.Architecture)
 		if err != nil {
 			return nil, err
 		}
 		req.Inputs = append(req.Inputs, []string{version})
 	}
-	jobInputs, err := m.lookupInputs(req.Inputs)
+	jobInputs, err := m.lookupInputs(req.Inputs, job.Architecture)
 	if err != nil {
 		return nil, err
 	}
 
 	switch req.Type {
 	case JobTypeBuild:
+		if req.Architecture != "amd64" {
+			return nil, fmt.Errorf("builds are not currently supported for non-amd64 releases")
+		}
 		var prs int
 		for _, input := range jobInputs {
 			for _, ref := range input.Refs {
@@ -1005,6 +1106,15 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		}
 		job.Mode = JobTypeBuild
 	case JobTypeInstall:
+		if req.Architecture != "amd64" {
+			for _, input := range jobInputs {
+				for _, ref := range input.Refs {
+					if len(ref.Pulls) != 0 {
+						return nil, fmt.Errorf("launching releases built from PRs is not currently supported for non-amd64 releases")
+					}
+				}
+			}
+		}
 		if len(jobInputs) != 1 {
 			return nil, fmt.Errorf("launching a cluster requires one image, version, or pull request")
 		}
@@ -1013,6 +1123,9 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		}
 		job.Mode = JobTypeLaunch
 	case JobTypeUpgrade:
+		if req.Architecture != "amd64" {
+			return nil, fmt.Errorf("upgrade tests are not currently supported for non-amd64 releases")
+		}
 		if len(jobInputs) != 2 {
 			return nil, fmt.Errorf("upgrading a cluster requires two images, versions, or pull requests")
 		}
@@ -1024,6 +1137,9 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 			return nil, fmt.Errorf("a test type is required for upgrading, default is e2e-upgrade")
 		}
 	case JobTypeTest:
+		if req.Architecture != "amd64" {
+			return nil, fmt.Errorf("tests are not currently supported for non-amd64 releases")
+		}
 		if len(jobInputs) != 1 {
 			return nil, fmt.Errorf("launching a cluster requires one image, version, or pull request")
 		}
@@ -1035,6 +1151,9 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		}
 		job.Mode = JobTypeTest
 	case JobTypeWorkflowUpgrade:
+		if req.Architecture != "amd64" {
+			return nil, fmt.Errorf("workflow upgrades are not currently supported for non-amd64 releases")
+		}
 		if len(jobInputs) != 2 {
 			return nil, fmt.Errorf("upgrade test requires two images, versions, or pull requests")
 		}
@@ -1043,6 +1162,9 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		}
 		job.Mode = JobTypeWorkflowUpgrade
 	case JobTypeWorkflowLaunch:
+		if req.Architecture != "amd64" {
+			return nil, fmt.Errorf("workflow launches are not currently supported for non-amd64 releases")
+		}
 		if len(jobInputs) != 1 {
 			return nil, fmt.Errorf("launching a cluster requires one image, version, or pull request")
 		}
@@ -1144,7 +1266,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	if req.Type == JobTypeWorkflowUpgrade {
 		jobType = JobTypeUpgrade
 	}
-	selector := labels.Set{"job-env": req.Platform, "job-type": jobType} // TODO: handle versioned variants better
+	selector := labels.Set{"job-env": req.Platform, "job-type": jobType, "job-architecture": req.Architecture} // TODO: handle versioned variants better
 	if len(job.Inputs[0].Version) > 0 {
 		if v, err := semver.ParseTolerant(job.Inputs[0].Version); err == nil {
 			withRelease := labels.Merge(selector, labels.Set{"job-release": fmt.Sprintf("%d.%d", v.Major, v.Minor)})
@@ -1156,7 +1278,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		// Currently, there is an important difference between the template e2e-upgrade-all test and what can be done with the step-registry tests.
 		// For now, fallback to templates for this test until this difference can be resolved.
 		if test := job.JobParams["test"]; test != "e2e-upgrade-all" {
-			primarySelector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "modern"} // these jobs will only contain configs using non-deprecated features
+			primarySelector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "modern", "job-architecture": job.Architecture} // these jobs will only contain configs using non-deprecated features
 			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(primarySelector))
 			if prowJob != nil {
 				if sourceEnv, _, ok := firstEnvVar(prowJob.Spec.PodSpec, "UNRESOLVED_CONFIG"); ok { // all multistage configs will be unresolved
@@ -1167,7 +1289,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 				}
 			}
 		}
-		if !primaryHasVariant {
+		if !primaryHasVariant && req.Architecture == "amd64" { // only support legacy templates for amd64 arch
 			job.LegacyConfig = true
 			fallbackSelector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "legacy"} // these jobs will contain older, deprecated configs that can be used as fallback for the primary config typr
 			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(fallbackSelector))
