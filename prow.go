@@ -396,6 +396,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	var restoreImageVariableScript []string
 	lastJobInput := len(job.Inputs) - 1
 	image := job.Inputs[lastJobInput].Image
+	version := job.Inputs[lastJobInput].Version
 	runImage := job.Inputs[lastJobInput].RunImage
 	var initialImage string
 	if len(job.Inputs) > 1 {
@@ -407,7 +408,12 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			restoreImageVariableScript = append(restoreImageVariableScript, fmt.Sprintf("RELEASE_IMAGE_LATEST=%s", runImage))
 		}
 	}
-	prow.OverrideJobEnvironment(&pj.Spec, runImage, initialImage, targetRelease, namespace, variants)
+
+	if len(image) > 0 && len(version) == 0 && len(runImage) == 0 {
+		prow.OverrideJobEnvironment(&pj.Spec, image, initialImage, targetRelease, namespace, variants)
+	} else {
+		prow.OverrideJobEnvironment(&pj.Spec, runImage, initialImage, targetRelease, namespace, variants)
+	}
 
 	if job.Architecture == "arm64" {
 		for i := range pj.Spec.PodSpec.Containers {
