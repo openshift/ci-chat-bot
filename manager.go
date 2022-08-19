@@ -956,6 +956,9 @@ func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]Job
 				if len(jobInput.Image) > 0 {
 					return nil, fmt.Errorf("only one image or version may be specified in a list of installs")
 				}
+				if architecture == "arm64" && (len(runImage) == 0 || len(version) == 0) {
+					return nil, fmt.Errorf("only version numbers (like: 4.11.0) may be used for arm64 based clusters")
+				}
 				jobInput.Image = image
 				jobInput.Version = version
 				jobInput.RunImage = runImage
