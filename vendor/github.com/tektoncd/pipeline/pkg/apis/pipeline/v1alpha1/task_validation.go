@@ -33,13 +33,18 @@ import (
 
 var _ apis.Validatable = (*Task)(nil)
 
+// Validate implements apis.Validatable
 func (t *Task) Validate(ctx context.Context) *apis.FieldError {
 	if err := validate.ObjectMetadata(t.GetObjectMeta()); err != nil {
 		return err.ViaField("metadata")
 	}
+	if apis.IsInDelete(ctx) {
+		return nil
+	}
 	return t.Spec.Validate(ctx)
 }
 
+// Validate implements apis.Validatable
 func (ts *TaskSpec) Validate(ctx context.Context) *apis.FieldError {
 
 	if len(ts.Steps) == 0 {
@@ -51,7 +56,7 @@ func (ts *TaskSpec) Validate(ctx context.Context) *apis.FieldError {
 	if err := validateDeclaredWorkspaces(ts.Workspaces, ts.Steps, ts.StepTemplate); err != nil {
 		return err
 	}
-	mergedSteps, err := MergeStepsWithStepTemplate(ts.StepTemplate, ts.Steps)
+	mergedSteps, err := v1beta1.MergeStepsWithStepTemplate(ts.StepTemplate, ts.Steps)
 	if err != nil {
 		return &apis.FieldError{
 			Message: fmt.Sprintf("error merging step template and steps: %s", err),
@@ -82,7 +87,7 @@ func (ts *TaskSpec) Validate(ctx context.Context) *apis.FieldError {
 		return err
 	}
 	// Validate that the parameters type are correct
-	if err := v1beta1.ValidateParameterTypes(ts.Params); err != nil {
+	if err := v1beta1.ValidateParameterTypes(ctx, ts.Params); err != nil {
 		return err
 	}
 
@@ -125,7 +130,7 @@ func (ts *TaskSpec) Validate(ctx context.Context) *apis.FieldError {
 		}
 	}
 
-	if err := v1beta1.ValidateParameterVariables(ts.Steps, ts.Params); err != nil {
+	if err := v1beta1.ValidateParameterVariables(ctx, ts.Steps, ts.Params); err != nil {
 		return err
 	}
 	// Deprecated
@@ -133,20 +138,17 @@ func (ts *TaskSpec) Validate(ctx context.Context) *apis.FieldError {
 		return err
 	}
 
-	if err := v1beta1.ValidateResourcesVariables(ts.Steps, ts.Resources); err != nil {
+	if err := v1beta1.ValidateResourcesVariables(ctx, ts.Steps, ts.Resources); err != nil {
 		return err
 	}
 	// Deprecated
-	if err := validateResourceVariables(ts.Steps, ts.Inputs, ts.Outputs, ts.Resources); err != nil {
-		return err
-	}
-	return nil
+	return validateResourceVariables(ts.Steps, ts.Inputs, ts.Outputs, ts.Resources)
 }
 
 // validateDeclaredWorkspaces will make sure that the declared workspaces do not try to use
 // a mount path which conflicts with any other declared workspaces, with the explicitly
 // declared volume mounts, or with the stepTemplate. The names must also be unique.
-func validateDeclaredWorkspaces(workspaces []WorkspaceDeclaration, steps []Step, stepTemplate *corev1.Container) *apis.FieldError {
+func validateDeclaredWorkspaces(workspaces []WorkspaceDeclaration, steps []Step, stepTemplate *StepTemplate) *apis.FieldError {
 	mountPaths := sets.NewString()
 	for _, step := range steps {
 		for _, vm := range step.VolumeMounts {
@@ -182,6 +184,7 @@ func validateDeclaredWorkspaces(workspaces []WorkspaceDeclaration, steps []Step,
 	return nil
 }
 
+// ValidateVolumes validates a slice of volumes to make sure there are no duplicate names
 func ValidateVolumes(volumes []corev1.Volume) *apis.FieldError {
 	// Task must not have duplicate volume names.
 	vols := sets.NewString()
@@ -430,5 +433,5 @@ func validateResourceType(r TaskResource, path string) *apis.FieldError {
 			return nil
 		}
 	}
-	return apis.ErrInvalidValue(string(r.Type), path)
+	return apis.ErrInvalidValue(r.Type, path)
 }

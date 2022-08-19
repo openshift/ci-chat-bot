@@ -17,20 +17,23 @@ limitations under the License.
 package validate
 
 import (
-	"strings"
+	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"knative.dev/pkg/apis"
 )
 
-const MaxLength = 63
+// MaxLength is the maximum length that an object's name can be
+const MaxLength = validation.DNS1123LabelMaxLength
 
+// ObjectMetadata validates that the given object's name is a valid DNS name and isn't longer than the max length
 func ObjectMetadata(meta metav1.Object) *apis.FieldError {
 	name := meta.GetName()
 
-	if strings.Contains(name, ".") {
+	if err := validation.IsDNS1123Subdomain(name); len(err) > 0 {
 		return &apis.FieldError{
-			Message: "Invalid resource name: special character . must not be present",
+			Message: fmt.Sprintf("invalid resource name %q: must be a valid DNS label", name),
 			Paths:   []string{"name"},
 		}
 	}

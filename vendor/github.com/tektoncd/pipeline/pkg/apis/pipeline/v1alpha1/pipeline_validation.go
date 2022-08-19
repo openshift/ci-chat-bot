@@ -39,6 +39,9 @@ func (p *Pipeline) Validate(ctx context.Context) *apis.FieldError {
 	if err := validate.ObjectMetadata(p.GetObjectMeta()); err != nil {
 		return err.ViaField("metadata")
 	}
+	if apis.IsInDelete(ctx) {
+		return nil
+	}
 	return p.Spec.Validate(ctx)
 }
 
@@ -132,7 +135,7 @@ func validateFrom(tasks []PipelineTask) *apis.FieldError {
 // cycle or that they rely on values from Tasks that ran previously, and that the PipelineResource
 // is actually an output of the Task it should come from.
 func validateGraph(tasks []PipelineTask) error {
-	if _, err := dag.Build(PipelineTaskList(tasks)); err != nil {
+	if _, err := dag.Build(PipelineTaskList(tasks), PipelineTaskList(tasks).Deps()); err != nil {
 		return err
 	}
 	return nil
@@ -172,11 +175,7 @@ func (ps *PipelineSpec) Validate(ctx context.Context) *apis.FieldError {
 	}
 
 	// Validate the pipeline's workspaces.
-	if err := validatePipelineWorkspaces(ps.Workspaces, ps.Tasks); err != nil {
-		return err
-	}
-
-	return nil
+	return validatePipelineWorkspaces(ps.Workspaces, ps.Tasks)
 }
 
 func validatePipelineTasks(ctx context.Context, tasks []PipelineTask) *apis.FieldError {

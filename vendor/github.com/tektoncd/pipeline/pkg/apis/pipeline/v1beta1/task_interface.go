@@ -16,11 +16,15 @@ limitations under the License.
 
 package v1beta1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"knative.dev/pkg/apis"
+)
 
-// TaskInterface is implemented by Task and ClusterTask
-type TaskInterface interface {
+// TaskObject is implemented by Task and ClusterTask
+type TaskObject interface {
+	apis.Defaultable
 	TaskMetadata() metav1.ObjectMeta
 	TaskSpec() TaskSpec
-	Copy() TaskInterface
+	Copy() TaskObject
 }

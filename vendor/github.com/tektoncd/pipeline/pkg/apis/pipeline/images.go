@@ -16,6 +16,11 @@ limitations under the License.
 
 package pipeline
 
+import (
+	"fmt"
+	"sort"
+)
+
 // Images holds the images reference for a number of container images used
 // across tektoncd pipelines.
 type Images struct {
@@ -23,22 +28,50 @@ type Images struct {
 	EntrypointImage string
 	// NopImage is the container image used to kill sidecars.
 	NopImage string
-	// AffinityAssistantImage is the container image used for the Affinity Assistant.
-	AffinityAssistantImage string
 	// GitImage is the container image with Git that we use to implement the Git source step.
 	GitImage string
-	// CredsImage is the container image used to initialize credentials before the build runs.
-	CredsImage string
 	// KubeconfigWriterImage is the container image containing our kubeconfig writer binary.
 	KubeconfigWriterImage string
 	// ShellImage is the container image containing bash shell.
 	ShellImage string
-	// GsutilImage is the container miage containing gsutil.
+	// ShellImageWin is the container image containing powershell.
+	ShellImageWin string
+	// GsutilImage is the container image containing gsutil.
 	GsutilImage string
-	// BuildGCSFetcherImage is the container image containing our GCS fetcher binary.
-	BuildGCSFetcherImage string
 	// PRImage is the container image that we use to implement the PR source step.
 	PRImage string
 	// ImageDigestExporterImage is the container image containing our image digest exporter binary.
 	ImageDigestExporterImage string
+	// WorkingDirInitImage is the container image containing our working dir init binary.
+	WorkingDirInitImage string
+
+	// NOTE: Make sure to add any new images to Validate below!
+}
+
+// Validate returns an error if any image is not set.
+func (i Images) Validate() error {
+	var unset []string
+	for _, f := range []struct {
+		v, name string
+	}{
+		{i.EntrypointImage, "entrypoint-image"},
+		{i.NopImage, "nop-image"},
+		{i.GitImage, "git-image"},
+		{i.KubeconfigWriterImage, "kubeconfig-writer-image"},
+		{i.ShellImage, "shell-image"},
+		{i.ShellImageWin, "shell-image-win"},
+		{i.GsutilImage, "gsutil-image"},
+		{i.PRImage, "pr-image"},
+		{i.ImageDigestExporterImage, "imagedigest-exporter-image"},
+		{i.WorkingDirInitImage, "workingdirinit-image"},
+	} {
+		if f.v == "" {
+			unset = append(unset, f.name)
+		}
+	}
+	if len(unset) > 0 {
+		sort.Strings(unset)
+		return fmt.Errorf("found unset image flags: %s", unset)
+	}
+	return nil
 }

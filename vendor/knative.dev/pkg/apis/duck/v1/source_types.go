@@ -17,6 +17,7 @@ limitations under the License.
 package v1
 
 import (
+	"context"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -67,7 +68,7 @@ type CloudEventOverrides struct {
 // SourceStatus shows how we expect folks to embed Addressable in
 // their Status field.
 type SourceStatus struct {
-	// inherits duck/v1beta1 Status, which currently provides:
+	// inherits Status, which currently provides:
 	// * ObservedGeneration - the 'Generation' of the Service that was last
 	//   processed by the controller.
 	// * Conditions - the latest available observations of a resource's current
@@ -88,7 +89,6 @@ type SourceStatus struct {
 // CloudEventAttributes specifies the attributes that a Source
 // uses as part of its CloudEvents.
 type CloudEventAttributes struct {
-
 	// Type refers to the CloudEvent type attribute.
 	Type string `json:"type,omitempty"`
 
@@ -109,8 +109,11 @@ func (ss *SourceStatus) IsReady() bool {
 	return false
 }
 
+// Verify Source resources meet duck contracts.
 var (
-	_ apis.Listable = (*Source)(nil)
+	_ apis.Listable           = (*Source)(nil)
+	_ ducktypes.Implementable = (*Source)(nil)
+	_ ducktypes.Populatable   = (*Source)(nil)
 )
 
 const (
@@ -167,4 +170,53 @@ type SourceList struct {
 	metav1.ListMeta `json:"metadata"`
 
 	Items []Source `json:"items"`
+}
+
+func (s *Source) Validate(ctx context.Context) *apis.FieldError {
+	if s == nil {
+		return nil
+	}
+	return s.Spec.Validate(ctx).ViaField("spec")
+}
+
+func (s *SourceSpec) Validate(ctx context.Context) *apis.FieldError {
+	if s == nil {
+		return apis.ErrMissingField("spec")
+	}
+	return s.Sink.Validate(ctx).ViaField("sink").
+		Also(s.CloudEventOverrides.Validate(ctx).ViaField("ceOverrides"))
+}
+
+func (ceOverrides *CloudEventOverrides) Validate(ctx context.Context) *apis.FieldError {
+	if ceOverrides == nil {
+		return nil
+	}
+	for key := range ceOverrides.Extensions {
+		if err := validateExtensionName(key); err != nil {
+			return err.ViaField("extensions")
+		}
+	}
+	return nil
+}
+
+func validateExtensionName(key string) *apis.FieldError {
+	if key == "" {
+		return apis.ErrInvalidKeyName(
+			key,
+			"",
+			"keys MUST NOT be empty",
+		)
+	}
+
+	for _, c := range key {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+			return apis.ErrInvalidKeyName(
+				key,
+				"",
+				"keys are expected to be alphanumeric",
+			)
+		}
+	}
+
+	return nil
 }

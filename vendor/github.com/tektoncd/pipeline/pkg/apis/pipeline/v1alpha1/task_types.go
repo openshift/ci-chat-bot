@@ -31,15 +31,18 @@ const (
 	UnknownResultType ResultType = v1beta1.UnknownResultType
 )
 
+// TaskSpec returns the task's spec
 func (t *Task) TaskSpec() TaskSpec {
 	return t.Spec
 }
 
+// TaskMetadata returns the task's ObjectMeta
 func (t *Task) TaskMetadata() metav1.ObjectMeta {
 	return t.ObjectMeta
 }
 
-func (t *Task) Copy() TaskInterface {
+// Copy returns a deep copy of the task
+func (t *Task) Copy() TaskObject {
 	return t.DeepCopy()
 }
 
@@ -64,7 +67,11 @@ type TaskResult = v1beta1.TaskResult
 // provided by Container.
 type Step = v1beta1.Step
 
+// Sidecar has nearly the same data structure as Step, consisting of a Container and an optional Script, but does not have the ability to timeout.
 type Sidecar = v1beta1.Sidecar
+
+// StepTemplate is a template for a Step
+type StepTemplate = v1beta1.StepTemplate
 
 // +genclient
 // +genclient:noStatus

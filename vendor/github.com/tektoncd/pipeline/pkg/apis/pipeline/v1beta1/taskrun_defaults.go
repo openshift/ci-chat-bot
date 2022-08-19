@@ -27,8 +27,10 @@ import (
 
 var _ apis.Defaultable = (*TaskRun)(nil)
 
-const managedByLabelKey = "app.kubernetes.io/managed-by"
+// ManagedByLabelKey is the label key used to mark what is managing this resource
+const ManagedByLabelKey = "app.kubernetes.io/managed-by"
 
+// SetDefaults implements apis.Defaultable
 func (tr *TaskRun) SetDefaults(ctx context.Context) {
 	ctx = apis.WithinParent(ctx, tr.ObjectMeta)
 	tr.Spec.SetDefaults(ctx)
@@ -39,11 +41,12 @@ func (tr *TaskRun) SetDefaults(ctx context.Context) {
 	if tr.ObjectMeta.Labels == nil {
 		tr.ObjectMeta.Labels = map[string]string{}
 	}
-	if _, found := tr.ObjectMeta.Labels[managedByLabelKey]; !found {
-		tr.ObjectMeta.Labels[managedByLabelKey] = cfg.Defaults.DefaultManagedByLabelValue
+	if _, found := tr.ObjectMeta.Labels[ManagedByLabelKey]; !found {
+		tr.ObjectMeta.Labels[ManagedByLabelKey] = cfg.Defaults.DefaultManagedByLabelValue
 	}
 }
 
+// SetDefaults implements apis.Defaultable
 func (trs *TaskRunSpec) SetDefaults(ctx context.Context) {
 	cfg := config.FromContextOrDefaults(ctx)
 	if trs.TaskRef != nil && trs.TaskRef.Kind == "" {
@@ -60,9 +63,7 @@ func (trs *TaskRunSpec) SetDefaults(ctx context.Context) {
 	}
 
 	defaultPodTemplate := cfg.Defaults.DefaultPodTemplate
-	if trs.PodTemplate == nil {
-		trs.PodTemplate = defaultPodTemplate
-	}
+	trs.PodTemplate = MergePodTemplateWithDefault(trs.PodTemplate, defaultPodTemplate)
 
 	// If this taskrun has an embedded task, apply the usual task defaults
 	if trs.TaskSpec != nil {

@@ -22,8 +22,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// PodTemplate holds pod specific configuration
+// Template holds pod specific configuration
 // +k8s:deepcopy-gen=true
+// +k8s:openapi-gen=true
 type Template struct {
 	// NodeSelector is a selector which must be true for the pod to fit on a node.
 	// Selector which must match a node's labels for the pod to be scheduled on that node.
@@ -33,6 +34,7 @@ type Template struct {
 
 	// If specified, the pod's tolerations.
 	// +optional
+	// +listType=atomic
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 
 	// If specified, the pod's scheduling constraints
@@ -47,6 +49,9 @@ type Template struct {
 	// List of volumes that can be mounted by containers belonging to the pod.
 	// More info: https://kubernetes.io/docs/concepts/storage/volumes
 	// +optional
+	// +patchMergeKey=name
+	// +patchStrategy=merge,retainKeys
+	// +listType=atomic
 	Volumes []corev1.Volume `json:"volumes,omitempty" patchStrategy:"merge,retainKeys" patchMergeKey:"name" protobuf:"bytes,1,rep,name=volumes"`
 
 	// RuntimeClassName refers to a RuntimeClass object in the node.k8s.io
@@ -92,16 +97,25 @@ type Template struct {
 	PriorityClassName *string `json:"priorityClassName,omitempty" protobuf:"bytes,7,opt,name=priorityClassName"`
 	// SchedulerName specifies the scheduler to be used to dispatch the Pod
 	// +optional
-	SchedulerName string `json:"schedulerName"`
+	SchedulerName string `json:"schedulerName,omitempty"`
 
 	// ImagePullSecrets gives the name of the secret used by the pod to pull the image if specified
-	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets"`
+	// +optional
+	// +listType=atomic
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+
+	// HostAliases is an optional list of hosts and IPs that will be injected into the pod's hosts
+	// file if specified. This is only valid for non-hostNetwork pods.
+	// +optional
+	// +listType=atomic
+	HostAliases []corev1.HostAlias `json:"hostAliases,omitempty"`
 
 	// HostNetwork specifies whether the pod may use the node network namespace
 	// +optional
-	HostNetwork bool `json:"hostNetwork"`
+	HostNetwork bool `json:"hostNetwork,omitempty"`
 }
 
+// Equals checks if this Template is identical to the given Template.
 func (tpl *Template) Equals(other *Template) bool {
 	if tpl == nil && other == nil {
 		return true
@@ -112,4 +126,17 @@ func (tpl *Template) Equals(other *Template) bool {
 	}
 
 	return reflect.DeepEqual(tpl, other)
+}
+
+// ToAffinityAssistantTemplate converts to a affinity assistant pod Template
+func (tpl *Template) ToAffinityAssistantTemplate() *AffinityAssistantTemplate {
+	if tpl == nil {
+		return nil
+	}
+
+	return &AffinityAssistantTemplate{
+		NodeSelector:     tpl.NodeSelector,
+		Tolerations:      tpl.Tolerations,
+		ImagePullSecrets: tpl.ImagePullSecrets,
+	}
 }

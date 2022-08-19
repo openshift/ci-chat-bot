@@ -24,8 +24,8 @@ import (
 
 // ResultRef is a type that represents a reference to a task run result
 type ResultRef struct {
-	PipelineTask string
-	Result       string
+	PipelineTask string `json:"pipelineTask"`
+	Result       string `json:"result"`
 }
 
 const (
@@ -128,4 +128,28 @@ func parseExpression(substitutionExpression string) (string, string, error) {
 		return "", "", fmt.Errorf("Must be of the form %q", resultExpressionFormat)
 	}
 	return subExpressions[1], subExpressions[3], nil
+}
+
+// PipelineTaskResultRefs walks all the places a result reference can be used
+// in a PipelineTask and returns a list of any references that are found.
+func PipelineTaskResultRefs(pt *PipelineTask) []*ResultRef {
+	refs := []*ResultRef{}
+	for _, condition := range pt.Conditions {
+		for _, p := range condition.Params {
+			expressions, _ := GetVarSubstitutionExpressionsForParam(p)
+			refs = append(refs, NewResultRefs(expressions)...)
+		}
+	}
+
+	for _, p := range pt.Params {
+		expressions, _ := GetVarSubstitutionExpressionsForParam(p)
+		refs = append(refs, NewResultRefs(expressions)...)
+	}
+
+	for _, whenExpression := range pt.WhenExpressions {
+		expressions, _ := whenExpression.GetVarSubstitutionExpressions()
+		refs = append(refs, NewResultRefs(expressions)...)
+	}
+
+	return refs
 }

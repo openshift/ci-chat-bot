@@ -17,29 +17,28 @@ limitations under the License.
 package v1beta1
 
 import (
+	"context"
 	"fmt"
 	"time"
 
+	"github.com/tektoncd/pipeline/pkg/apis/config"
 	apisconfig "github.com/tektoncd/pipeline/pkg/apis/config"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/clock"
 	"knative.dev/pkg/apis"
 	duckv1beta1 "knative.dev/pkg/apis/duck/v1beta1"
-)
-
-var (
-	taskRunGroupVersionKind = schema.GroupVersionKind{
-		Group:   SchemeGroupVersion.Group,
-		Version: SchemeGroupVersion.Version,
-		Kind:    pipeline.TaskRunControllerName,
-	}
 )
 
 // TaskRunSpec defines the desired state of TaskRun
 type TaskRunSpec struct {
 	// +optional
+	Debug *TaskRunDebug `json:"debug,omitempty"`
+	// +optional
+	// +listType=atomic
 	Params []Param `json:"params,omitempty"`
 	// +optional
 	Resources *TaskRunResources `json:"resources,omitempty"`
@@ -62,7 +61,22 @@ type TaskRunSpec struct {
 	PodTemplate *PodTemplate `json:"podTemplate,omitempty"`
 	// Workspaces is a list of WorkspaceBindings from volumes to workspaces.
 	// +optional
+	// +listType=atomic
 	Workspaces []WorkspaceBinding `json:"workspaces,omitempty"`
+	// Overrides to apply to Steps in this TaskRun.
+	// If a field is specified in both a Step and a StepOverride,
+	// the value from the StepOverride will be used.
+	// This field is only supported when the alpha feature gate is enabled.
+	// +optional
+	// +listType=atomic
+	StepOverrides []TaskRunStepOverride `json:"stepOverrides,omitempty"`
+	// Overrides to apply to Sidecars in this TaskRun.
+	// If a field is specified in both a Sidecar and a SidecarOverride,
+	// the value from the SidecarOverride will be used.
+	// This field is only supported when the alpha feature gate is enabled.
+	// +optional
+	// +listType=atomic
+	SidecarOverrides []TaskRunSidecarOverride `json:"sidecarOverrides,omitempty"`
 }
 
 // TaskRunSpecStatus defines the taskrun spec status the user can provide
@@ -74,17 +88,27 @@ const (
 	TaskRunSpecStatusCancelled = "TaskRunCancelled"
 )
 
+// TaskRunDebug defines the breakpoint config for a particular TaskRun
+type TaskRunDebug struct {
+	// +optional
+	// +listType=atomic
+	Breakpoint []string `json:"breakpoint,omitempty"`
+}
+
 // TaskRunInputs holds the input values that this task was invoked with.
 type TaskRunInputs struct {
 	// +optional
+	// +listType=atomic
 	Resources []TaskResourceBinding `json:"resources,omitempty"`
 	// +optional
+	// +listType=atomic
 	Params []Param `json:"params,omitempty"`
 }
 
 // TaskRunOutputs holds the output values that this task was invoked with.
 type TaskRunOutputs struct {
 	// +optional
+	// +listType=atomic
 	Resources []TaskResourceBinding `json:"resources,omitempty"`
 }
 
@@ -116,6 +140,9 @@ const (
 	TaskRunReasonCancelled TaskRunReason = "TaskRunCancelled"
 	// TaskRunReasonTimedOut is the reason set when the Taskrun has timed out
 	TaskRunReasonTimedOut TaskRunReason = "TaskRunTimeout"
+	// TaskRunReasonResolvingTaskRef indicates that the TaskRun is waiting for
+	// its taskRef to be asynchronously resolved.
+	TaskRunReasonResolvingTaskRef = "ResolvingTaskRef"
 )
 
 func (t TaskRunReason) String() string {
@@ -129,21 +156,20 @@ func (trs *TaskRunStatus) GetStartedReason() string {
 }
 
 // GetRunningReason returns the reason set to the "Succeeded" condition when
-// the RunsToCompletion starts running. This is used indicate that the resource
+// the TaskRun starts running. This is used indicate that the resource
 // could be validated is starting to perform its job.
 func (trs *TaskRunStatus) GetRunningReason() string {
 	return TaskRunReasonRunning.String()
 }
 
-// MarkResourceNotConvertible adds a Warning-severity condition to the resource noting
-// that it cannot be converted to a higher version.
-func (trs *TaskRunStatus) MarkResourceNotConvertible(err *CannotConvertError) {
+// MarkResourceOngoing sets the ConditionSucceeded condition to ConditionUnknown
+// with the reason and message.
+func (trs *TaskRunStatus) MarkResourceOngoing(reason TaskRunReason, message string) {
 	taskRunCondSet.Manage(trs).SetCondition(apis.Condition{
-		Type:     ConditionTypeConvertible,
-		Status:   corev1.ConditionFalse,
-		Severity: apis.ConditionSeverityWarning,
-		Reason:   err.Field,
-		Message:  err.Message,
+		Type:    apis.ConditionSucceeded,
+		Status:  corev1.ConditionUnknown,
+		Reason:  reason.String(),
+		Message: message,
 	})
 }
 
@@ -156,6 +182,8 @@ func (trs *TaskRunStatus) MarkResourceFailed(reason TaskRunReason, err error) {
 		Reason:  reason.String(),
 		Message: err.Error(),
 	})
+	succeeded := trs.GetCondition(apis.ConditionSucceeded)
+	trs.CompletionTime = &succeeded.LastTransitionTime.Inner
 }
 
 // TaskRunStatusFields holds the fields of TaskRun's status.  This is defined
@@ -175,47 +203,60 @@ type TaskRunStatusFields struct {
 
 	// Steps describes the state of each build step container.
 	// +optional
+	// +listType=atomic
 	Steps []StepState `json:"steps,omitempty"`
 
 	// CloudEvents describe the state of each cloud event requested via a
 	// CloudEventResource.
 	// +optional
+	// +listType=atomic
 	CloudEvents []CloudEventDelivery `json:"cloudEvents,omitempty"`
 
 	// RetriesStatus contains the history of TaskRunStatus in case of a retry in order to keep record of failures.
 	// All TaskRunStatus stored in RetriesStatus will have no date within the RetriesStatus as is redundant.
 	// +optional
+	// +listType=atomic
 	RetriesStatus []TaskRunStatus `json:"retriesStatus,omitempty"`
 
 	// Results from Resources built during the taskRun. currently includes
 	// the digest of build container images
 	// +optional
+	// +listType=atomic
 	ResourcesResult []PipelineResourceResult `json:"resourcesResult,omitempty"`
 
 	// TaskRunResults are the list of results written out by the task's containers
 	// +optional
+	// +listType=atomic
 	TaskRunResults []TaskRunResult `json:"taskResults,omitempty"`
 
 	// The list has one entry per sidecar in the manifest. Each entry is
 	// represents the imageid of the corresponding sidecar.
+	// +listType=atomic
 	Sidecars []SidecarState `json:"sidecars,omitempty"`
 
 	// TaskSpec contains the Spec from the dereferenced Task definition used to instantiate this TaskRun.
 	TaskSpec *TaskSpec `json:"taskSpec,omitempty"`
 }
 
-// TaskRunResult used to describe the results of a task
-type TaskRunResult struct {
-	// Name the given name
+// TaskRunStepOverride is used to override the values of a Step in the corresponding Task.
+type TaskRunStepOverride struct {
+	// The name of the Step to override.
 	Name string `json:"name"`
-
-	// Value the given value of the result
-	Value string `json:"value"`
+	// The resource requirements to apply to the Step.
+	Resources corev1.ResourceRequirements `json:"resources"`
 }
 
-// GetOwnerReference gets the task run as owner reference for any related objects
-func (tr *TaskRun) GetOwnerReference() metav1.OwnerReference {
-	return *metav1.NewControllerRef(tr, taskRunGroupVersionKind)
+// TaskRunSidecarOverride is used to override the values of a Sidecar in the corresponding Task.
+type TaskRunSidecarOverride struct {
+	// The name of the Sidecar to override.
+	Name string `json:"name"`
+	// The resource requirements to apply to the Sidecar.
+	Resources corev1.ResourceRequirements `json:"resources"`
+}
+
+// GetGroupVersionKind implements kmeta.OwnerRefable.
+func (*TaskRun) GetGroupVersionKind() schema.GroupVersionKind {
+	return SchemeGroupVersion.WithKind(pipeline.TaskRunControllerName)
 }
 
 // GetStatusCondition returns the task run status as a ConditionAccessor
@@ -335,16 +376,6 @@ type TaskRunList struct {
 	Items           []TaskRun `json:"items"`
 }
 
-// GetBuildPodRef for task
-func (tr *TaskRun) GetBuildPodRef() corev1.ObjectReference {
-	return corev1.ObjectReference{
-		APIVersion: "v1",
-		Kind:       "Pod",
-		Namespace:  tr.Namespace,
-		Name:       tr.Name,
-	}
-}
-
 // GetPipelineRunPVCName for taskrun gets pipelinerun
 func (tr *TaskRun) GetPipelineRunPVCName() string {
 	if tr == nil {
@@ -390,31 +421,32 @@ func (tr *TaskRun) IsCancelled() bool {
 }
 
 // HasTimedOut returns true if the TaskRun runtime is beyond the allowed timeout
-func (tr *TaskRun) HasTimedOut() bool {
+func (tr *TaskRun) HasTimedOut(ctx context.Context, c clock.PassiveClock) bool {
 	if tr.Status.StartTime.IsZero() {
 		return false
 	}
-	timeout := tr.GetTimeout()
+	timeout := tr.GetTimeout(ctx)
 	// If timeout is set to 0 or defaulted to 0, there is no timeout.
 	if timeout == apisconfig.NoTimeoutDuration {
 		return false
 	}
-	runtime := time.Since(tr.Status.StartTime.Time)
+	runtime := c.Since(tr.Status.StartTime.Time)
 	return runtime > timeout
 }
 
-func (tr *TaskRun) GetTimeout() time.Duration {
+// GetTimeout returns the timeout for the TaskRun, or the default if not specified
+func (tr *TaskRun) GetTimeout(ctx context.Context) time.Duration {
 	// Use the platform default is no timeout is set
 	if tr.Spec.Timeout == nil {
-		return apisconfig.DefaultTimeoutMinutes * time.Minute
+		defaultTimeout := time.Duration(config.FromContextOrDefaults(ctx).Defaults.DefaultTimeoutMinutes)
+		return defaultTimeout * time.Minute
 	}
 	return tr.Spec.Timeout.Duration
 }
 
-// GetRunKey return the taskrun key for timeout handler map
-func (tr *TaskRun) GetRunKey() string {
-	// The address of the pointer is a threadsafe unique identifier for the taskrun
-	return fmt.Sprintf("%s/%p", "TaskRun", tr)
+// GetNamespacedName returns a k8s namespaced name that identifies this TaskRun
+func (tr *TaskRun) GetNamespacedName() types.NamespacedName {
+	return types.NamespacedName{Namespace: tr.Namespace, Name: tr.Name}
 }
 
 // IsPartOfPipeline return true if TaskRun is a part of a Pipeline.
@@ -424,8 +456,8 @@ func (tr *TaskRun) IsPartOfPipeline() (bool, string, string) {
 		return false, "", ""
 	}
 
-	if pl, ok := tr.Labels[pipeline.GroupName+pipeline.PipelineLabelKey]; ok {
-		return true, pl, tr.Labels[pipeline.GroupName+pipeline.PipelineRunLabelKey]
+	if pl, ok := tr.Labels[pipeline.PipelineLabelKey]; ok {
+		return true, pl, tr.Labels[pipeline.PipelineRunLabelKey]
 	}
 
 	return false, "", ""
