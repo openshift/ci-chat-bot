@@ -25,11 +25,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
+// Task is an interface for all types that could be in a DAG
 type Task interface {
 	HashKey() string
 	Deps() []string
 }
 
+// Tasks is an interface for lists of types that could be in a DAG
 type Tasks interface {
 	Items() []Task
 }
@@ -46,7 +48,7 @@ type Node struct {
 
 // Graph represents the Pipeline Graph
 type Graph struct {
-	//Nodes represent map of PipelineTask name to Node in Pipeline Graph
+	// Nodes represent map of PipelineTask name to Node in Pipeline Graph
 	Nodes map[string]*Node
 }
 
@@ -67,17 +69,16 @@ func (g *Graph) addPipelineTask(t Task) (*Node, error) {
 }
 
 // Build returns a valid pipeline Graph. Returns error if the pipeline is invalid
-func Build(tasks Tasks) (*Graph, error) {
+func Build(tasks Tasks, deps map[string][]string) (*Graph, error) {
 	d := newGraph()
 
-	deps := map[string][]string{}
 	// Add all Tasks mentioned in the `PipelineSpec`
 	for _, pt := range tasks.Items() {
 		if _, err := d.addPipelineTask(pt); err != nil {
 			return nil, fmt.Errorf("task %s is already present in Graph, can't add it again: %w", pt.HashKey(), err)
 		}
-		deps[pt.HashKey()] = pt.Deps()
 	}
+
 	// Process all from and runAfter constraints to add task dependency
 	for pt, taskDeps := range deps {
 		for _, previousTask := range taskDeps {
@@ -89,12 +90,11 @@ func Build(tasks Tasks) (*Graph, error) {
 	return d, nil
 }
 
-// GetSchedulable returns a map of PipelineTask that can be scheduled (keyed
-// by the name of the PipelineTask) given a list of successfully finished doneTasks.
-// It returns tasks which have all dependecies marked as done, and thus can be scheduled. If the
-// specified doneTasks are invalid (i.e. if it is indicated that a Task is
-// done, but the previous Tasks are not done), an error is returned.
-func GetSchedulable(g *Graph, doneTasks ...string) (sets.String, error) {
+// GetCandidateTasks returns a set of names of PipelineTasks whose ancestors are all completed,
+// given a list of finished doneTasks. If the specified
+// doneTasks are invalid (i.e. if it is indicated that a Task is done, but the
+// previous Tasks are not done), an error is returned.
+func GetCandidateTasks(g *Graph, doneTasks ...string) (sets.String, error) {
 	roots := getRoots(g)
 	tm := sets.NewString(doneTasks...)
 	d := sets.NewString()
@@ -126,9 +126,8 @@ func linkPipelineTasks(prev *Node, next *Node) error {
 		return fmt.Errorf("cycle detected; task %q depends on itself", next.Task.HashKey())
 	}
 	// Check if we are adding cycles.
-	visited := map[string]bool{prev.Task.HashKey(): true, next.Task.HashKey(): true}
 	path := []string{next.Task.HashKey(), prev.Task.HashKey()}
-	if err := visit(next.Task.HashKey(), prev.Prev, path, visited); err != nil {
+	if err := lookForNode(prev.Prev, path, next.Task.HashKey()); err != nil {
 		return fmt.Errorf("cycle detected: %w", err)
 	}
 	next.Prev = append(next.Prev, prev)
@@ -136,14 +135,13 @@ func linkPipelineTasks(prev *Node, next *Node) error {
 	return nil
 }
 
-func visit(currentName string, nodes []*Node, path []string, visited map[string]bool) error {
+func lookForNode(nodes []*Node, path []string, next string) error {
 	for _, n := range nodes {
 		path = append(path, n.Task.HashKey())
-		if _, ok := visited[n.Task.HashKey()]; ok {
+		if n.Task.HashKey() == next {
 			return errors.New(getVisitedPath(path))
 		}
-		visited[currentName+"."+n.Task.HashKey()] = true
-		if err := visit(n.Task.HashKey(), n.Prev, path, visited); err != nil {
+		if err := lookForNode(n.Prev, path, next); err != nil {
 			return err
 		}
 	}

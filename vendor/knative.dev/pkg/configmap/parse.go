@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/api/validation"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
@@ -43,7 +45,23 @@ func AsString(key string, target *string) ParseFunc {
 func AsBool(key string, target *bool) ParseFunc {
 	return func(data map[string]string) error {
 		if raw, ok := data[key]; ok {
-			*target = strings.EqualFold(raw, "true")
+			val, err := strconv.ParseBool(raw)
+			*target = val // If err != nil — this is always false.
+			return err
+		}
+		return nil
+	}
+}
+
+// AsInt16 parses the value at key as an int16 into the target, if it exists.
+func AsInt16(key string, target *int16) ParseFunc {
+	return func(data map[string]string) error {
+		if raw, ok := data[key]; ok {
+			val, err := strconv.ParseInt(raw, 10, 16)
+			if err != nil {
+				return fmt.Errorf("failed to parse %q: %w", key, err)
+			}
+			*target = int16(val)
 		}
 		return nil
 	}
@@ -72,6 +90,34 @@ func AsInt64(key string, target *int64) ParseFunc {
 				return fmt.Errorf("failed to parse %q: %w", key, err)
 			}
 			*target = val
+		}
+		return nil
+	}
+}
+
+// AsInt parses the value at key as an int into the target, if it exists.
+func AsInt(key string, target *int) ParseFunc {
+	return func(data map[string]string) error {
+		if raw, ok := data[key]; ok {
+			val, err := strconv.Atoi(raw)
+			if err != nil {
+				return fmt.Errorf("failed to parse %q: %w", key, err)
+			}
+			*target = val
+		}
+		return nil
+	}
+}
+
+// AsUint16 parses the value at key as an uint16 into the target, if it exists.
+func AsUint16(key string, target *uint16) ParseFunc {
+	return func(data map[string]string) error {
+		if raw, ok := data[key]; ok {
+			val, err := strconv.ParseUint(raw, 10, 16)
+			if err != nil {
+				return fmt.Errorf("failed to parse %q: %w", key, err)
+			}
+			*target = uint16(val)
 		}
 		return nil
 	}
@@ -123,7 +169,11 @@ func AsDuration(key string, target *time.Duration) ParseFunc {
 func AsStringSet(key string, target *sets.String) ParseFunc {
 	return func(data map[string]string) error {
 		if raw, ok := data[key]; ok {
-			*target = sets.NewString(strings.Split(raw, ",")...)
+			splitted := strings.Split(raw, ",")
+			for i, v := range splitted {
+				splitted[i] = strings.TrimSpace(v)
+			}
+			*target = sets.NewString(splitted...)
 		}
 		return nil
 	}
@@ -144,6 +194,47 @@ func AsQuantity(key string, target **resource.Quantity) ParseFunc {
 	}
 }
 
+// AsOptionalNamespacedName parses the value at key as a types.NamespacedName into the target, if it exists
+// The namespace and name are both required and expected to be valid DNS labels
+func AsOptionalNamespacedName(key string, target **types.NamespacedName) ParseFunc {
+	return func(data map[string]string) error {
+		if _, ok := data[key]; !ok {
+			return nil
+		}
+
+		*target = &types.NamespacedName{}
+		return AsNamespacedName(key, *target)(data)
+	}
+}
+
+// AsNamespacedName parses the value at key as a types.NamespacedName into the target, if it exists
+// The namespace and name are both required and expected to be valid DNS labels
+func AsNamespacedName(key string, target *types.NamespacedName) ParseFunc {
+	return func(data map[string]string) error {
+		raw, ok := data[key]
+		if !ok {
+			return nil
+		}
+
+		v := strings.SplitN(raw, string(types.Separator), 3)
+
+		if len(v) != 2 {
+			return fmt.Errorf("failed to parse %q: expected 'namespace/name' format", key)
+		}
+
+		for _, val := range v {
+			if errs := validation.ValidateNamespaceName(val, false); len(errs) > 0 {
+				return fmt.Errorf("failed to parse %q: %s", key, strings.Join(errs, ", "))
+			}
+		}
+
+		target.Namespace = v[0]
+		target.Name = v[1]
+
+		return nil
+	}
+}
+
 // Parse parses the given map using the parser functions passed in.
 func Parse(data map[string]string, parsers ...ParseFunc) error {
 	for _, parse := range parsers {
@@ -152,4 +243,25 @@ func Parse(data map[string]string, parsers ...ParseFunc) error {
 		}
 	}
 	return nil
+}
+
+// CollectMapEntriesWithPrefix parses the data into the target as a map[string]string, if it exists.
+// The map is represented as a list of key-value pairs with a common prefix.
+func CollectMapEntriesWithPrefix(prefix string, target *map[string]string) ParseFunc {
+	if target == nil {
+		panic("target cannot be nil")
+	}
+
+	return func(data map[string]string) error {
+		for k, v := range data {
+			if strings.HasPrefix(k, prefix) && len(k) > len(prefix)+1 {
+				if *target == nil {
+					m := make(map[string]string, 2)
+					*target = m
+				}
+				(*target)[k[len(prefix)+1: /* remove dot `.` */]] = v
+			}
+		}
+		return nil
+	}
 }

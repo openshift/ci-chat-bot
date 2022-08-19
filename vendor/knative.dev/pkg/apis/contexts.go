@@ -18,6 +18,7 @@ package apis
 
 import (
 	"context"
+	"net/http"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -134,6 +135,12 @@ func WithinParent(ctx context.Context, om metav1.ObjectMeta) context.Context {
 	return context.WithValue(ctx, parentMetaKey{}, om)
 }
 
+// IsWithinParent returns true if we're within parent context.
+func IsWithinParent(ctx context.Context) bool {
+	_, ok := ctx.Value(parentMetaKey{}).(metav1.ObjectMeta)
+	return ok
+}
+
 // ParentMeta accesses the ObjectMeta of the enclosing parent resource
 // from the context.  See WithinParent for how to attach the parent's
 // ObjectMeta to the context.
@@ -214,7 +221,8 @@ func IsDifferentNamespaceAllowed(ctx context.Context) bool {
 	return ctx.Value(allowDifferentNamespace{}) != nil
 }
 
-// This is attached to contexts passed to webhook interfaces when the user has request DryRun mode.
+// This is attached to contexts passed to webhook interfaces when the user
+// has requested DryRun mode.
 type isDryRun struct{}
 
 // WithDryRun is used to indicate that this call is in DryRun mode.
@@ -225,4 +233,23 @@ func WithDryRun(ctx context.Context) context.Context {
 // IsDryRun indicates that this request is in DryRun mode.
 func IsDryRun(ctx context.Context) bool {
 	return ctx.Value(isDryRun{}) != nil
+}
+
+// This is attached to contexts passed to webhook interfaces with
+// additional context from the HTTP request.
+type httpReq struct{}
+
+// WithHTTPRequest associated the HTTP request object the webhook
+// received with the context.
+func WithHTTPRequest(ctx context.Context, r *http.Request) context.Context {
+	return context.WithValue(ctx, httpReq{}, r)
+}
+
+// GetHTTPRequest fetches the raw HTTP request received by the webhook.
+func GetHTTPRequest(ctx context.Context) *http.Request {
+	v := ctx.Value(httpReq{})
+	if v == nil {
+		return nil
+	}
+	return v.(*http.Request)
 }

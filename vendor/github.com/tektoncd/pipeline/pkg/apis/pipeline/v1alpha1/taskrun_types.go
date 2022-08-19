@@ -23,18 +23,10 @@ import (
 	apisconfig "github.com/tektoncd/pipeline/pkg/apis/config"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/clock"
 	"knative.dev/pkg/apis"
-)
-
-var (
-	taskRunGroupVersionKind = schema.GroupVersionKind{
-		Group:   SchemeGroupVersion.Group,
-		Version: SchemeGroupVersion.Version,
-		Kind:    pipeline.TaskRunControllerName,
-	}
 )
 
 // TaskRunSpec defines the desired state of TaskRun
@@ -170,19 +162,9 @@ type TaskRunList struct {
 	Items           []TaskRun `json:"items"`
 }
 
-// GetBuildPodRef for task
-func (tr *TaskRun) GetBuildPodRef() corev1.ObjectReference {
-	return corev1.ObjectReference{
-		APIVersion: "v1",
-		Kind:       "Pod",
-		Namespace:  tr.Namespace,
-		Name:       tr.Name,
-	}
-}
-
-// GetOwnerReference gets the task run as owner reference for any related objects
-func (tr *TaskRun) GetOwnerReference() metav1.OwnerReference {
-	return *metav1.NewControllerRef(tr, taskRunGroupVersionKind)
+// GetGroupVersionKind implements kmeta.OwnerRefable.
+func (*TaskRun) GetGroupVersionKind() schema.GroupVersionKind {
+	return SchemeGroupVersion.WithKind(pipeline.TaskRunControllerName)
 }
 
 // GetPipelineRunPVCName for taskrun gets pipelinerun
@@ -230,7 +212,7 @@ func (tr *TaskRun) IsCancelled() bool {
 }
 
 // HasTimedOut returns true if the TaskRun runtime is beyond the allowed timeout
-func (tr *TaskRun) HasTimedOut() bool {
+func (tr *TaskRun) HasTimedOut(c clock.PassiveClock) bool {
 	if tr.Status.StartTime.IsZero() {
 		return false
 	}
@@ -239,10 +221,11 @@ func (tr *TaskRun) HasTimedOut() bool {
 	if timeout == apisconfig.NoTimeoutDuration {
 		return false
 	}
-	runtime := time.Since(tr.Status.StartTime.Time)
+	runtime := c.Since(tr.Status.StartTime.Time)
 	return runtime > timeout
 }
 
+// GetTimeout returns the timeout for the TaskRun, or the default if not specified
 func (tr *TaskRun) GetTimeout() time.Duration {
 	// Use the platform default is no timeout is set
 	if tr.Spec.Timeout == nil {
@@ -264,8 +247,8 @@ func (tr *TaskRun) IsPartOfPipeline() (bool, string, string) {
 		return false, "", ""
 	}
 
-	if pl, ok := tr.Labels[pipeline.GroupName+pipeline.PipelineLabelKey]; ok {
-		return true, pl, tr.Labels[pipeline.GroupName+pipeline.PipelineRunLabelKey]
+	if pl, ok := tr.Labels[pipeline.PipelineLabelKey]; ok {
+		return true, pl, tr.Labels[pipeline.PipelineRunLabelKey]
 	}
 
 	return false, "", ""

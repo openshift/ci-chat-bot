@@ -18,23 +18,14 @@ package v1alpha1
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/tektoncd/pipeline/pkg/apis/config"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/clock"
 	"knative.dev/pkg/apis"
-)
-
-var (
-	groupVersionKind = schema.GroupVersionKind{
-		Group:   SchemeGroupVersion.Group,
-		Version: SchemeGroupVersion.Version,
-		Kind:    pipeline.PipelineRunControllerName,
-	}
 )
 
 // +genclient
@@ -58,6 +49,7 @@ type PipelineRun struct {
 	Status PipelineRunStatus `json:"status,omitempty"`
 }
 
+// GetName returns the PipelineRun's name
 func (pr *PipelineRun) GetName() string {
 	return pr.ObjectMeta.GetName()
 }
@@ -102,7 +94,7 @@ type PipelineRunSpecStatus = v1beta1.PipelineRunSpecStatus
 const (
 	// PipelineRunSpecStatusCancelled indicates that the user wants to cancel the task,
 	// if not already cancelled or terminated
-	PipelineRunSpecStatusCancelled = v1beta1.PipelineRunSpecStatusCancelled
+	PipelineRunSpecStatusCancelled = v1beta1.PipelineRunSpecStatusCancelledDeprecated
 )
 
 // PipelineResourceRef can be used to refer to a specific instance of a Resource
@@ -123,8 +115,6 @@ type PipelineRunStatusFields = v1beta1.PipelineRunStatusFields
 // PipelineRunTaskRunStatus contains the name of the PipelineTask for this TaskRun and the TaskRun's Status
 type PipelineRunTaskRunStatus = v1beta1.PipelineRunTaskRunStatus
 
-type PipelineRunConditionCheckStatus = v1beta1.PipelineRunConditionCheckStatus
-
 // PipelineRunSpecServiceAccountName can be used to configure specific
 // ServiceAccountName for a concrete Task
 type PipelineRunSpecServiceAccountName = v1beta1.PipelineRunSpecServiceAccountName
@@ -144,19 +134,9 @@ type PipelineRunList struct {
 // and produces logs.
 type PipelineTaskRun = v1beta1.PipelineTaskRun
 
-// GetTaskRunRef for pipelinerun
-func (pr *PipelineRun) GetTaskRunRef() corev1.ObjectReference {
-	return corev1.ObjectReference{
-		APIVersion: SchemeGroupVersion.String(),
-		Kind:       "TaskRun",
-		Namespace:  pr.Namespace,
-		Name:       pr.Name,
-	}
-}
-
-// GetOwnerReference gets the pipeline run as owner reference for any related objects
-func (pr *PipelineRun) GetOwnerReference() metav1.OwnerReference {
-	return *metav1.NewControllerRef(pr, groupVersionKind)
+// GetGroupVersionKind implements kmeta.OwnerRefable.
+func (*PipelineRun) GetGroupVersionKind() schema.GroupVersionKind {
+	return SchemeGroupVersion.WithKind(pipeline.PipelineRunControllerName)
 }
 
 // IsDone returns true if the PipelineRun's status indicates that it is done.
@@ -181,7 +161,7 @@ func (pr *PipelineRun) GetRunKey() string {
 }
 
 // IsTimedOut returns true if a pipelinerun has exceeded its spec.Timeout based on its status.Timeout
-func (pr *PipelineRun) IsTimedOut() bool {
+func (pr *PipelineRun) IsTimedOut(c clock.PassiveClock) bool {
 	pipelineTimeout := pr.Spec.Timeout
 	startTime := pr.Status.StartTime
 
@@ -190,7 +170,7 @@ func (pr *PipelineRun) IsTimedOut() bool {
 		if timeout == config.NoTimeoutDuration {
 			return false
 		}
-		runtime := time.Since(startTime.Time)
+		runtime := c.Since(startTime.Time)
 		if runtime > timeout {
 			return true
 		}

@@ -26,13 +26,16 @@ import (
 
 	"knative.dev/pkg/apis"
 	"knative.dev/pkg/apis/duck/ducktypes"
-	"knative.dev/pkg/kmeta"
+	"knative.dev/pkg/kmap"
 )
 
 // +genduck
 
 // Conditions is a simple wrapper around apis.Conditions to implement duck.Implementable.
 type Conditions apis.Conditions
+
+// Conditions is an Implementable duck type.
+var _ ducktypes.Implementable = (*Conditions)(nil)
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
@@ -81,8 +84,11 @@ func (s *Status) SetConditions(c apis.Conditions) {
 	s.Conditions = Conditions(c)
 }
 
-// Ensure KResource satisfies apis.Listable
-var _ apis.Listable = (*KResource)(nil)
+// Verify KResource resources meet duck contracts.
+var (
+	_ apis.Listable         = (*KResource)(nil)
+	_ ducktypes.Populatable = (*KResource)(nil)
+)
 
 // GetFullType implements duck.Implementable
 func (*Conditions) GetFullType() ducktypes.Populatable {
@@ -100,13 +106,12 @@ func (s *Status) GetCondition(t apis.ConditionType) *apis.Condition {
 }
 
 // ConvertTo helps implement apis.Convertible for types embedding this Status.
-func (source *Status) ConvertTo(ctx context.Context, sink *Status) {
-	sink.ObservedGeneration = source.ObservedGeneration
-	if source.Annotations != nil {
-		// This will deep copy the map.
-		sink.Annotations = kmeta.UnionMaps(source.Annotations)
+func (s *Status) ConvertTo(ctx context.Context, sink *Status) {
+	sink.ObservedGeneration = s.ObservedGeneration
+	if s.Annotations != nil {
+		sink.Annotations = kmap.Copy(s.Annotations)
 	}
-	for _, c := range source.Conditions {
+	for _, c := range s.Conditions {
 		switch c.Type {
 		// Copy over the "happy" condition, which is the only condition that
 		// we can reliably transfer.

@@ -30,14 +30,18 @@ import (
 
 var _ apis.Validatable = (*PipelineResource)(nil)
 
+// Validate validates the PipelineResource's ObjectMeta and Spec
 func (r *PipelineResource) Validate(ctx context.Context) *apis.FieldError {
 	if err := validate.ObjectMetadata(r.GetObjectMeta()); err != nil {
 		return err.ViaField("metadata")
 	}
-
+	if apis.IsInDelete(ctx) {
+		return nil
+	}
 	return r.Spec.Validate(ctx)
 }
 
+// Validate validates the PipelineResourceSpec based on its type
 func (rs *PipelineResourceSpec) Validate(ctx context.Context) *apis.FieldError {
 	if equality.Semantic.DeepEqual(rs, &PipelineResourceSpec{}) {
 		return apis.ErrMissingField("spec.type")
@@ -124,17 +128,12 @@ func (rs *PipelineResourceSpec) Validate(ctx context.Context) *apis.FieldError {
 		}
 	}
 
-	return apis.ErrInvalidValue("spec.type", string(rs.Type))
+	return apis.ErrInvalidValue("spec.type", rs.Type)
 }
 
+// AllowedStorageType returns true if the provided string can be used as a storage type, and false otherwise
 func AllowedStorageType(gotType string) bool {
-	switch gotType {
-	case string(PipelineResourceTypeGCS):
-		return true
-	case string(PipelineResourceTypeBuildGCS):
-		return true
-	}
-	return false
+	return gotType == PipelineResourceTypeGCS
 }
 
 func validateURL(u, path string) *apis.FieldError {

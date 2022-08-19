@@ -24,11 +24,17 @@ import (
 
 var _ apis.Defaultable = (*Pipeline)(nil)
 
+// SetDefaults sets default values on the Pipeline's Spec
 func (p *Pipeline) SetDefaults(ctx context.Context) {
 	p.Spec.SetDefaults(ctx)
 }
 
+// SetDefaults sets default values for the PipelineSpec's Params, Tasks, and Finally
 func (ps *PipelineSpec) SetDefaults(ctx context.Context) {
+	for i := range ps.Params {
+		ps.Params[i].SetDefaults(ctx)
+	}
+
 	for _, pt := range ps.Tasks {
 		if pt.TaskRef != nil {
 			if pt.TaskRef.Kind == "" {
@@ -39,10 +45,9 @@ func (ps *PipelineSpec) SetDefaults(ctx context.Context) {
 			pt.TaskSpec.SetDefaults(ctx)
 		}
 	}
-	for i := range ps.Params {
-		ps.Params[i].SetDefaults(ctx)
-	}
+
 	for _, ft := range ps.Finally {
+		ctx := ctx // Ensure local scoping per Task
 		if ft.TaskRef != nil {
 			if ft.TaskRef.Kind == "" {
 				ft.TaskRef.Kind = NamespacedTaskKind
