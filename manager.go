@@ -705,7 +705,16 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		return "", "", "", fmt.Errorf("Unsupported architecture: %s", architecture)
 	}
 
-	for ns, isName := range imagestreams {
+	// To ensure that we always return "ocp" clusters first, we must sort the maps's keys
+	// and iterate over the sorted slice instead of the map.
+	keys := make([]string, 0, len(imagestreams))
+	for key, _ := range imagestreams {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, ns := range keys {
+		isName := imagestreams[ns]
 		is, err := m.imageClient.ImageV1().ImageStreams(ns).Get(context.TODO(), isName, metav1.GetOptions{})
 		if err != nil {
 			continue
