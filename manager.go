@@ -1211,15 +1211,21 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 	default:
 		return "", fmt.Errorf("Unknown job type %s", jobType)
 	}
+	_, okTest := params["test"]
+	_, okNoSpot := params["no-spot"]
+	if len(params) == 0 || (len(params) == 1 && (okTest || okNoSpot)) {
+		return prefix, nil
+	}
 	platformParams := multistageParamsForPlatform(platform)
 	variants := sets.NewString()
 	for k := range params {
+		// the `no-spot` param is just a dummy param to disable use of spot instances for basic aws cluster launches
+		if k == "no-spot" {
+			continue
+		}
 		if contains(supportedParameters, k) && !platformParams.Has(k) && k != "test" { // we only need parameters that are not configured via multistage env vars
 			variants.Insert(k)
 		}
-	}
-	if _, ok := params["test"]; len(params) == 0 || (len(params) == 1 && ok) {
-		return prefix, nil
 	}
 	return fmt.Sprintf("%s-%s", prefix, strings.Join(variants.List(), "-")), nil
 }
@@ -1387,6 +1393,13 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	msg = ""
 	if job.LegacyConfig {
 		msg = "WARNING: using legacy template based job for this cluster. This is unsupported and the cluster may not install as expected. Contact #forum-crt for more information.\n"
+	}
+
+	if UseSpotInstances(job) {
+		msg = fmt.Sprintf("%s\nThis AWS cluster will use Spot instances for the worker nodes.", msg)
+		msg = fmt.Sprintf("%s This means that worker nodes may unexpectedly disappear, but will be replaced automatically.", msg)
+		msg = fmt.Sprintf("%s If your workload cannot tolerate disruptions, add the `no-spot` option to the options argument when launching your cluster.", msg)
+		msg = fmt.Sprintf("%s For more information on Spot instances, see this blog post: https://cloud.redhat.com/blog/a-guide-to-red-hat-openshift-and-aws-spot-instances.\n\n", msg)
 	}
 
 	if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
@@ -1557,4 +1570,8 @@ func (m *jobManager) finishJob(name string) {
 	defer m.muJob.lock.Unlock()
 
 	delete(m.muJob.running, name)
+}
+
+func UseSpotInstances(job *Job) bool {
+	return job.Mode == JobTypeLaunch && len(job.JobParams) == 0 && job.Platform == "aws"
 }

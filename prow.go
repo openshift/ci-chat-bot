@@ -62,7 +62,7 @@ var supportedUpgradeTests = []string{"e2e-upgrade", "e2e-upgrade-all", "e2e-upgr
 var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "hypershift", "ovirt", "openstack"}
 
 // supportedParameters are the allowed parameter keys that can be passed to jobs
-var supportedParameters = []string{"ovn", "ovn-hybrid", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv4", "ipv6", "dualstack", "preserve-bootstrap", "test", "rt", "single-node", "cgroupsv2", "techpreview", "upi", "crun", "nfv", "kuryr", "sdn"}
+var supportedParameters = []string{"ovn", "ovn-hybrid", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv4", "ipv6", "dualstack", "preserve-bootstrap", "test", "rt", "single-node", "cgroupsv2", "techpreview", "upi", "crun", "nfv", "kuryr", "sdn", "no-spot"}
 
 // multistageParameters is the mapping of supportedParameters that can be configured via multistage parameters to the correct environment variable format
 var multistageParameters = map[string]envVar{
@@ -516,6 +516,9 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			// TODO: Remove once all launch jobs are step based
 			prow.SetJobEnvVar(&pj.Spec, "TEST_COMMAND", commands)
 		} else {
+			if UseSpotInstances(job) {
+				matchedTarget.MultiStageTestConfiguration.Environment["SPOT_INSTANCES"] = "true"
+			}
 			envParams := sets.NewString()
 			platformParams := multistageParamsForPlatform(job.Platform)
 			for k := range job.JobParams {
