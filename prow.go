@@ -189,7 +189,7 @@ func testStepForPlatform(platform string) string {
 }
 
 // supportedArchitectures are the allowed architectures that can be passed to jobs
-var supportedArchitectures = []string{"amd64", "arm64"}
+var supportedArchitectures = []string{"amd64", "arm64", "multi"}
 
 var (
 	// reReleaseVersion detects whether a branch appears to correlate to a release branch

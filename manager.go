@@ -670,12 +670,12 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 
 var reMajorMinorVersion = regexp.MustCompile(`^(\d+)\.(\d+)$`)
 
-func buildPullSpec(namespace, tagName, archSuffix string) string {
+func buildPullSpec(namespace, tagName, isName string) string {
 	var delimiter = ":"
 	if strings.HasPrefix(tagName, "sha256:") {
 		delimiter = "@"
 	}
-	return fmt.Sprintf("registry.ci.openshift.org/%s/release%s%s%s", namespace, archSuffix, delimiter, tagName)
+	return fmt.Sprintf("registry.ci.openshift.org/%s/%s%s%s", namespace, isName, delimiter, tagName)
 }
 
 // resolveImageOrVersion returns installSpec, tag name or version, runSpec, and error
@@ -692,36 +692,40 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		return unresolved, "", "", nil
 	}
 
-	imagestreams := make(map[string]string)
-	archSuffix := ""
+	type namespaceAndStream struct {
+		Namespace   string
+		Imagestream string
+		ArchSuffix  string
+	}
+
+	imagestreams := []namespaceAndStream{}
 	switch architecture {
 	case "amd64":
-		imagestreams["ocp"] = "release"
-		imagestreams["origin"] = "release"
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "release"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "origin", Imagestream: "release"})
 	case "arm64":
-		imagestreams["ocp-arm64"] = "release-arm64"
-		archSuffix = "-arm64"
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-arm64", Imagestream: "release-arm64", ArchSuffix: "-arm64"})
+	case "multi":
+		// the release-controller cannot assemble multi-arch release, so we must use the `art-latest` streams instead of `release-multi`
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.12-art-latest-multi", ArchSuffix: "-multi"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.11-art-latest-multi", ArchSuffix: "-multi"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.10-art-latest-multi", ArchSuffix: "-multi"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.9-art-latest-multi", ArchSuffix: "-multi"})
 	default:
 		return "", "", "", fmt.Errorf("Unsupported architecture: %s", architecture)
 	}
 
-	// To ensure that we always return "ocp" clusters first, we must sort the maps's keys
-	// and iterate over the sorted slice instead of the map.
-	keys := make([]string, 0, len(imagestreams))
-	for key, _ := range imagestreams {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	for _, ns := range keys {
-		isName := imagestreams[ns]
+	for _, nsAndStream := range imagestreams {
+		ns := nsAndStream.Namespace
+		isName := nsAndStream.Imagestream
+		archSuffix := nsAndStream.ArchSuffix
 		is, err := m.imageClient.ImageV1().ImageStreams(ns).Get(context.TODO(), isName, metav1.GetOptions{})
 		if err != nil {
 			continue
 		}
 
 		var amd64IS *imagev1.ImageStream
-		if architecture != "amd64" {
+		if architecture != "amd64" && architecture != "multi" {
 			amd64IS, err = m.imageClient.ImageV1().ImageStreams("ocp").Get(context.TODO(), "release", metav1.GetOptions{})
 			if err != nil {
 				return "", "", "", fmt.Errorf("failed to get ocp release imagstream: %w", err)
@@ -731,37 +735,37 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		if m := reMajorMinorVersion.FindStringSubmatch(unresolved); m != nil {
 			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.nightly%s", unresolved, archSuffix)); tag != nil {
 				klog.Infof("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
-				installSpec := buildPullSpec(ns, tag.Name, archSuffix)
+				installSpec := buildPullSpec(ns, tag.Name, isName)
 				runSpec := ""
-				if architecture == "amd64" {
+				if architecture == "amd64" || architecture == "multi" {
 					runSpec = installSpec
 				} else {
 					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("%s.0-0.nightly", unresolved))
-					runSpec = buildPullSpec("ocp", runTag.Name, "")
+					runSpec = buildPullSpec("ocp", runTag.Name, "release")
 				}
 				return installSpec, tag.Name, runSpec, nil
 			}
 			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.ci%s", unresolved, archSuffix)); tag != nil {
 				klog.Infof("Resolved major.minor %s to ci tag %s", imageOrVersion, tag.Name)
-				installSpec := buildPullSpec(ns, tag.Name, archSuffix)
+				installSpec := buildPullSpec(ns, tag.Name, isName)
 				runSpec := ""
-				if architecture == "amd64" {
+				if architecture == "amd64" || architecture == "multi" {
 					runSpec = installSpec
 				} else {
 					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("%s.0-0.ci", unresolved))
-					runSpec = buildPullSpec("ocp", runTag.Name, "")
+					runSpec = buildPullSpec("ocp", runTag.Name, "release")
 				}
 				return installSpec, tag.Name, runSpec, nil
 			}
 			if tag := findNewestStableImageSpecTagBySemanticMajor(is, unresolved, architecture); tag != nil {
 				klog.Infof("Resolved major.minor %s to semver tag %s", imageOrVersion, tag.Name)
-				installSpec := buildPullSpec(ns, tag.Name, archSuffix)
+				installSpec := buildPullSpec(ns, tag.Name, isName)
 				runSpec := ""
-				if architecture == "amd64" {
+				if architecture == "amd64" || architecture == "multi" {
 					runSpec = installSpec
 				} else {
 					runTag := findNewestImageSpecTagWithStream(amd64IS, unresolved)
-					runSpec = buildPullSpec("ocp", runTag.Name, "")
+					runSpec = buildPullSpec("ocp", runTag.Name, "release")
 				}
 				return installSpec, tag.Name, runSpec, nil
 			}
@@ -777,9 +781,9 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		if tag, name := findImageStatusTag(is, unresolved); tag != nil {
 			klog.Infof("Resolved %s to image %s", imageOrVersion, tag.Image)
 			// identify nightly stream for runspec if not amd64
-			installSpec := buildPullSpec(ns, tag.Image, archSuffix)
+			installSpec := buildPullSpec(ns, tag.Image, isName)
 			runSpec := ""
-			if architecture == "amd64" {
+			if architecture == "amd64" || architecture == "multi" {
 				runSpec = installSpec
 			} else {
 				// if it's a nightly, just get the latest image from the nightly stream
@@ -790,10 +794,10 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 						return "", "", "", fmt.Errorf("failed to identify semver for image %s: %w", tag.Image, err)
 					}
 					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("4.%d.0-0.nightly", ver.Minor))
-					runSpec = buildPullSpec("ocp", runTag.Name, "")
+					runSpec = buildPullSpec("ocp", runTag.Name, "release")
 				} else {
 					runTag, _ := findImageStatusTag(amd64IS, unresolved)
-					runSpec = buildPullSpec("ocp", runTag.Image, "")
+					runSpec = buildPullSpec("ocp", runTag.Image, "release")
 				}
 			}
 			return installSpec, name, runSpec, nil
@@ -802,9 +806,9 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		if tag := findNewestImageSpecTagWithStream(is, unresolved); tag != nil {
 			klog.Infof("Resolved %s to tag %s", imageOrVersion, tag.Name)
 			// identify nightly stream for runspec if not amd64
-			installSpec := buildPullSpec(ns, tag.Name, archSuffix)
+			installSpec := buildPullSpec(ns, tag.Name, isName)
 			runSpec := ""
-			if architecture == "amd64" {
+			if architecture == "amd64" || architecture == "multi" {
 				runSpec = installSpec
 			} else {
 				// if it's a nightly, just get the latest image from the nightly stream
@@ -815,10 +819,10 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 						return "", "", "", fmt.Errorf("failed to identify semver for image %s: %w", tag.Name, err)
 					}
 					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("4.%d.0-0.nightly", ver.Minor))
-					runSpec = buildPullSpec("ocp", runTag.Name, "")
+					runSpec = buildPullSpec("ocp", runTag.Name, "release")
 				} else {
 					runTag := findNewestImageSpecTagWithStream(amd64IS, unresolved)
-					runSpec = buildPullSpec("ocp", runTag.Name, "")
+					runSpec = buildPullSpec("ocp", runTag.Name, "release")
 				}
 			}
 			return installSpec, tag.Name, runSpec, nil
@@ -829,7 +833,6 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 	if architecture == "amd64" {
 		errMsg = fmt.Errorf("%s or https://amd64.origin.releases.ci.openshift.org", errMsg)
 	}
-
 	return "", "", "", errMsg
 }
 
@@ -1296,7 +1299,12 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		// Currently, there is an important difference between the template e2e-upgrade-all test and what can be done with the step-registry tests.
 		// For now, fallback to templates for this test until this difference can be resolved.
 		if test := job.JobParams["test"]; test != "e2e-upgrade-all" {
-			primarySelector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "modern", "job-architecture": job.Architecture} // these jobs will only contain configs using non-deprecated features
+			architectureLabel := req.Architecture
+			// multiarch image launches use amd64 jobs
+			if architectureLabel == "multi" {
+				architectureLabel = "amd64"
+			}
+			primarySelector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "modern", "job-architecture": architectureLabel} // these jobs will only contain configs using non-deprecated features
 			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(primarySelector))
 			if prowJob != nil {
 				if sourceEnv, _, ok := firstEnvVar(prowJob.Spec.PodSpec, "UNRESOLVED_CONFIG"); ok { // all multistage configs will be unresolved
