@@ -709,8 +709,6 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		// the release-controller cannot assemble multi-arch release, so we must use the `art-latest` streams instead of `release-multi`
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.12-art-latest-multi", ArchSuffix: "-multi"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.11-art-latest-multi", ArchSuffix: "-multi"})
-		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.10-art-latest-multi", ArchSuffix: "-multi"})
-		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.9-art-latest-multi", ArchSuffix: "-multi"})
 	default:
 		return "", "", "", fmt.Errorf("Unsupported architecture: %s", architecture)
 	}
