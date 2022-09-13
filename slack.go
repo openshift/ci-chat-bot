@@ -766,9 +766,7 @@ func parseOptions(options string) (string, string, map[string]string, error) {
 	}
 	if len(platform) == 0 {
 		switch architecture {
-		case "amd64":
-			platform = "gcp"
-		case "arm64", "multi":
+		case "amd64", "arm64", "multi":
 			platform = "aws"
 		default:
 			return "", "", nil, fmt.Errorf("unknown architecture: %s", architecture)
