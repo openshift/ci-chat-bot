@@ -1588,5 +1588,5 @@ func (m *jobManager) finishJob(name string) {
 }
 
 func UseSpotInstances(job *Job) bool {
-	return job.Mode == JobTypeLaunch && len(job.JobParams) == 0 && job.Platform == "aws"
+	return job.Mode == JobTypeLaunch && len(job.JobParams) == 0 && (job.Platform == "aws" || job.Platform == "aws-2")
 }
