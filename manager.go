@@ -702,9 +702,11 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 	switch architecture {
 	case "amd64":
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "release"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "4-dev-preview"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "origin", Imagestream: "release"})
 	case "arm64":
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-arm64", Imagestream: "release-arm64", ArchSuffix: "-arm64"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-arm64", Imagestream: "4-dev-preview-arm64", ArchSuffix: "-arm64"})
 	case "multi":
 		// the release-controller cannot assemble multi-arch release, so we must use the `art-latest` streams instead of `release-multi`
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.12-art-latest-multi", ArchSuffix: "-multi"})
@@ -724,7 +726,7 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 
 		var amd64IS *imagev1.ImageStream
 		if architecture != "amd64" && architecture != "multi" {
-			amd64IS, err = m.imageClient.ImageV1().ImageStreams("ocp").Get(context.TODO(), "release", metav1.GetOptions{})
+			amd64IS, err = m.imageClient.ImageV1().ImageStreams("ocp").Get(context.TODO(), strings.TrimSuffix(isName, archSuffix), metav1.GetOptions{})
 			if err != nil {
 				return "", "", "", fmt.Errorf("failed to get ocp release imagstream: %w", err)
 			}
