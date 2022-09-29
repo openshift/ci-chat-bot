@@ -34,14 +34,17 @@ import (
 )
 
 var (
-	reBuildClusterName = regexp.MustCompile(`(.*).kubeconfig`)
+	// TODO: I'm leaving this in place to allow the clusterbot to keep working while we switch over to token files. This can be removed once we switch over.
+	reBuildClusterName = regexp.MustCompile(`^(.*).kubeconfig$`)
+
+	reBuildClusterKubeconfig = regexp.MustCompile(`^sa.ci-chat-bot.(.*).config$`)
+	reBuildClusterTokenFile  = regexp.MustCompile(`^sa.ci-chat-bot.(.*).token$`)
 )
 
 type options struct {
 	prowconfig                      configflagutil.ConfigOptions
 	GitHubOptions                   flagutil.GitHubOptions
 	ForcePROwner                    string
-	BuildClusterKubeconfig          string
 	BuildClusterKubeconfigsLocation string
 	ReleaseClusterKubeconfig        string
 	ConfigResolver                  string
@@ -49,6 +52,18 @@ type options struct {
 }
 
 func (o *options) Validate() error {
+	if o.ReleaseClusterKubeconfig != "" {
+		if _, err := os.Stat(o.ReleaseClusterKubeconfig); err != nil {
+			return fmt.Errorf("error accessing --release-cluster-kubeconfig: %w", err)
+		}
+	}
+	if o.BuildClusterKubeconfigsLocation != "" {
+		if fileInfo, err := os.Stat(o.BuildClusterKubeconfigsLocation); err != nil {
+			return fmt.Errorf("error accessing --build-cluster-kubeconfigs-location: %w", err)
+		} else if !fileInfo.IsDir() {
+			return fmt.Errorf("--build-cluster-kubeconfigs-location must be a directory")
+		}
+	}
 	return o.GitHubOptions.Validate(false)
 }
 
@@ -69,10 +84,13 @@ func run() error {
 		ConfigResolver:                  "http://config.ci.openshift.org/config",
 		BuildClusterKubeconfigsLocation: "/var/build-cluster-kubeconfigs",
 	}
+
+	// TODO: After removing this option in the deployment, it will be safe to remove these...
 	var ignored string
+	pflag.StringVar(&ignored, "build-cluster-kubeconfig", ignored, "REMOVED: Kubeconfig to use for buildcluster. Defaults to normal kubeconfig if unset.")
+
 	pflag.StringVar(&opt.ConfigResolver, "config-resolver", opt.ConfigResolver, "A URL pointing to a config resolver for retrieving ci-operator config. You may pass a location on disk with file://<abs_path_to_ci_operator_config>")
 	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
-	pflag.StringVar(&ignored, "build-cluster-kubeconfig", ignored, "REMOVED: Kubeconfig to use for buildcluster. Defaults to normal kubeconfig if unset.")
 	pflag.StringVar(&opt.BuildClusterKubeconfigsLocation, "build-cluster-kubeconfigs-location", opt.BuildClusterKubeconfigsLocation, "Path to the location of the Kubeconfigs for the various buildclusters. Default is \"/var/build-cluster-kubeconfigs\".")
 	pflag.StringVar(&opt.ReleaseClusterKubeconfig, "release-cluster-kubeconfig", "", "Kubeconfig to use for cluster housing the release imagestreams. Defaults to normal kubeconfig if unset.")
 	pflag.StringVar(&opt.WorkflowConfigPath, "workflow-config-path", "", "Path to config file used for workflow commands")
@@ -170,6 +188,7 @@ func run() error {
 
 type BuildClusterClientConfig struct {
 	KubeconfigPath    string
+	TokenPath         string
 	CoreConfig        *rest.Config
 	CoreClient        *clientset.Clientset
 	ProjectClient     *projectclientset.Clientset
@@ -188,39 +207,59 @@ func readBuildClusterKubeConfigs(location string) (BuildClusterClientConfigMap, 
 		if file.IsDir() {
 			continue
 		}
+
+		var clusterName string
 		fullPath := path.Join(location, file.Name())
+
 		if m := reBuildClusterName.FindStringSubmatch(file.Name()); m != nil {
-			contents, err := ioutil.ReadFile(fullPath)
-			if err != nil {
-				return nil, fmt.Errorf("unable to access kubeconfig %q: %v", file.Name(), err)
+			clusterName = m[1]
+		} else if m := reBuildClusterKubeconfig.FindStringSubmatch(file.Name()); m != nil {
+			clusterName = m[1]
+		} else if m := reBuildClusterTokenFile.FindStringSubmatch(file.Name()); m != nil {
+			clusterName = m[1]
+			if cm, ok := clusterMap[clusterName]; !ok {
+				clusterMap[clusterName] = &BuildClusterClientConfig{
+					TokenPath: fullPath,
+				}
+			} else {
+				cm.TokenPath = fullPath
 			}
-			cfg, err := clientcmd.NewClientConfigFromBytes(contents)
-			if err != nil {
-				return nil, fmt.Errorf("could not load build client configuration: %v", err)
-			}
-			clusterConfig, err := cfg.ClientConfig()
-			if err != nil {
-				return nil, fmt.Errorf("could not load cluster configuration: %v", err)
-			}
-			coreClient, err := clientset.NewForConfig(clusterConfig)
-			if err != nil {
-				return nil, fmt.Errorf("unable to create core client: %v", err)
-			}
-			targetImageClient, err := imageclientset.NewForConfig(clusterConfig)
-			if err != nil {
-				return nil, fmt.Errorf("unable to create target image client: %v", err)
-			}
-			projectClient, err := projectclientset.NewForConfig(clusterConfig)
-			if err != nil {
-				return nil, fmt.Errorf("unable to create project client: %v", err)
-			}
-			clusterMap[m[1]] = &BuildClusterClientConfig{
-				KubeconfigPath:    fullPath,
-				CoreConfig:        clusterConfig,
-				CoreClient:        coreClient,
-				ProjectClient:     projectClient,
-				TargetImageClient: targetImageClient,
-			}
+			continue
+		} else {
+			klog.Warningf("Unrecognized file name: %q", file.Name())
+			continue
+		}
+
+		contents, err := ioutil.ReadFile(fullPath)
+		if err != nil {
+			return nil, fmt.Errorf("unable to access kubeconfig %q: %v", file.Name(), err)
+		}
+		cfg, err := clientcmd.NewClientConfigFromBytes(contents)
+		if err != nil {
+			return nil, fmt.Errorf("could not load build client configuration: %v", err)
+		}
+		clusterConfig, err := cfg.ClientConfig()
+		if err != nil {
+			return nil, fmt.Errorf("could not load cluster configuration: %v", err)
+		}
+		coreClient, err := clientset.NewForConfig(clusterConfig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create core client: %v", err)
+		}
+		targetImageClient, err := imageclientset.NewForConfig(clusterConfig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create target image client: %v", err)
+		}
+		projectClient, err := projectclientset.NewForConfig(clusterConfig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create project client: %v", err)
+		}
+		clusterMap[clusterName] = &BuildClusterClientConfig{
+			KubeconfigPath:    fullPath,
+			CoreConfig:        clusterConfig,
+			CoreClient:        coreClient,
+			ProjectClient:     projectClient,
+			TargetImageClient: targetImageClient,
 		}
 	}
 	return clusterMap, nil
@@ -232,10 +271,14 @@ func setupKubeconfigWatches(clusters BuildClusterClientConfigMap) error {
 		return fmt.Errorf("failed to set up watcher: %w", err)
 	}
 	for _, cluster := range clusters {
-		if _, err := os.Stat(cluster.KubeconfigPath); err != nil {
+		watchFile := cluster.KubeconfigPath
+		if len(cluster.TokenPath) > 0 {
+			watchFile = cluster.TokenPath
+		}
+		if _, err := os.Stat(watchFile); err != nil {
 			continue
 		}
-		if err := watcher.Add(cluster.KubeconfigPath); err != nil {
+		if err := watcher.Add(watchFile); err != nil {
 			return fmt.Errorf("failed to watch %v: %w", cluster, err)
 		}
 	}
