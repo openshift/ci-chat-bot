@@ -256,12 +256,20 @@ func readBuildClusterKubeConfigs(location string) (BuildClusterClientConfigMap, 
 		if err != nil {
 			return nil, fmt.Errorf("unable to create project client: %v", err)
 		}
-		clusterMap[clusterName] = &BuildClusterClientConfig{
-			KubeconfigPath:    fullPath,
-			CoreConfig:        clusterConfig,
-			CoreClient:        coreClient,
-			ProjectClient:     projectClient,
-			TargetImageClient: targetImageClient,
+		if cm, ok := clusterMap[clusterName]; !ok {
+			clusterMap[clusterName] = &BuildClusterClientConfig{
+				KubeconfigPath:    fullPath,
+				CoreConfig:        clusterConfig,
+				CoreClient:        coreClient,
+				ProjectClient:     projectClient,
+				TargetImageClient: targetImageClient,
+			}
+		} else {
+			cm.KubeconfigPath = fullPath
+			cm.CoreConfig = clusterConfig
+			cm.CoreClient = coreClient
+			cm.ProjectClient = projectClient
+			cm.TargetImageClient = targetImageClient
 		}
 	}
 	return clusterMap, nil
