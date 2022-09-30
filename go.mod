@@ -22,8 +22,6 @@ require (
 	github.com/openshift/ci-tools v0.0.0-20220203161918-dbab1f148fc5
 	github.com/openshift/client-go v3.9.0+incompatible
 	github.com/sbstjn/hanu v0.1.0
-	github.com/shomali11/proper v0.0.0-20190608032528-6e70a05688e7 // indirect
-	github.com/shomali11/slacker v0.0.0-20220129203130-6c28a41fb7b0
 	github.com/slack-go/slack v0.10.3
 	github.com/spf13/pflag v1.0.5
 	gopkg.in/fsnotify.v1 v1.4.7
@@ -36,6 +34,8 @@ require (
 	sigs.k8s.io/controller-runtime v0.12.3
 	sigs.k8s.io/yaml v1.3.0
 )
+
+require github.com/sirupsen/logrus v1.8.1 // indirect
 
 require (
 	cloud.google.com/go v0.102.0 // indirect
@@ -125,10 +125,8 @@ require (
 	github.com/prometheus/statsd_exporter v0.21.0 // indirect
 	github.com/satori/go.uuid v1.2.0 // indirect
 	github.com/sbstjn/allot v0.0.0-20161025071122-1f2349af5ccd // indirect
-	github.com/shomali11/commander v0.0.0-20191122162317-51bc574c29ba // indirect
 	github.com/shurcooL/githubv4 v0.0.0-20210725200734-83ba7b4c9228 // indirect
 	github.com/shurcooL/graphql v0.0.0-20181231061246-d48a9a75455f // indirect
-	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/smartystreets/goconvey v1.7.2 // indirect
 	github.com/tektoncd/pipeline v0.36.0 // indirect
 	github.com/trivago/tgo v1.0.7 // indirect

@@ -28,7 +28,6 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	citools "github.com/openshift/ci-tools/pkg/api"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
-	"github.com/slack-go/slack"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/dynamic"
@@ -50,8 +49,8 @@ const (
 type JobRequest struct {
 	OriginalMessage string
 
-	User        string
-	UserProfile *slack.User
+	User     string
+	UserName string
 
 	// Inputs is one or more list of inputs to build a release image. For each input there may be zero or one images or versions, and
 	// zero or more pull requests. If a base image or version is present, the PRs are built relative to that version. If no build
@@ -1053,14 +1052,6 @@ func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) 
 
 func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 	user := req.User
-	var userID string
-	if !strings.HasSuffix(req.UserProfile.Profile.Email, "@redhat.com") {
-		klog.Infof("failed to parse the UserID from the UserProfile email (not a redhat.com email)")
-		userID = ""
-	} else {
-		userID = strings.TrimSuffix(req.UserProfile.Profile.Email, "@redhat.com")
-	}
-
 	if len(user) == 0 {
 		return nil, fmt.Errorf("must specify the name of the user who requested this cluster")
 	}
@@ -1082,7 +1073,7 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		JobParams: req.JobParams,
 
 		RequestedBy:      user,
-		RequesterUserID:  userID,
+		RequesterUserID:  req.UserName,
 		RequestedChannel: req.Channel,
 		RequestedAt:      req.RequestedAt,
 

@@ -49,6 +49,8 @@ type options struct {
 	ReleaseClusterKubeconfig        string
 	ConfigResolver                  string
 	WorkflowConfigPath              string
+	Port                            int
+	GracePeriod                     time.Duration
 }
 
 func (o *options) Validate() error {
@@ -94,6 +96,9 @@ func run() error {
 	pflag.StringVar(&opt.BuildClusterKubeconfigsLocation, "build-cluster-kubeconfigs-location", opt.BuildClusterKubeconfigsLocation, "Path to the location of the Kubeconfigs for the various buildclusters. Default is \"/var/build-cluster-kubeconfigs\".")
 	pflag.StringVar(&opt.ReleaseClusterKubeconfig, "release-cluster-kubeconfig", "", "Kubeconfig to use for cluster housing the release imagestreams. Defaults to normal kubeconfig if unset.")
 	pflag.StringVar(&opt.WorkflowConfigPath, "workflow-config-path", "", "Path to config file used for workflow commands")
+	pflag.IntVar(&opt.Port, "port", 8080, "Port to listen on.")
+	pflag.DurationVar(&opt.GracePeriod, "grace-period", 5*time.Second, "On shutdown, try to handle remaining events for the specified duration.")
+
 	opt.prowconfig.AddFlags(emptyFlags)
 	opt.GitHubOptions.AddFlags(emptyFlags)
 	pflag.CommandLine.AddGoFlagSet(emptyFlags)
@@ -124,9 +129,9 @@ func run() error {
 		return fmt.Errorf("the environment variable BOT_TOKEN must be set")
 	}
 
-	botAppToken := os.Getenv("BOT_APP_TOKEN")
-	if len(botToken) == 0 {
-		return fmt.Errorf("the environment variable BOT_APP_TOKEN must be set")
+	botSigningSecret := os.Getenv("BOT_SIGNING_SECRET")
+	if len(botSigningSecret) == 0 {
+		return fmt.Errorf("the environment variable BOT_SIGNING_SECRET must be set")
 	}
 
 	prowJobKubeconfig, _, _, err := loadKubeconfig()
@@ -177,13 +182,10 @@ func run() error {
 		return fmt.Errorf("unable to load initial configuration: %v", err)
 	}
 
-	bot := NewBot(botToken, botAppToken, &workflows)
-	for {
-		if err := bot.Start(manager); err != nil && !isRetriable(err) {
-			return err
-		}
-		time.Sleep(5 * time.Second)
-	}
+	bot := NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows)
+	bot.Start(manager)
+
+	return err
 }
 
 type BuildClusterClientConfig struct {
