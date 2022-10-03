@@ -109,6 +109,11 @@ func run() error {
 		return fmt.Errorf("unable to validate program arguments: %v", err)
 	}
 
+	err := os.Chdir(opt.BuildClusterKubeconfigsLocation)
+	if err != nil {
+		return fmt.Errorf("unable to change working directory: %v", err)
+	}
+
 	buildClusterClientConfigs, err := readBuildClusterKubeConfigs(opt.BuildClusterKubeconfigsLocation)
 	if err != nil {
 		return fmt.Errorf("unable to load build cluster configurations: %v", err)
