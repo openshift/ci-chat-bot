@@ -268,7 +268,7 @@ func IsReleaseStream(stream string) bool {
 }
 
 // IsReleasePayloadStream determines if the ImageStream holds
-// release paylaod images.
+// release payload images.
 func IsReleasePayloadStream(stream string) bool {
 	return stream == ReleaseImageStream
 }

@@ -4,13 +4,16 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	prowflagutil "k8s.io/test-infra/prow/flagutil"
-	"k8s.io/test-infra/prow/github"
 	"log"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
+
+	"k8s.io/test-infra/prow/config/secret"
+	prowflagutil "k8s.io/test-infra/prow/flagutil"
+	"k8s.io/test-infra/prow/github"
 
 	"k8s.io/client-go/rest"
 	"k8s.io/test-infra/pkg/flagutil"
@@ -20,6 +23,7 @@ import (
 	"github.com/spf13/pflag"
 
 	citools "github.com/openshift/ci-tools/pkg/api"
+	lease "github.com/openshift/ci-tools/pkg/lease"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
@@ -40,6 +44,17 @@ type options struct {
 	WorkflowConfigPath       string
 	Port                     int
 	GracePeriod              time.Duration
+
+	leaseServer                string
+	leaseServerCredentialsFile string
+	leaseClient                leaseClient
+}
+
+// only include the metrics function, as we don't want to create leases
+type leaseClient interface {
+	// Metrics queries the states of a particular resource, for informational
+	// purposes.
+	Metrics(rtype string) (lease.Metrics, error)
 }
 
 func (o *options) Validate() error {
@@ -80,6 +95,8 @@ func run() error {
 	pflag.StringVar(&opt.WorkflowConfigPath, "workflow-config-path", "", "Path to config file used for workflow commands")
 	pflag.IntVar(&opt.Port, "port", 8080, "Port to listen on.")
 	pflag.DurationVar(&opt.GracePeriod, "grace-period", 5*time.Second, "On shutdown, try to handle remaining events for the specified duration.")
+	pflag.StringVar(&opt.leaseServer, "lease-server", citools.URLForService(citools.ServiceBoskos), "Address of the server that manages leases. Used to identify accounts with more available leases.")
+	pflag.StringVar(&opt.leaseServerCredentialsFile, "lease-server-credentials-file", "", "The path to credentials file used to access the lease server. The content is of the form <username>:<password>.")
 
 	opt.prowconfig.AddFlags(emptyFlags)
 	opt.GitHubOptions.AddFlags(emptyFlags)
@@ -167,7 +184,12 @@ func run() error {
 		}
 	}
 
-	manager := NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, ghClient, opt.ForcePROwner, &workflows)
+	// we don't care if this errors; if it fails, leaseClient will be nil, and we won't auto-distribute among accounts
+	if err := opt.initializeLeaseClient(); err != nil {
+		klog.Warningf("Failed to load lease client. Will not distribute jobs across secondary accounts. Error: %v", err)
+	}
+
+	manager := NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, ghClient, opt.ForcePROwner, &workflows, opt.leaseClient)
 	if err := manager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %v", err)
 	}
@@ -247,4 +269,32 @@ func manageWorkflowConfig(path string, workflows *WorkflowConfig) {
 		workflows.mutex.Unlock()
 		time.Sleep(2 * time.Minute)
 	}
+}
+
+func loadLeaseCredentials(leaseServerCredentialsFile string) (string, func() []byte, error) {
+	if err := secret.Add(leaseServerCredentialsFile); err != nil {
+		return "", nil, fmt.Errorf("failed to start secret agent on file %s: %s", leaseServerCredentialsFile, string(secret.Censor([]byte(err.Error()))))
+	}
+	splits := strings.Split(string(secret.GetSecret(leaseServerCredentialsFile)), ":")
+	if len(splits) != 2 {
+		return "", nil, fmt.Errorf("got invalid content of lease server credentials file which must be of the form '<username>:<passwrod>'")
+	}
+	username := splits[0]
+	passwordGetter := func() []byte {
+		return []byte(splits[1])
+	}
+	return username, passwordGetter, nil
+}
+
+func (o *options) initializeLeaseClient() error {
+	var err error
+	username, passwordGetter, err := loadLeaseCredentials(o.leaseServerCredentialsFile)
+	if err != nil {
+		return fmt.Errorf("failed to load lease credentials: %w", err)
+	}
+
+	if o.leaseClient, err = lease.NewClient("ci-chat-bot", o.leaseServer, username, passwordGetter, 60, 0); err != nil {
+		return fmt.Errorf("failed to create the lease client: %w", err)
+	}
+	return nil
 }

@@ -104,18 +104,17 @@ func IsCiopConfigCM(name string) bool {
 	return ciOPConfigRegex.MatchString(name)
 }
 
-var threeXBranches = regexp.MustCompile(`^(release|enterprise|openshift)-3\.[0-9]+$`)
+var releaseBranches = regexp.MustCompile(`^(release|enterprise|openshift)-([1-3])\.[0-9]+(?:\.[0-9]+)?$`)
 var fourXBranches = regexp.MustCompile(`^(release|enterprise|openshift)-(4\.[0-9]+)$`)
 
 func FlavorForBranch(branch string) string {
 	var flavor string
 	if branch == "master" || branch == "main" {
 		flavor = "master"
-	} else if threeXBranches.MatchString(branch) {
-		flavor = "3.x"
-	} else if fourXBranches.MatchString(branch) {
-		matches := fourXBranches.FindStringSubmatch(branch)
-		flavor = matches[2] // the 4.x release string
+	} else if m := fourXBranches.FindStringSubmatch(branch); m != nil {
+		flavor = m[2] // the 4.x release string
+	} else if m := releaseBranches.FindStringSubmatch(branch); m != nil {
+		flavor = m[2] + ".x"
 	} else {
 		flavor = "misc"
 	}
@@ -131,15 +130,17 @@ func LogFieldsFor(metadata Metadata) logrus.Fields {
 	}
 }
 
-func BuildCacheFor(metadata Metadata) ImageStreamTagReference {
+func BuildCacheFor(metadata Metadata) MultiArchImageStreamTagReference {
 	tag := metadata.Branch
 	if metadata.Variant != "" {
 		tag = fmt.Sprintf("%s-%s", tag, metadata.Variant)
 	}
-	return ImageStreamTagReference{
-		Namespace: "build-cache",
-		Name:      fmt.Sprintf("%s-%s", metadata.Org, metadata.Repo),
-		Tag:       tag,
+	return MultiArchImageStreamTagReference{
+		ImageStreamTagReference: ImageStreamTagReference{
+			Namespace: "build-cache",
+			Name:      fmt.Sprintf("%s-%s", metadata.Org, metadata.Repo),
+			Tag:       tag,
+		},
 	}
 }
 

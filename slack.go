@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"k8s.io/klog"
-	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"k8s.io/klog"
 
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -492,13 +492,7 @@ func parseOptions(options string) (string, string, map[string]string, error) {
 	}
 	if len(platform) == 0 {
 		switch architecture {
-		case "amd64":
-			if rand.Intn(2) == 0 {
-				platform = "aws"
-			} else {
-				platform = "aws-2"
-			}
-		case "arm64", "multi":
+		case "amd64", "arm64", "multi":
 			platform = "aws"
 		default:
 			return "", "", nil, fmt.Errorf("unknown architecture: %s", architecture)

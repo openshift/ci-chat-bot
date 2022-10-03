@@ -150,6 +150,7 @@ func (config *ReleaseBuildConfiguration) WithPresubmitFrom(source *ReleaseBuildC
 			test := source.Tests[i]
 			test.Interval = nil
 			test.Cron = nil
+			test.MinimumInterval = nil
 			test.Postsubmit = false
 			result.Tests = []TestStepConfiguration{test}
 

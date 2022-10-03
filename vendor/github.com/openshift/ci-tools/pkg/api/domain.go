@@ -19,6 +19,7 @@ const (
 
 	ServiceDomainAPPCIRegistry   = "registry.ci.openshift.org"
 	ServiceDomainVSphereRegistry = "registry.apps.build01-us-west-2.vmc.ci.openshift.org"
+	ServiceDomainArm01Registry   = "registry.arm-build01.arm-build.devcluster.openshift.com"
 )
 
 type Service string
@@ -61,6 +62,9 @@ func RegistryDomainForClusterName(clusterName string) (string, error) {
 	}
 	if clusterName == string(ClusterVSphere) {
 		return ServiceDomainVSphereRegistry, nil
+	}
+	if clusterName == string(ClusterARM01) {
+		return ServiceDomainArm01Registry, nil
 	}
 	if buildClusterRegEx.MatchString(clusterName) {
 		return fmt.Sprintf("registry.%s.ci.openshift.org", clusterName), nil
