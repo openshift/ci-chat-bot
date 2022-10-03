@@ -4,18 +4,20 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"k8s.io/test-infra/prow/flagutil"
+	prowflagutil "k8s.io/test-infra/prow/flagutil"
 	"k8s.io/test-infra/prow/github"
 	"log"
 	"net/url"
 	"os"
 	"path"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/test-infra/pkg/flagutil"
 
 	"gopkg.in/fsnotify.v1"
 	"gopkg.in/yaml.v2"
@@ -34,16 +36,14 @@ import (
 )
 
 var (
-	// TODO: I'm leaving this in place to allow the clusterbot to keep working while we switch over to token files. This can be removed once we switch over.
-	reBuildClusterName = regexp.MustCompile(`^(.*).kubeconfig$`)
-
 	reBuildClusterKubeconfig = regexp.MustCompile(`^sa.ci-chat-bot.(.*).config$`)
-	reBuildClusterTokenFile  = regexp.MustCompile(`^sa.ci-chat-bot.(.*).token$`)
+	reBuildClusterTokenFile  = regexp.MustCompile(`^sa.ci-chat-bot.(.*).token.txt$`)
 )
 
 type options struct {
 	prowconfig                      configflagutil.ConfigOptions
-	GitHubOptions                   flagutil.GitHubOptions
+	GitHubOptions                   prowflagutil.GitHubOptions
+	KubernetesOptions               prowflagutil.KubernetesOptions
 	ForcePROwner                    string
 	BuildClusterKubeconfigsLocation string
 	ReleaseClusterKubeconfig        string
@@ -66,7 +66,12 @@ func (o *options) Validate() error {
 			return fmt.Errorf("--build-cluster-kubeconfigs-location must be a directory")
 		}
 	}
-	return o.GitHubOptions.Validate(false)
+	for _, group := range []flagutil.OptionGroup{&o.GitHubOptions, &o.KubernetesOptions} {
+		if err := group.Validate(false); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func main() {
@@ -85,11 +90,8 @@ func run() error {
 		},
 		ConfigResolver:                  "http://config.ci.openshift.org/config",
 		BuildClusterKubeconfigsLocation: "/var/build-cluster-kubeconfigs",
+		KubernetesOptions:               prowflagutil.KubernetesOptions{NOInClusterConfigDefault: true},
 	}
-
-	// TODO: After removing this option in the deployment, it will be safe to remove these...
-	var ignored string
-	pflag.StringVar(&ignored, "build-cluster-kubeconfig", ignored, "REMOVED: Kubeconfig to use for buildcluster. Defaults to normal kubeconfig if unset.")
 
 	pflag.StringVar(&opt.ConfigResolver, "config-resolver", opt.ConfigResolver, "A URL pointing to a config resolver for retrieving ci-operator config. You may pass a location on disk with file://<abs_path_to_ci_operator_config>")
 	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
@@ -101,6 +103,7 @@ func run() error {
 
 	opt.prowconfig.AddFlags(emptyFlags)
 	opt.GitHubOptions.AddFlags(emptyFlags)
+	opt.KubernetesOptions.AddFlags(emptyFlags)
 	pflag.CommandLine.AddGoFlagSet(emptyFlags)
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
@@ -109,18 +112,39 @@ func run() error {
 		return fmt.Errorf("unable to validate program arguments: %v", err)
 	}
 
-	err := os.Chdir(opt.BuildClusterKubeconfigsLocation)
-	if err != nil {
-		return fmt.Errorf("unable to change working directory: %v", err)
-	}
+	var buildClusterClientConfigs BuildClusterClientConfigMap
 
-	buildClusterClientConfigs, err := readBuildClusterKubeConfigs(opt.BuildClusterKubeconfigsLocation)
-	if err != nil {
-		return fmt.Errorf("unable to load build cluster configurations: %v", err)
-	}
+	if len(opt.BuildClusterKubeconfigsLocation) > 0 {
+		// TODO: This logic can be removed after we switch over to test-infra's kubeconfig logic...
+		err := os.Chdir(opt.BuildClusterKubeconfigsLocation)
+		if err != nil {
+			return fmt.Errorf("unable to change working directory: %v", err)
+		}
 
-	if err := setupKubeconfigWatches(buildClusterClientConfigs); err != nil {
-		klog.Warningf("failed to set up kubeconfig watches: %v", err)
+		buildClusterClientConfigs, err = readBuildClusterKubeConfigs(opt.BuildClusterKubeconfigsLocation)
+		if err != nil {
+			return fmt.Errorf("unable to load build cluster configurations: %v", err)
+		}
+		if err := setupKubeconfigWatches(buildClusterClientConfigs); err != nil {
+			klog.Warningf("failed to set up kubeconfig watches: %v", err)
+		}
+	} else {
+		// TODO: New logic to handle test-infra's kubeconfig logic...
+		err := opt.KubernetesOptions.AddKubeconfigChangeCallback(func() {
+			klog.Infof("received kubeconfig changed event, exiting to make the kubelet restart us so we can pick them up")
+			os.Exit(0)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to set up kubeconfig watches: %v", err)
+		}
+		kubeConfigs, err := opt.KubernetesOptions.LoadClusterConfigs()
+		if err != nil {
+			return fmt.Errorf("could not load kube configs: %v", err)
+		}
+		buildClusterClientConfigs, err = processKubeConfigs(kubeConfigs)
+		if err != nil {
+			return fmt.Errorf("could not process kube configs: %v", err)
+		}
 	}
 
 	resolverURL, err := url.Parse(opt.ConfigResolver)
@@ -204,6 +228,33 @@ type BuildClusterClientConfig struct {
 
 type BuildClusterClientConfigMap map[string]*BuildClusterClientConfig
 
+func processKubeConfigs(kubeConfigs map[string]rest.Config) (BuildClusterClientConfigMap, error) {
+	clusterMap := make(BuildClusterClientConfigMap)
+	for clusterName, clusterConfig := range kubeConfigs {
+
+		coreClient, err := clientset.NewForConfig(&clusterConfig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create core client: %v", err)
+		}
+		targetImageClient, err := imageclientset.NewForConfig(&clusterConfig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create target image client: %v", err)
+		}
+		projectClient, err := projectclientset.NewForConfig(&clusterConfig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create project client: %v", err)
+		}
+		clusterMap[clusterName] = &BuildClusterClientConfig{
+			CoreConfig:        &clusterConfig,
+			CoreClient:        coreClient,
+			ProjectClient:     projectClient,
+			TargetImageClient: targetImageClient,
+		}
+	}
+	return clusterMap, nil
+}
+
+// TODO: This function can be removed once we switch over to test-infra's kubeconfig processing...
 func readBuildClusterKubeConfigs(location string) (BuildClusterClientConfigMap, error) {
 	files, err := ioutil.ReadDir(location)
 	if err != nil {
@@ -214,13 +265,14 @@ func readBuildClusterKubeConfigs(location string) (BuildClusterClientConfigMap, 
 		if file.IsDir() {
 			continue
 		}
+		if strings.HasPrefix(file.Name(), "..") {
+			continue
+		}
 
 		var clusterName string
 		fullPath := path.Join(location, file.Name())
 
-		if m := reBuildClusterName.FindStringSubmatch(file.Name()); m != nil {
-			clusterName = m[1]
-		} else if m := reBuildClusterKubeconfig.FindStringSubmatch(file.Name()); m != nil {
+		if m := reBuildClusterKubeconfig.FindStringSubmatch(file.Name()); m != nil {
 			clusterName = m[1]
 		} else if m := reBuildClusterTokenFile.FindStringSubmatch(file.Name()); m != nil {
 			clusterName = m[1]
@@ -280,6 +332,7 @@ func readBuildClusterKubeConfigs(location string) (BuildClusterClientConfigMap, 
 	return clusterMap, nil
 }
 
+// TODO: This function can be removed once we switch over to test-infra's kubeconfig processing...
 func setupKubeconfigWatches(clusters BuildClusterClientConfigMap) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
