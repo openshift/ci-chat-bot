@@ -5,9 +5,11 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/pkg/version"
 	"k8s.io/klog"
 	"strings"
+	"time"
 )
 
 func HandleEvent(client *slack.Client, callback *slackevents.EventsAPIEvent, manager JobManager, botCommands []BotCommand) error {
@@ -43,19 +45,32 @@ func HandleEvent(client *slack.Client, callback *slackevents.EventsAPIEvent, man
 		properties, match := command.Match(event.Text)
 		if match {
 			response := command.Execute(client, manager, event, properties)
-			_, responseTimestamp, err := client.PostMessage(event.Channel, slack.MsgOptionText(response, false))
-			if err != nil {
-				klog.Errorf("Failed to post response: %s; to UserID: %s; (event: `%s`) at %s", response, event.User, event.Text, responseTimestamp)
-				return fmt.Errorf("failed to post the response to the requested action: %s", event.Text)
+			if err := postResponse(client, event, response); err != nil {
+				return fmt.Errorf("failed all attempts to post the response to the requested action: %s", event.Text)
 			}
-			klog.Infof("Posted response to UserID: %s (event: `%s`) at %s", event.User, event.Text, responseTimestamp)
 			return nil
 		}
 	}
-	_, _, err := client.PostMessage(event.Channel, slack.MsgOptionText("unrecognized command, msg me `help` for a list of all commands", false))
+	if err := postResponse(client, event, "unrecognized command, msg me `help` for a list of all commands"); err != nil {
+		return fmt.Errorf("failed all attempts to post the response to the requested action: %s", event.Text)
+	}
+	return nil
+}
+
+func postResponse(client *slack.Client, event *slackevents.MessageEvent, response string) error {
+	var lastErr error
+	err := wait.PollImmediate(5*time.Second, 20*time.Second, func() (bool, error) {
+		_, responseTimestamp, err := client.PostMessage(event.Channel, slack.MsgOptionText(response, false))
+		if err != nil {
+			klog.Errorf("Failed to post response to UserID: %s; (event: `%s`) at %d; %v", event.User, event.Text, (time.Now()).Unix(), err)
+			lastErr = err
+			return false, nil
+		}
+		klog.Infof("Posted response to UserID: %s (event: `%s`) at %s", event.User, event.Text, responseTimestamp)
+		return true, nil
+	})
 	if err != nil {
-		klog.Errorf("Failed to post response to %s: %v", event.Text, err)
-		return fmt.Errorf("failed to post the response to the requested action: %s", event.Text)
+		return lastErr
 	}
 	return nil
 }
