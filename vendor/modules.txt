@@ -973,6 +973,7 @@ k8s.io/kube-openapi/pkg/validation/spec
 ## explicit; go 1.18
 k8s.io/test-infra/ghproxy/ghcache
 k8s.io/test-infra/ghproxy/ghmetrics
+k8s.io/test-infra/pkg/flagutil
 k8s.io/test-infra/pkg/genyaml
 k8s.io/test-infra/prow/apis/prowjobs
 k8s.io/test-infra/prow/apis/prowjobs/v1
