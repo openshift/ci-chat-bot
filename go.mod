@@ -24,7 +24,6 @@ require (
 	github.com/sbstjn/hanu v0.1.0
 	github.com/slack-go/slack v0.10.3
 	github.com/spf13/pflag v1.0.5
-	gopkg.in/fsnotify.v1 v1.4.7
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.24.2
 	k8s.io/apimachinery v0.24.2
@@ -151,6 +150,7 @@ require (
 	google.golang.org/genproto v0.0.0-20220608133413-ed9918b62aac // indirect
 	google.golang.org/grpc v1.47.0 // indirect
 	google.golang.org/protobuf v1.28.0 // indirect
+	gopkg.in/fsnotify.v1 v1.4.7 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.62.0 // indirect
 	gopkg.in/robfig/cron.v2 v2.0.0-20150107220207-be2e0b0deed5 // indirect
