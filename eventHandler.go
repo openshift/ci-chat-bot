@@ -62,7 +62,6 @@ func postResponse(client *slack.Client, event *slackevents.MessageEvent, respons
 	err := wait.PollImmediate(5*time.Second, 20*time.Second, func() (bool, error) {
 		_, responseTimestamp, err := client.PostMessage(event.Channel, slack.MsgOptionText(response, false))
 		if err != nil {
-			klog.Errorf("Failed to post response to UserID: %s; (event: `%s`) at %d; %v", event.User, event.Text, (time.Now()).Unix(), err)
 			lastErr = err
 			return false, nil
 		}
@@ -70,6 +69,7 @@ func postResponse(client *slack.Client, event *slackevents.MessageEvent, respons
 		return true, nil
 	})
 	if err != nil {
+		klog.Errorf("Failed to post response to UserID: %s; (event: `%s`) at %d; %v", event.User, event.Text, (time.Now()).Unix(), err)
 		return lastErr
 	}
 	return nil
