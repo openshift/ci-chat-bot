@@ -9,17 +9,12 @@ import (
 	"log"
 	"net/url"
 	"os"
-	"path"
-	"regexp"
-	"strings"
 	"sync"
 	"time"
 
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/test-infra/pkg/flagutil"
 
-	"gopkg.in/fsnotify.v1"
 	"gopkg.in/yaml.v2"
 
 	"github.com/spf13/pflag"
@@ -35,35 +30,22 @@ import (
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 )
 
-var (
-	reBuildClusterKubeconfig = regexp.MustCompile(`^sa.ci-chat-bot.(.*).config$`)
-	reBuildClusterTokenFile  = regexp.MustCompile(`^sa.ci-chat-bot.(.*).token.txt$`)
-)
-
 type options struct {
-	prowconfig                      configflagutil.ConfigOptions
-	GitHubOptions                   prowflagutil.GitHubOptions
-	KubernetesOptions               prowflagutil.KubernetesOptions
-	ForcePROwner                    string
-	BuildClusterKubeconfigsLocation string
-	ReleaseClusterKubeconfig        string
-	ConfigResolver                  string
-	WorkflowConfigPath              string
-	Port                            int
-	GracePeriod                     time.Duration
+	prowconfig               configflagutil.ConfigOptions
+	GitHubOptions            prowflagutil.GitHubOptions
+	KubernetesOptions        prowflagutil.KubernetesOptions
+	ForcePROwner             string
+	ReleaseClusterKubeconfig string
+	ConfigResolver           string
+	WorkflowConfigPath       string
+	Port                     int
+	GracePeriod              time.Duration
 }
 
 func (o *options) Validate() error {
 	if o.ReleaseClusterKubeconfig != "" {
 		if _, err := os.Stat(o.ReleaseClusterKubeconfig); err != nil {
 			return fmt.Errorf("error accessing --release-cluster-kubeconfig: %w", err)
-		}
-	}
-	if o.BuildClusterKubeconfigsLocation != "" {
-		if fileInfo, err := os.Stat(o.BuildClusterKubeconfigsLocation); err != nil {
-			return fmt.Errorf("error accessing --build-cluster-kubeconfigs-location: %w", err)
-		} else if !fileInfo.IsDir() {
-			return fmt.Errorf("--build-cluster-kubeconfigs-location must be a directory")
 		}
 	}
 	for _, group := range []flagutil.OptionGroup{&o.GitHubOptions, &o.KubernetesOptions} {
@@ -88,14 +70,12 @@ func run() error {
 			ConfigPathFlagName:    "prow-config",
 			JobConfigPathFlagName: "job-config",
 		},
-		ConfigResolver:                  "http://config.ci.openshift.org/config",
-		BuildClusterKubeconfigsLocation: "/var/build-cluster-kubeconfigs",
-		KubernetesOptions:               prowflagutil.KubernetesOptions{NOInClusterConfigDefault: true},
+		ConfigResolver:    "http://config.ci.openshift.org/config",
+		KubernetesOptions: prowflagutil.KubernetesOptions{NOInClusterConfigDefault: true},
 	}
 
 	pflag.StringVar(&opt.ConfigResolver, "config-resolver", opt.ConfigResolver, "A URL pointing to a config resolver for retrieving ci-operator config. You may pass a location on disk with file://<abs_path_to_ci_operator_config>")
 	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
-	pflag.StringVar(&opt.BuildClusterKubeconfigsLocation, "build-cluster-kubeconfigs-location", opt.BuildClusterKubeconfigsLocation, "Path to the location of the Kubeconfigs for the various buildclusters. Default is \"/var/build-cluster-kubeconfigs\".")
 	pflag.StringVar(&opt.ReleaseClusterKubeconfig, "release-cluster-kubeconfig", "", "Kubeconfig to use for cluster housing the release imagestreams. Defaults to normal kubeconfig if unset.")
 	pflag.StringVar(&opt.WorkflowConfigPath, "workflow-config-path", "", "Path to config file used for workflow commands")
 	pflag.IntVar(&opt.Port, "port", 8080, "Port to listen on.")
@@ -112,39 +92,20 @@ func run() error {
 		return fmt.Errorf("unable to validate program arguments: %v", err)
 	}
 
-	var buildClusterClientConfigs BuildClusterClientConfigMap
-
-	if len(opt.BuildClusterKubeconfigsLocation) > 0 {
-		// TODO: This logic can be removed after we switch over to test-infra's kubeconfig logic...
-		err := os.Chdir(opt.BuildClusterKubeconfigsLocation)
-		if err != nil {
-			return fmt.Errorf("unable to change working directory: %v", err)
-		}
-
-		buildClusterClientConfigs, err = readBuildClusterKubeConfigs(opt.BuildClusterKubeconfigsLocation)
-		if err != nil {
-			return fmt.Errorf("unable to load build cluster configurations: %v", err)
-		}
-		if err := setupKubeconfigWatches(buildClusterClientConfigs); err != nil {
-			klog.Warningf("failed to set up kubeconfig watches: %v", err)
-		}
-	} else {
-		// TODO: New logic to handle test-infra's kubeconfig logic...
-		err := opt.KubernetesOptions.AddKubeconfigChangeCallback(func() {
-			klog.Infof("received kubeconfig changed event, exiting to make the kubelet restart us so we can pick them up")
-			os.Exit(0)
-		})
-		if err != nil {
-			return fmt.Errorf("failed to set up kubeconfig watches: %v", err)
-		}
-		kubeConfigs, err := opt.KubernetesOptions.LoadClusterConfigs()
-		if err != nil {
-			return fmt.Errorf("could not load kube configs: %v", err)
-		}
-		buildClusterClientConfigs, err = processKubeConfigs(kubeConfigs)
-		if err != nil {
-			return fmt.Errorf("could not process kube configs: %v", err)
-		}
+	err := opt.KubernetesOptions.AddKubeconfigChangeCallback(func() {
+		klog.Infof("received kubeconfig changed event, exiting to make the kubelet restart us so we can pick them up")
+		os.Exit(0)
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set up kubeconfig watches: %v", err)
+	}
+	kubeConfigs, err := opt.KubernetesOptions.LoadClusterConfigs()
+	if err != nil {
+		return fmt.Errorf("could not load kube configs: %v", err)
+	}
+	buildClusterClientConfigs, err := processKubeConfigs(kubeConfigs)
+	if err != nil {
+		return fmt.Errorf("could not process kube configs: %v", err)
 	}
 
 	resolverURL, err := url.Parse(opt.ConfigResolver)
@@ -218,8 +179,6 @@ func run() error {
 }
 
 type BuildClusterClientConfig struct {
-	KubeconfigPath    string
-	TokenPath         string
 	CoreConfig        *rest.Config
 	CoreClient        *clientset.Clientset
 	ProjectClient     *projectclientset.Clientset
@@ -252,117 +211,6 @@ func processKubeConfigs(kubeConfigs map[string]rest.Config) (BuildClusterClientC
 		}
 	}
 	return clusterMap, nil
-}
-
-// TODO: This function can be removed once we switch over to test-infra's kubeconfig processing...
-func readBuildClusterKubeConfigs(location string) (BuildClusterClientConfigMap, error) {
-	files, err := ioutil.ReadDir(location)
-	if err != nil {
-		return nil, fmt.Errorf("unable to access location %q: %v", location, err)
-	}
-	clusterMap := make(BuildClusterClientConfigMap)
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
-		if strings.HasPrefix(file.Name(), "..") {
-			continue
-		}
-
-		var clusterName string
-		fullPath := path.Join(location, file.Name())
-
-		if m := reBuildClusterKubeconfig.FindStringSubmatch(file.Name()); m != nil {
-			clusterName = m[1]
-		} else if m := reBuildClusterTokenFile.FindStringSubmatch(file.Name()); m != nil {
-			clusterName = m[1]
-			if cm, ok := clusterMap[clusterName]; !ok {
-				clusterMap[clusterName] = &BuildClusterClientConfig{
-					TokenPath: fullPath,
-				}
-			} else {
-				cm.TokenPath = fullPath
-			}
-			continue
-		} else {
-			klog.Warningf("Unrecognized file name: %q", file.Name())
-			continue
-		}
-
-		contents, err := ioutil.ReadFile(fullPath)
-		if err != nil {
-			return nil, fmt.Errorf("unable to access kubeconfig %q: %v", file.Name(), err)
-		}
-		cfg, err := clientcmd.NewClientConfigFromBytes(contents)
-		if err != nil {
-			return nil, fmt.Errorf("could not load build client configuration: %v", err)
-		}
-		clusterConfig, err := cfg.ClientConfig()
-		if err != nil {
-			return nil, fmt.Errorf("could not load cluster configuration: %v", err)
-		}
-		coreClient, err := clientset.NewForConfig(clusterConfig)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create core client: %v", err)
-		}
-		targetImageClient, err := imageclientset.NewForConfig(clusterConfig)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create target image client: %v", err)
-		}
-		projectClient, err := projectclientset.NewForConfig(clusterConfig)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create project client: %v", err)
-		}
-		if cm, ok := clusterMap[clusterName]; !ok {
-			clusterMap[clusterName] = &BuildClusterClientConfig{
-				KubeconfigPath:    fullPath,
-				CoreConfig:        clusterConfig,
-				CoreClient:        coreClient,
-				ProjectClient:     projectClient,
-				TargetImageClient: targetImageClient,
-			}
-		} else {
-			cm.KubeconfigPath = fullPath
-			cm.CoreConfig = clusterConfig
-			cm.CoreClient = coreClient
-			cm.ProjectClient = projectClient
-			cm.TargetImageClient = targetImageClient
-		}
-	}
-	return clusterMap, nil
-}
-
-// TODO: This function can be removed once we switch over to test-infra's kubeconfig processing...
-func setupKubeconfigWatches(clusters BuildClusterClientConfigMap) error {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return fmt.Errorf("failed to set up watcher: %w", err)
-	}
-	for _, cluster := range clusters {
-		watchFile := cluster.KubeconfigPath
-		if len(cluster.TokenPath) > 0 {
-			watchFile = cluster.TokenPath
-		}
-		if _, err := os.Stat(watchFile); err != nil {
-			continue
-		}
-		if err := watcher.Add(watchFile); err != nil {
-			return fmt.Errorf("failed to watch %v: %w", cluster, err)
-		}
-	}
-
-	go func() {
-		for e := range watcher.Events {
-			if e.Op == fsnotify.Chmod {
-				// For some reason we get frequent chmod events from Openshift
-				continue
-			}
-			klog.Infof("event: %s, kubeconfig changed, exiting to make the kubelet restart us so we can pick them up", e.String())
-			os.Exit(0)
-		}
-	}()
-
-	return nil
 }
 
 type WorkflowConfig struct {
