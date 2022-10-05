@@ -343,7 +343,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			"release.openshift.io/architecture": job.Architecture,
 		},
 		Labels: map[string]string{
-			"ci-chat-bot.openshift.io/launch": "true",
+			launchLabel: "true",
 
 			"prow.k8s.io/type": string(pj.Spec.Type),
 			"prow.k8s.io/job":  pj.Spec.Job,

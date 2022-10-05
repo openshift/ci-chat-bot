@@ -34,6 +34,8 @@ import (
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 )
 
+var launchLabel = "ci-chat-bot.openshift.io/launch"
+
 type options struct {
 	prowconfig               configflagutil.ConfigOptions
 	GitHubOptions            prowflagutil.GitHubOptions
@@ -48,6 +50,8 @@ type options struct {
 	leaseServer                string
 	leaseServerCredentialsFile string
 	leaseClient                leaseClient
+
+	overrideLaunchLabel string
 }
 
 // only include the metrics function, as we don't want to create leases
@@ -97,6 +101,7 @@ func run() error {
 	pflag.DurationVar(&opt.GracePeriod, "grace-period", 5*time.Second, "On shutdown, try to handle remaining events for the specified duration.")
 	pflag.StringVar(&opt.leaseServer, "lease-server", citools.URLForService(citools.ServiceBoskos), "Address of the server that manages leases. Used to identify accounts with more available leases.")
 	pflag.StringVar(&opt.leaseServerCredentialsFile, "lease-server-credentials-file", "", "The path to credentials file used to access the lease server. The content is of the form <username>:<password>.")
+	pflag.StringVar(&opt.overrideLaunchLabel, "override-launch-label", "", "Override the default launch label for jobs. Used for local debugging.")
 
 	opt.prowconfig.AddFlags(emptyFlags)
 	opt.GitHubOptions.AddFlags(emptyFlags)
@@ -107,6 +112,10 @@ func run() error {
 
 	if err := opt.Validate(); err != nil {
 		return fmt.Errorf("unable to validate program arguments: %v", err)
+	}
+
+	if opt.overrideLaunchLabel != "" {
+		launchLabel = opt.overrideLaunchLabel
 	}
 
 	err := opt.KubernetesOptions.AddKubeconfigChangeCallback(func() {
