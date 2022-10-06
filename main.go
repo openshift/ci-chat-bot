@@ -190,21 +190,21 @@ type BuildClusterClientConfigMap map[string]*BuildClusterClientConfig
 func processKubeConfigs(kubeConfigs map[string]rest.Config) (BuildClusterClientConfigMap, error) {
 	clusterMap := make(BuildClusterClientConfigMap)
 	for clusterName, clusterConfig := range kubeConfigs {
-
-		coreClient, err := clientset.NewForConfig(&clusterConfig)
+		tmpClusterConfig := clusterConfig
+		coreClient, err := clientset.NewForConfig(&tmpClusterConfig)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create core client: %v", err)
 		}
-		targetImageClient, err := imageclientset.NewForConfig(&clusterConfig)
+		targetImageClient, err := imageclientset.NewForConfig(&tmpClusterConfig)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create target image client: %v", err)
+			return nil, fmt.Errorf("unable to create target image client: %w", err)
 		}
-		projectClient, err := projectclientset.NewForConfig(&clusterConfig)
+		projectClient, err := projectclientset.NewForConfig(&tmpClusterConfig)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create project client: %v", err)
 		}
 		clusterMap[clusterName] = &BuildClusterClientConfig{
-			CoreConfig:        &clusterConfig,
+			CoreConfig:        &tmpClusterConfig,
 			CoreClient:        coreClient,
 			ProjectClient:     projectClient,
 			TargetImageClient: targetImageClient,
