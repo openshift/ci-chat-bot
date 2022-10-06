@@ -41,7 +41,7 @@ const (
 
 	// maxTotalClusters limits the number of simultaneous clusters across all users to
 	// prevent saturating the infrastructure account.
-	maxTotalClusters = 48
+	maxTotalClusters = 80
 )
 
 // JobRequest keeps information about the request a user made to create
