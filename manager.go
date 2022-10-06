@@ -41,7 +41,7 @@ const (
 
 	// maxTotalClusters limits the number of simultaneous clusters across all users to
 	// prevent saturating the infrastructure account.
-	maxTotalClusters = 48
+	maxTotalClusters = 80
 )
 
 // JobRequest keeps information about the request a user made to create
@@ -153,6 +153,8 @@ type Job struct {
 	LegacyConfig bool
 
 	WorkflowName string
+
+	UseSecondaryAccount bool
 }
 
 func (j Job) IsComplete() bool {
@@ -187,6 +189,8 @@ type jobManager struct {
 
 	notifierFn     JobCallbackFunc
 	workflowConfig *WorkflowConfig
+
+	lClient leaseClient
 }
 
 // NewJobManager creates a manager that will track the requests made by a user to create clusters
@@ -202,6 +206,7 @@ func NewJobManager(
 	githubClient github.Client,
 	forcePROwner string,
 	workflowConfig *WorkflowConfig,
+	lClient leaseClient,
 ) *jobManager {
 	m := &jobManager{
 		requests:         make(map[string]*JobRequest),
@@ -219,6 +224,8 @@ func NewJobManager(
 
 		configResolver: configResolver,
 		workflowConfig: workflowConfig,
+
+		lClient: lClient,
 	}
 	m.muJob.running = make(map[string]struct{})
 	return m
@@ -277,7 +284,7 @@ func paramsToString(params map[string]string) string {
 func (m *jobManager) sync() error {
 	u, err := m.prowClient.Namespace(m.prowNamespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: labels.SelectorFromSet(labels.Set{
-			"ci-chat-bot.openshift.io/launch": "true",
+			launchLabel: "true",
 		}).String(),
 	})
 	if err != nil {
@@ -1319,6 +1326,48 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	job.BuildCluster = prowJob.Spec.Cluster
 
 	klog.Infof("Job %q requested by user %q with mode %s prow job %s(%s) - params=%s, inputs=%#v", job.Name, req.User, job.Mode, job.JobName, job.BuildCluster, paramsToString(job.JobParams), job.Inputs)
+
+	// check what leases are available for platform
+	if m.lClient != nil {
+		switch req.Platform {
+		case "aws":
+			metrics1, err := m.lClient.Metrics("aws-quota-slice")
+			if err != nil {
+				return "", fmt.Errorf("failed to get metrics for `aws` leases: %v", err)
+			}
+			metrics2, err := m.lClient.Metrics("aws-2-quota-slice")
+			if err != nil {
+				return "", fmt.Errorf("failed to get metrics for `aws-2` leases: %v", err)
+			}
+			if metrics2.Free > metrics1.Free {
+				job.UseSecondaryAccount = true
+			}
+		case "azure":
+			metrics1, err := m.lClient.Metrics("azure4-quota-slice")
+			if err != nil {
+				return "", fmt.Errorf("failed to get metrics for `azure` leases: %v", err)
+			}
+			metrics2, err := m.lClient.Metrics("azure-2-quota-slice")
+			if err != nil {
+				return "", fmt.Errorf("failed to get metrics for `azure-2` leases: %v", err)
+			}
+			if metrics2.Free > metrics1.Free {
+				job.UseSecondaryAccount = true
+			}
+		case "gcp":
+			metrics1, err := m.lClient.Metrics("gcp-quota-slice")
+			if err != nil {
+				return "", fmt.Errorf("failed to get metrics for `gcp` leases: %v", err)
+			}
+			metrics2, err := m.lClient.Metrics("gcp-openshift-gce-devel-ci-2-quota-slice")
+			if err != nil {
+				return "", fmt.Errorf("failed to get metrics for `gcp-openshift-gce-devel-ci-2` leases: %v", err)
+			}
+			if metrics2.Free > metrics1.Free {
+				job.UseSecondaryAccount = true
+			}
+		}
+	}
 
 	msg, err := func() (string, error) {
 		m.lock.Lock()
