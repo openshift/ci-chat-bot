@@ -1328,7 +1328,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	klog.Infof("Job %q requested by user %q with mode %s prow job %s(%s) - params=%s, inputs=%#v", job.Name, req.User, job.Mode, job.JobName, job.BuildCluster, paramsToString(job.JobParams), job.Inputs)
 
 	// check what leases are available for platform
-	if m.lClient != nil {
+	if req.Architecture == "amd64" && m.lClient != nil {
 		switch req.Platform {
 		case "aws":
 			metrics1, err := m.lClient.Metrics("aws-quota-slice")
