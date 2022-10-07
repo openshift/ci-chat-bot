@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -220,7 +221,12 @@ func getPlatformArchFromWorkflowConfig(workflowConfig *WorkflowConfig, name stri
 	workflowConfig.mutex.RLock()
 	defer workflowConfig.mutex.RUnlock()
 	if workflow, ok := workflowConfig.Workflows[name]; !ok {
-		return "", "", fmt.Errorf("Workflow %s not in workflow list. Please add %s to the workflows list before retrying this command", name, name)
+		workflows := make([]string, 0, len(workflowConfig.Workflows))
+		for w := range workflowConfig.Workflows {
+			workflows = append(workflows, w)
+		}
+		sort.Strings(workflows)
+		return "", "", fmt.Errorf("Workflow %s not in workflow list ( https://github.com/openshift/release/blob/master/core-services/ci-chat-bot/workflows-config.yaml ). Please add %s to the workflows list before retrying this command, or use a workflow from: %s", name, name, strings.Join(workflows, ", "))
 	} else {
 		platform = workflow.Platform
 		if workflow.Architecture != "" {
