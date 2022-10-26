@@ -505,7 +505,6 @@ func (b *Bot) Start(jobManager manager.JobManager) {
 func handleEvent(signingSecret string, handler eventhandler.Handler) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		logger := logrus.WithField("api", "events")
-		logger.Debug("Got an event payload.")
 		body, ok := verifiedBody(request, signingSecret)
 		if !ok {
 			writer.WriteHeader(http.StatusInternalServerError)
@@ -580,14 +579,14 @@ func GetPlatformArchFromWorkflowConfig(workflowConfig *manager.WorkflowConfig, n
 			workflows = append(workflows, w)
 		}
 		sort.Strings(workflows)
-		return "", "", fmt.Errorf("Workflow %s not in workflow list ( https://github.com/openshift/release/blob/master/core-services/ci-chat-bot/workflows-config.yaml ). Please add %s to the workflows list before retrying this command, or use a workflow from: %s", name, name, strings.Join(workflows, ", "))
+		return "", "", fmt.Errorf("workflow %s not in workflow list ( https://github.com/openshift/release/blob/master/core-services/ci-chat-bot/workflows-config.yaml ). Please add %s to the workflows list before retrying this command, or use a workflow from: %s", name, name, strings.Join(workflows, ", "))
 	} else {
 		platform = workflow.Platform
 		if workflow.Architecture != "" {
 			if manager.Contains(manager.SupportedArchitectures, workflow.Architecture) {
 				architecture = workflow.Architecture
 			} else {
-				return "", "", fmt.Errorf("Architecture %s not supported by cluster-bot", workflow.Architecture)
+				return "", "", fmt.Errorf("architecture %s not supported by cluster-bot", workflow.Architecture)
 			}
 		}
 	}
@@ -595,7 +594,7 @@ func GetPlatformArchFromWorkflowConfig(workflowConfig *manager.WorkflowConfig, n
 }
 
 func BuildJobParams(params string) (map[string]string, error) {
-	splitParams := []string{}
+	var splitParams []string
 	if len(params) > 0 {
 		splitParams = strings.Split(params, "\",\"")
 		// first item will have a double quote at the beginning
@@ -607,7 +606,7 @@ func BuildJobParams(params string) (map[string]string, error) {
 	for _, combinedParam := range splitParams {
 		split := strings.Split(combinedParam, "=")
 		if len(split) != 2 {
-			return nil, fmt.Errorf("Unable to interpret `%s` as a parameter. Please ensure that all parameters are in the form of KEY=VALUE", combinedParam)
+			return nil, fmt.Errorf("unable to interpret `%s` as a parameter. Please ensure that all parameters are in the form of KEY=VALUE", combinedParam)
 		}
 		jobParams[split[0]] = split[1]
 	}
@@ -638,13 +637,13 @@ func NotifyJob(client *slack.Client, job *manager.Job) {
 				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
 			}
 		case len(job.Credentials) == 0 && len(job.URL) > 0:
-			message := fmt.Sprintf("cluster is still starting (launched %d minutes ago, <%s|logs>)", time.Now().Sub(job.RequestedAt)/time.Minute, job.URL)
+			message := fmt.Sprintf("cluster is still starting (launched %d minutes ago, <%s|logs>)", time.Since(job.RequestedAt)/time.Minute, job.URL)
 			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
 			if err != nil {
 				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
 			}
 		case len(job.Credentials) == 0:
-			message := fmt.Sprintf("cluster is still starting (launched %d minutes ago)", time.Now().Sub(job.RequestedAt)/time.Minute)
+			message := fmt.Sprintf("cluster is still starting (launched %d minutes ago)", time.Since(job.RequestedAt)/time.Minute)
 			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
 			if err != nil {
 				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
@@ -714,13 +713,13 @@ func NotifyJob(client *slack.Client, job *manager.Job) {
 			}
 		}
 	case len(job.Credentials) == 0:
-		message := fmt.Sprintf("job is running (launched %d minutes ago)", time.Now().Sub(job.RequestedAt)/time.Minute)
+		message := fmt.Sprintf("job is running (launched %d minutes ago)", time.Since(job.RequestedAt)/time.Minute)
 		_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
 		if err != nil {
 			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
 		}
 	default:
-		comment := fmt.Sprintf("Your job has started a cluster, it will be shut down when the test ends.")
+		comment := "Your job has started a cluster, it will be shut down when the test ends."
 		if len(job.URL) > 0 {
 			comment += fmt.Sprintf(" See %s for details.", job.URL)
 		}
@@ -773,7 +772,7 @@ func parseImageInput(input string) ([]string, error) {
 func parseOptions(options string) (string, string, map[string]string, error) {
 	params, err := manager.ParamsFromAnnotation(options)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("options could not be parsed: %v", err)
+		return "", "", nil, fmt.Errorf("options could not be parsed: %w", err)
 	}
 	var platform, architecture string
 	for opt := range params {
