@@ -1076,6 +1076,8 @@ func (m *jobManager) waitForJob(job *Job) error {
 	setupContainerTimeout := 60 * time.Minute
 	if job.Platform == "metal" {
 		setupContainerTimeout = 90 * time.Minute
+	} else if job.IsOperator {
+		setupContainerTimeout = 105 * time.Minute
 	}
 
 	if job.Mode != JobTypeLaunch && job.Mode != JobTypeWorkflowLaunch {
