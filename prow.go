@@ -752,19 +752,15 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 						if targetConfig.Operator.Bundles[0].As != "" {
 							indexName = fmt.Sprintf("ci-index-%s", targetConfig.Operator.Bundles[0].As)
 						}
-						klog.V(2).Infof("Searching for environment")
 					TestLoop:
 						for _, test := range targetConfig.Tests {
-							klog.V(2).Infof("Looking at test %s", test.As)
 							// since we retrieved the config from the resolver, the tests are fully resolved "literal" configurations
 							if test.MultiStageTestConfigurationLiteral != nil {
 								// fully resolved configs more all dependency and environment declarations to the step instead of global setting
 								for _, step := range test.MultiStageTestConfigurationLiteral.Pre {
 									// dependency naming is deterministic, so we can use that to search for the correct test
 									for _, env := range step.Dependencies {
-										klog.V(2).Infof("Looking at dependency %s/%s in test %s", env.Env, env.Name, test.As)
 										if env.Env == "OO_INDEX" && env.Name == indexName {
-											klog.V(2).Infof("Found env vars for bundle with index %s: %v", indexName, step.Environment)
 											environment = step.Environment
 											break TestLoop
 										}
@@ -779,7 +775,6 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 										continue
 									}
 									sourceConfig.Tests[index].MultiStageTestConfiguration.Environment[env.Name] = *env.Default
-									klog.V(2).Infof("Added %s/%s env var", env.Name, *env.Default)
 								}
 								if sourceConfig.Tests[index].MultiStageTestConfiguration.Dependencies == nil {
 									sourceConfig.Tests[index].MultiStageTestConfiguration.Dependencies = make(citools.TestDependencies)
@@ -808,23 +803,6 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 								Name:      "stable",
 								Tag:       string(image.To),
 								Namespace: "$(NAMESPACE)",
-							}
-						}
-						// make sure base image for base index is available
-						if targetConfig.Operator.Bundles[0].BaseIndex != "" {
-							var baseHasIndex bool
-							for name := range sourceConfig.BaseImages {
-								if name == targetConfig.Operator.Bundles[0].BaseIndex {
-									baseHasIndex = true
-									break
-								}
-							}
-							if !baseHasIndex {
-								for name, image := range targetConfig.BaseImages {
-									if name == targetConfig.Operator.Bundles[0].BaseIndex {
-										sourceConfig.BaseImages[name] = image
-									}
-								}
 							}
 						}
 					}
