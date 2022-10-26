@@ -3,12 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/openshift/ci-chat-bot/pkg"
+	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"io/ioutil"
 	"log"
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"k8s.io/test-infra/prow/config/secret"
@@ -34,8 +35,6 @@ import (
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 )
 
-var launchLabel = "ci-chat-bot.openshift.io/launch"
-
 type options struct {
 	prowconfig               configflagutil.ConfigOptions
 	GitHubOptions            prowflagutil.GitHubOptions
@@ -49,16 +48,9 @@ type options struct {
 
 	leaseServer                string
 	leaseServerCredentialsFile string
-	leaseClient                leaseClient
+	leaseClient                manager.LeaseClient
 
 	overrideLaunchLabel string
-}
-
-// only include the metrics function, as we don't want to create leases
-type leaseClient interface {
-	// Metrics queries the states of a particular resource, for informational
-	// purposes.
-	Metrics(rtype string) (lease.Metrics, error)
 }
 
 func (o *options) Validate() error {
@@ -115,7 +107,7 @@ func run() error {
 	}
 
 	if opt.overrideLaunchLabel != "" {
-		launchLabel = opt.overrideLaunchLabel
+		util.LaunchLabel = opt.overrideLaunchLabel
 	}
 
 	err := opt.KubernetesOptions.AddKubeconfigChangeCallback(func() {
@@ -138,7 +130,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("--config-resolver is not a valid URL: %v", err)
 	}
-	resolver := &URLConfigResolver{URL: resolverURL}
+	resolver := &manager.URLConfigResolver{URL: resolverURL}
 
 	botToken := os.Getenv("BOT_TOKEN")
 	if len(botToken) == 0 {
@@ -150,7 +142,7 @@ func run() error {
 		return fmt.Errorf("the environment variable BOT_SIGNING_SECRET must be set")
 	}
 
-	prowJobKubeconfig, _, _, err := loadKubeconfig()
+	prowJobKubeconfig, _, _, err := manager.LoadKubeconfig()
 	if err != nil {
 		return err
 	}
@@ -161,7 +153,7 @@ func run() error {
 	prowClient := dynamicClient.Resource(schema.GroupVersionResource{Group: "prow.k8s.io", Version: "v1", Resource: "prowjobs"})
 
 	// Config and Client to access release images
-	releaseConfig, err := loadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, prowJobKubeconfig)
+	releaseConfig, err := manager.LoadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, prowJobKubeconfig)
 	imageClient, err := imageclientset.NewForConfig(releaseConfig)
 	if err != nil {
 		return fmt.Errorf("unable to create image client: %v", err)
@@ -172,7 +164,7 @@ func run() error {
 		return err
 	}
 
-	workflows := WorkflowConfig{}
+	workflows := manager.WorkflowConfig{}
 	go manageWorkflowConfig(opt.WorkflowConfigPath, &workflows)
 
 	var ghClient github.Client
@@ -198,28 +190,19 @@ func run() error {
 		klog.Warningf("Failed to load lease client. Will not distribute jobs across secondary accounts. Error: %v", err)
 	}
 
-	manager := NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, ghClient, opt.ForcePROwner, &workflows, opt.leaseClient)
-	if err := manager.Start(); err != nil {
+	jobManager := manager.NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, ghClient, opt.ForcePROwner, &workflows, opt.leaseClient)
+	if err := jobManager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %v", err)
 	}
 
 	bot := NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows)
-	bot.Start(manager)
+	bot.Start(jobManager)
 
 	return err
 }
 
-type BuildClusterClientConfig struct {
-	CoreConfig        *rest.Config
-	CoreClient        *clientset.Clientset
-	ProjectClient     *projectclientset.Clientset
-	TargetImageClient *imageclientset.Clientset
-}
-
-type BuildClusterClientConfigMap map[string]*BuildClusterClientConfig
-
-func processKubeConfigs(kubeConfigs map[string]rest.Config) (BuildClusterClientConfigMap, error) {
-	clusterMap := make(BuildClusterClientConfigMap)
+func processKubeConfigs(kubeConfigs map[string]rest.Config) (util.BuildClusterClientConfigMap, error) {
+	clusterMap := make(util.BuildClusterClientConfigMap)
 	for clusterName, clusterConfig := range kubeConfigs {
 		tmpClusterConfig := clusterConfig
 		coreClient, err := clientset.NewForConfig(&tmpClusterConfig)
@@ -234,7 +217,7 @@ func processKubeConfigs(kubeConfigs map[string]rest.Config) (BuildClusterClientC
 		if err != nil {
 			return nil, fmt.Errorf("unable to create project client: %v", err)
 		}
-		clusterMap[clusterName] = &BuildClusterClientConfig{
+		clusterMap[clusterName] = &util.BuildClusterClientConfig{
 			CoreConfig:        &tmpClusterConfig,
 			CoreClient:        coreClient,
 			ProjectClient:     projectClient,
@@ -244,24 +227,13 @@ func processKubeConfigs(kubeConfigs map[string]rest.Config) (BuildClusterClientC
 	return clusterMap, nil
 }
 
-type WorkflowConfig struct {
-	Workflows map[string]WorkflowConfigItem `yaml:"workflows"`
-	mutex     sync.RWMutex                  `yaml:"-"` // this field just allows us to update the above values without races
-}
-
-type WorkflowConfigItem struct {
-	BaseImages   map[string]citools.ImageStreamTagReference `yaml:"base_images,omitempty"`
-	Architecture string                                     `yaml:"architecture,omitempty"`
-	Platform     string                                     `yaml:"platform"`
-}
-
-func manageWorkflowConfig(path string, workflows *WorkflowConfig) {
+func manageWorkflowConfig(path string, workflows *manager.WorkflowConfig) {
 	for {
 		// To prevent the ci-chat-bot from crashlooping due to a bad config change,
 		// we will only log that the config is broken and set the workflows to an
 		// empty map. To prevent broken configs in the future, a presubmit should
 		// be creating for openshift/release that verifies this config.
-		var config WorkflowConfig
+		var config manager.WorkflowConfig
 		rawConfig, err := ioutil.ReadFile(path)
 		if err != nil {
 			klog.Errorf("Failed to load workflow config file at %s: %v", path, err)
@@ -269,13 +241,13 @@ func manageWorkflowConfig(path string, workflows *WorkflowConfig) {
 			klog.Errorf("Failed to unmarshal workflow config: %v", err)
 		}
 
-		workflows.mutex.Lock()
+		workflows.Mutex.Lock()
 		if config.Workflows != nil {
 			workflows.Workflows = config.Workflows
 		} else {
-			workflows.Workflows = make(map[string]WorkflowConfigItem)
+			workflows.Workflows = make(map[string]manager.WorkflowConfigItem)
 		}
-		workflows.mutex.Unlock()
+		workflows.Mutex.Unlock()
 		time.Sleep(2 * time.Minute)
 	}
 }

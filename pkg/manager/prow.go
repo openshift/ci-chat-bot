@@ -1,4 +1,4 @@
-package main
+package manager
 
 import (
 	"bytes"
@@ -7,6 +7,8 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
+	util "github.com/openshift/ci-chat-bot/pkg"
+	"github.com/openshift/ci-chat-bot/pkg/prow"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -39,7 +41,6 @@ import (
 	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/openshift/ci-chat-bot/pkg/prow"
 	citools "github.com/openshift/ci-tools/pkg/api"
 )
 
@@ -51,20 +52,20 @@ type envVar struct {
 
 var errJobCompleted = fmt.Errorf("job is complete")
 
-// supportedTests lists any of the suites defined in the standard launch jobs (copied here for user friendliness)
-var supportedTests = []string{"e2e", "e2e-serial", "e2e-all", "e2e-disruptive", "e2e-disruptive-all", "e2e-builds", "e2e-image-ecosystem", "e2e-image-registry", "e2e-network-stress"}
+// SupportedTests lists any of the suites defined in the standard launch jobs (copied here for user friendliness)
+var SupportedTests = []string{"e2e", "e2e-serial", "e2e-all", "e2e-disruptive", "e2e-disruptive-all", "e2e-builds", "e2e-image-ecosystem", "e2e-image-registry", "e2e-network-stress"}
 
-// supportedTests lists any of the upgrade suites defined in the standard launch jobs (copied here for user friendliness)
-var supportedUpgradeTests = []string{"e2e-upgrade", "e2e-upgrade-all", "e2e-upgrade-partial", "e2e-upgrade-rollback"}
+// SupportedUpgradeTests lists any of the upgrade suites defined in the standard launch jobs (copied here for user friendliness)
+var SupportedUpgradeTests = []string{"e2e-upgrade", "e2e-upgrade-all", "e2e-upgrade-partial", "e2e-upgrade-rollback"}
 
-// supportedPlatforms requires a job within the release periodics that can launch a
+// SupportedPlatforms requires a job within the release periodics that can launch a
 // cluster that has the label job-env: platform-name.
-var supportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "hypershift", "ovirt", "openstack"}
+var SupportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "hypershift", "ovirt", "openstack"}
 
-// supportedParameters are the allowed parameter keys that can be passed to jobs
-var supportedParameters = []string{"ovn", "ovn-hybrid", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv4", "ipv6", "dualstack", "preserve-bootstrap", "test", "rt", "single-node", "cgroupsv2", "techpreview", "upi", "crun", "nfv", "kuryr", "sdn", "no-spot", "no-capabilities", "virtualization-support", "multi-zone"}
+// SupportedParameters are the allowed parameter keys that can be passed to jobs
+var SupportedParameters = []string{"ovn", "ovn-hybrid", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv4", "ipv6", "dualstack", "preserve-bootstrap", "test", "rt", "single-node", "cgroupsv2", "techpreview", "upi", "crun", "nfv", "kuryr", "sdn", "no-spot", "no-capabilities", "virtualization-support", "multi-zone"}
 
-// multistageParameters is the mapping of supportedParameters that can be configured via multistage parameters to the correct environment variable format
+// multistageParameters is the mapping of SupportedParameters that can be configured via multistage parameters to the correct environment variable format
 var multistageParameters = map[string]envVar{
 	"compact": {
 		name:      "SIZE_VARIANT",
@@ -188,8 +189,8 @@ func testStepForPlatform(platform string) string {
 	}
 }
 
-// supportedArchitectures are the allowed architectures that can be passed to jobs
-var supportedArchitectures = []string{"amd64", "arm64", "multi"}
+// SupportedArchitectures are the allowed architectures that can be passed to jobs
+var SupportedArchitectures = []string{"amd64", "arm64", "multi"}
 
 var (
 	// reReleaseVersion detects whether a branch appears to correlate to a release branch
@@ -343,7 +344,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			"release.openshift.io/architecture": job.Architecture,
 		},
 		Labels: map[string]string{
-			launchLabel: "true",
+			util.LaunchLabel: "true",
 
 			"prow.k8s.io/type": string(pj.Spec.Type),
 			"prow.k8s.io/job":  pj.Spec.Job,
@@ -353,7 +354,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	// sort the variant inputs
 	var variants []string
 	for k := range job.JobParams {
-		if contains(supportedParameters, k) {
+		if Contains(SupportedParameters, k) {
 			variants = append(variants, k)
 		}
 	}
@@ -960,7 +961,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	return prowJobURL, nil
 }
 
-func getClusterClient(m *jobManager, job *Job) (*BuildClusterClientConfig, error) {
+func getClusterClient(m *jobManager, job *Job) (*util.BuildClusterClientConfig, error) {
 	clusterClient, ok := m.clusterClients[job.BuildCluster]
 	if !ok {
 		return nil, fmt.Errorf("Cluster %s not found in %v", job.BuildCluster, m.clusterClients)
@@ -1342,11 +1343,11 @@ func (m *jobManager) waitForJob(job *Job) error {
 			job.PasswordSnippet += fmt.Sprintf("\nThis following is the deployment information for you operator:\n%s", operatorDeploymentInfo)
 		}
 	} else {
-		job.PasswordSnippet = fmt.Sprintf("\nError: Unable to retrieve kubeadmin password, you must use the kubeconfig file to access the cluster")
+		job.PasswordSnippet = "\nError: Unable to retrieve kubeadmin password, you must use the kubeconfig file to access the cluster"
 	}
 
 	created := len(pj.Annotations["ci-chat-bot.openshift.io/expires"]) == 0
-	startDuration := time.Now().Sub(started)
+	startDuration := time.Since(started)
 	m.clearNotificationAnnotations(job, created, startDuration)
 
 	return waitErr
@@ -1418,11 +1419,11 @@ func commandContents(podClient coreclientset.CoreV1Interface, podRESTConfig *res
 	return buf.String(), nil
 }
 
-// loadKubeconfig loads connection configuration
+// LoadKubeconfig loads connection configuration
 // for the cluster we're deploying to. We prefer to
 // use in-cluster configuration if possible, but will
 // fall back to using default rules otherwise.
-func loadKubeconfig() (*rest.Config, string, bool, error) {
+func LoadKubeconfig() (*rest.Config, string, bool, error) {
 	cfg := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{})
 	clusterConfig, err := cfg.ClientConfig()
 	if err != nil {
@@ -1435,7 +1436,7 @@ func loadKubeconfig() (*rest.Config, string, bool, error) {
 	return clusterConfig, ns, isSet, nil
 }
 
-func loadKubeconfigFromFlagOrDefault(path string, def *rest.Config) (*rest.Config, error) {
+func LoadKubeconfigFromFlagOrDefault(path string, def *rest.Config) (*rest.Config, error) {
 	if path == "" {
 		return def, nil
 	}
@@ -1444,7 +1445,7 @@ func loadKubeconfigFromFlagOrDefault(path string, def *rest.Config) (*rest.Confi
 	).ClientConfig()
 }
 
-// loadKubeconfig loads connection configuration
+// LoadKubeconfig loads connection configuration
 // for the cluster we're deploying to. We prefer to
 // use in-cluster configuration if possible, but will
 // fall back to using default rules otherwise.

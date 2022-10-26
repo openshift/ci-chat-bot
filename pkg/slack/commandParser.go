@@ -1,6 +1,7 @@
-package main
+package slack
 
 import (
+	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"regexp"
@@ -43,7 +44,7 @@ type Token struct {
 type CommandDefinition struct {
 	Description string
 	Example     string
-	Handler     func(client *slack.Client, manager JobManager, event *slackevents.MessageEvent, properties *Properties) string
+	Handler     func(client *slack.Client, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string
 }
 
 // BotCommand interface
@@ -52,17 +53,17 @@ type BotCommand interface {
 	Definition() *CommandDefinition
 	Match(text string) (*Properties, bool)
 	Tokenize() []*Token
-	Execute(client *slack.Client, manager JobManager, event *slackevents.MessageEvent, properties *Properties) string
+	Execute(client *slack.Client, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string
 }
 
-// botCommand structure contains the bots' command, description and handler
+// botCommand structure Contains the bots' command, description and handler
 type botCommand struct {
 	usage      string
 	definition *CommandDefinition
 	command    *Command
 }
 
-func (c *botCommand) Execute(client *slack.Client, manager JobManager, event *slackevents.MessageEvent, properties *Properties) string {
+func (c *botCommand) Execute(client *slack.Client, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string {
 	if c.definition == nil || c.definition.Handler == nil {
 		return "Failed to execute the command!"
 	}

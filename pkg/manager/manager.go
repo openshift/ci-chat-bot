@@ -1,4 +1,4 @@
-package main
+package manager
 
 import (
 	"bytes"
@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	util "github.com/openshift/ci-chat-bot/pkg"
+	"github.com/openshift/ci-chat-bot/pkg/prow"
+	"github.com/openshift/ci-tools/pkg/lease"
 	"math"
 	"net/url"
 	"regexp"
@@ -25,7 +28,6 @@ import (
 	"github.com/blang/semver"
 
 	imagev1 "github.com/openshift/api/image/v1"
-	"github.com/openshift/ci-chat-bot/pkg/prow"
 	citools "github.com/openshift/ci-tools/pkg/api"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -163,6 +165,24 @@ func (j Job) IsComplete() bool {
 	return j.Complete || len(j.Credentials) > 0 || (len(j.State) > 0 && j.State != prowapiv1.PendingState)
 }
 
+type WorkflowConfig struct {
+	Workflows map[string]WorkflowConfigItem `yaml:"workflows"`
+	Mutex     sync.RWMutex                  `yaml:"-"` // this field just allows us to update the above values without races
+}
+
+type WorkflowConfigItem struct {
+	BaseImages   map[string]citools.ImageStreamTagReference `yaml:"base_images,omitempty"`
+	Architecture string                                     `yaml:"architecture,omitempty"`
+	Platform     string                                     `yaml:"platform"`
+}
+
+// LeaseClient only include the metrics function, as we don't want to create leases
+type LeaseClient interface {
+	// Metrics queries the states of a particular resource, for informational
+	// purposes.
+	Metrics(rtype string) (lease.Metrics, error)
+}
+
 type jobManager struct {
 	lock                 sync.Mutex
 	requests             map[string]*JobRequest
@@ -177,7 +197,7 @@ type jobManager struct {
 	prowConfigLoader prow.ProwConfigLoader
 	prowClient       dynamic.NamespaceableResourceInterface
 	imageClient      imageclientset.Interface
-	clusterClients   BuildClusterClientConfigMap
+	clusterClients   util.BuildClusterClientConfigMap
 	prowNamespace    string
 	githubClient     github.Client
 	forcePROwner     string
@@ -192,7 +212,7 @@ type jobManager struct {
 	notifierFn     JobCallbackFunc
 	workflowConfig *WorkflowConfig
 
-	lClient leaseClient
+	lClient LeaseClient
 }
 
 // NewJobManager creates a manager that will track the requests made by a user to create clusters
@@ -204,11 +224,11 @@ func NewJobManager(
 	configResolver ConfigResolver,
 	prowClient dynamic.NamespaceableResourceInterface,
 	imageClient imageclientset.Interface,
-	buildClusterClientConfigMap BuildClusterClientConfigMap,
+	buildClusterClientConfigMap util.BuildClusterClientConfigMap,
 	githubClient github.Client,
 	forcePROwner string,
 	workflowConfig *WorkflowConfig,
-	lClient leaseClient,
+	lClient LeaseClient,
 ) *jobManager {
 	m := &jobManager{
 		requests:         make(map[string]*JobRequest),
@@ -244,7 +264,7 @@ func (m *jobManager) Start() error {
 	return nil
 }
 
-func paramsFromAnnotation(value string) (map[string]string, error) {
+func ParamsFromAnnotation(value string) (map[string]string, error) {
 	values := make(map[string]string)
 	if len(value) == 0 {
 		return values, nil
@@ -286,7 +306,7 @@ func paramsToString(params map[string]string) string {
 func (m *jobManager) sync() error {
 	u, err := m.prowClient.Namespace(m.prowNamespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: labels.SelectorFromSet(labels.Set{
-			launchLabel: "true",
+			util.LaunchLabel: "true",
 		}).String(),
 	})
 	if err != nil {
@@ -352,7 +372,7 @@ func (m *jobManager) sync() error {
 		}
 
 		var err error
-		j.JobParams, err = paramsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
+		j.JobParams, err = ParamsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
 		if err != nil {
 			klog.Infof("Unable to unmarshal parameters from %s: %v", job.Name, err)
 			continue
@@ -415,7 +435,7 @@ func (m *jobManager) sync() error {
 								inputStrings = append(inputStrings, current)
 							}
 						}
-						params, err := paramsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
+						params, err := ParamsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
 						if err != nil {
 							klog.Infof("Unable to unmarshal parameters from %s: %v", job.Name, err)
 							continue
@@ -490,7 +510,7 @@ func (m *jobManager) estimateCompletion(requestedAt time.Time) time.Duration {
 	return lastEstimate.Truncate(time.Second)
 }
 
-func contains(arr []string, s string) bool {
+func Contains(arr []string, s string) bool {
 	for _, item := range arr {
 		if s == item {
 			return true
@@ -515,7 +535,7 @@ func (m *jobManager) ListJobs(users ...string) string {
 			clusters = append(clusters, job)
 		} else {
 			totalJobs++
-			if contains(users, job.RequestedBy) {
+			if Contains(users, job.RequestedBy) {
 				jobs = append(jobs, job)
 			}
 		}
@@ -617,11 +637,11 @@ func (m *jobManager) ListJobs(users ...string) string {
 			var details string
 			switch {
 			case len(job.URL) > 0 && len(job.OriginalMessage) > 0:
-				details = fmt.Sprintf("<%s|%s>", job.URL, stripLinks(job.OriginalMessage))
+				details = fmt.Sprintf("<%s|%s>", job.URL, util.StripLinks(job.OriginalMessage))
 			case len(job.URL) > 0:
 				details = fmt.Sprintf("<%s|%s>", job.URL, job.JobName)
 			case len(job.OriginalMessage) > 0:
-				details = stripLinks(job.OriginalMessage)
+				details = util.StripLinks(job.OriginalMessage)
 			default:
 				details = job.JobName
 			}
@@ -1235,7 +1255,7 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 		if k == "no-spot" {
 			continue
 		}
-		if contains(supportedParameters, k) && !platformParams.Has(k) && k != "test" { // we only need parameters that are not configured via multistage env vars
+		if Contains(SupportedParameters, k) && !platformParams.Has(k) && k != "test" { // we only need parameters that are not configured via multistage env vars
 			variants.Insert(k)
 		}
 	}
