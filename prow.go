@@ -712,6 +712,8 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		}
 
 		index := 0
+		// we can only support one operator bundle build, so we need to know if other bundles may be declared here
+		operatorRepo := ""
 		for i, input := range job.Inputs {
 			for _, ref := range input.Refs {
 				configData, ok, err := m.configResolver.Resolve(ref.Org, ref.Repo, ref.BaseRef, "")
@@ -730,6 +732,80 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 				if klog.V(2) {
 					data, _ := json.MarshalIndent(targetConfig, "", "  ")
 					klog.Infof("Found target job config:\n%s", string(data))
+				}
+
+				if targetConfig.Operator != nil && len(targetConfig.Operator.Bundles) > 0 {
+					if len(targetConfig.Operator.Bundles) > 1 {
+						return "", fmt.Errorf("multiple operator bundles are defined for repo %s; this is not currently supported", fmt.Sprintf("%s/%s", ref.Org, ref.Repo))
+					}
+					if job.IsOperator {
+						if operatorRepo != fmt.Sprintf("%s/%s", ref.Org, ref.Repo) {
+							return "", fmt.Errorf("multiple operator sources were configured; this is not currently supported")
+						}
+					} else {
+						operatorRepo = fmt.Sprintf("%s/%s", ref.Org, ref.Repo)
+						job.IsOperator = true
+						sourceConfig.Operator = targetConfig.Operator
+						// find test definition referencing the bundle for dependencies and environment
+						var environment []citools.StepParameter
+						indexName := "ci-index"
+						if targetConfig.Operator.Bundles[0].As != "" {
+							indexName = fmt.Sprintf("ci-index-%s", targetConfig.Operator.Bundles[0].As)
+						}
+					TestLoop:
+						for _, test := range targetConfig.Tests {
+							// since we retrieved the config from the resolver, the tests are fully resolved "literal" configurations
+							if test.MultiStageTestConfigurationLiteral != nil {
+								// fully resolved configs more all dependency and environment declarations to the step instead of global setting
+								for _, step := range test.MultiStageTestConfigurationLiteral.Pre {
+									// dependency naming is deterministic, so we can use that to search for the correct test
+									for _, env := range step.Dependencies {
+										if env.Env == "OO_INDEX" && env.Name == indexName {
+											environment = step.Environment
+											break TestLoop
+										}
+									}
+								}
+							}
+						}
+						for index, test := range sourceConfig.Tests {
+							if test.As == "launch" {
+								for _, env := range environment {
+									if !strings.HasPrefix(env.Name, "OO") {
+										continue
+									}
+									sourceConfig.Tests[index].MultiStageTestConfiguration.Environment[env.Name] = *env.Default
+								}
+								if sourceConfig.Tests[index].MultiStageTestConfiguration.Dependencies == nil {
+									sourceConfig.Tests[index].MultiStageTestConfiguration.Dependencies = make(citools.TestDependencies)
+								}
+								sourceConfig.Tests[index].MultiStageTestConfiguration.Dependencies["OO_INDEX"] = indexName
+								if len(test.MultiStageTestConfiguration.Test) == 0 {
+									testStep := testStepForPlatform(job.Platform)
+									test.MultiStageTestConfiguration.Test = []citools.TestStep{{Reference: &testStep}}
+								}
+								subscribe := "optional-operators-subscribe"
+								test.MultiStageTestConfiguration.Test = append([]citools.TestStep{{Reference: &subscribe}}, test.MultiStageTestConfiguration.Test...)
+							}
+						}
+						// specify root
+						sourceConfig.BuildRootImage = targetConfig.BuildRootImage
+						// specify base_images
+						if len(targetConfig.BaseImages) > 0 && sourceConfig.BaseImages == nil {
+							sourceConfig.BaseImages = make(map[string]citools.ImageStreamTagReference)
+						}
+						for name, ref := range targetConfig.BaseImages {
+							sourceConfig.BaseImages[name] = ref
+						}
+						// the `operator` stanza needs the built images to be in `pipeline`. This is a hacky way to acheieve that
+						for _, image := range targetConfig.Images {
+							sourceConfig.BaseImages[string(image.To)] = citools.ImageStreamTagReference{
+								Name:      "stable",
+								Tag:       string(image.To),
+								Namespace: "$(NAMESPACE)",
+							}
+						}
+					}
 				}
 
 				// delete sections we don't need
@@ -1000,6 +1076,8 @@ func (m *jobManager) waitForJob(job *Job) error {
 	setupContainerTimeout := 60 * time.Minute
 	if job.Platform == "metal" {
 		setupContainerTimeout = 90 * time.Minute
+	} else if job.IsOperator {
+		setupContainerTimeout = 105 * time.Minute
 	}
 
 	if job.Mode != JobTypeLaunch && job.Mode != JobTypeWorkflowLaunch {
@@ -1105,15 +1183,21 @@ func (m *jobManager) waitForJob(job *Job) error {
 			if prowJobPod.Status.Phase == "Succeeded" || prowJobPod.Status.Phase == "Failed" {
 				return false, errJobCompleted
 			}
-			launchSecret, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+			secretDir, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 			if err != nil {
 				// It will take awhile before the secret is established and for the ci-chat-bot serviceaccount
 				// to get permission to access it (see openshift-cluster-bot-rbac step). Ignore errors.
 				return false, nil
 			}
-			if _, ok := launchSecret.Data["console.url"]; ok {
+			if _, ok := secretDir.Data["console.url"]; ok {
 				// If the console.url is established, the cluster was setup.
-				return true, nil
+				if job.IsOperator {
+					if _, ok := secretDir.Data["oo_deployment_details.yaml"]; ok {
+						return true, nil
+					}
+				} else {
+					return true, nil
+				}
 			}
 			return false, nil
 		} else {
@@ -1164,9 +1248,9 @@ func (m *jobManager) waitForJob(job *Job) error {
 	}
 
 	if stepBasedMode {
-		launchSecret, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+		secretDir, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 		if err == nil {
-			if content, ok := launchSecret.Data["kubeconfig"]; ok {
+			if content, ok := secretDir.Data["kubeconfig"]; ok {
 				kubeconfig = string(content)
 			} else {
 				klog.Errorf("job %q unable to find kubeconfig entry in step secret in %s/%s", job.Name, namespace, targetName)
@@ -1216,18 +1300,22 @@ func (m *jobManager) waitForJob(job *Job) error {
 	}
 
 	var kubeadminPassword string
+	var operatorDeploymentInfo string
 	if stepBasedMode {
-		launchSecret, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+		secretDir, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("unable to retrieve step secret %s/%s: %v", namespace, targetName, err)
 		}
-		if consoleURL, ok := launchSecret.Data["console.url"]; ok {
+		if consoleURL, ok := secretDir.Data["console.url"]; ok {
 			job.PasswordSnippet = string(consoleURL)
 		} else {
 			return fmt.Errorf("unable to retrieve console.url from step secret %s/%s", namespace, targetName)
 		}
-		if password, ok := launchSecret.Data["kubeadmin-password"]; ok {
+		if password, ok := secretDir.Data["kubeadmin-password"]; ok {
 			kubeadminPassword = string(password)
+		}
+		if deployment, ok := secretDir.Data["oo_deployment_details.yaml"]; ok {
+			operatorDeploymentInfo = string(deployment)
 		}
 	} else {
 		lines := int64(2)
@@ -1250,6 +1338,9 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	if len(kubeadminPassword) > 0 {
 		job.PasswordSnippet += fmt.Sprintf("\nLog in to the console with user `kubeadmin` and password `%s`", kubeadminPassword)
+		if len(operatorDeploymentInfo) > 0 {
+			job.PasswordSnippet += fmt.Sprintf("\nThis following is the deployment information for you operator:\n%s", operatorDeploymentInfo)
+		}
 	} else {
 		job.PasswordSnippet = fmt.Sprintf("\nError: Unable to retrieve kubeadmin password, you must use the kubeconfig file to access the cluster")
 	}
@@ -1457,6 +1548,7 @@ mkdir -p "$(ARTIFACTS)/initial" "$(ARTIFACTS)/final"
 
 # HACK: clonerefs infers a directory from the refs provided to the prowjob, there's no way
 # to override it outside the job today, so simply reset to the working dir
+initial_dir=$(pwd)
 cd "/home/prow/go/src"
 working_dir="$(pwd)"
 
@@ -1509,6 +1601,7 @@ done
 
 # drain the job results
 for i in ${pids[@]}; do if ! wait $i; then exit 1; fi; done
+cd ${initial_dir}
 `
 
 const permissionsScript = `
