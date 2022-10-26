@@ -21,7 +21,7 @@ require (
 	github.com/openshift/api v0.0.0-20220531073726-6c4f186339a7
 	github.com/openshift/ci-tools v0.0.0-20221004185624-2bc897a7177c
 	github.com/openshift/client-go v3.9.0+incompatible
-	github.com/sbstjn/hanu v0.1.0
+	github.com/sirupsen/logrus v1.8.1
 	github.com/slack-go/slack v0.10.3
 	github.com/spf13/pflag v1.0.5
 	gopkg.in/yaml.v2 v2.4.0
@@ -33,8 +33,6 @@ require (
 	sigs.k8s.io/controller-runtime v0.12.3
 	sigs.k8s.io/yaml v1.3.0
 )
-
-require github.com/sirupsen/logrus v1.8.1 // indirect
 
 require (
 	cloud.google.com/go v0.102.0 // indirect
@@ -123,7 +121,6 @@ require (
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/prometheus/statsd_exporter v0.21.0 // indirect
 	github.com/satori/go.uuid v1.2.0 // indirect
-	github.com/sbstjn/allot v0.0.0-20161025071122-1f2349af5ccd // indirect
 	github.com/shurcooL/githubv4 v0.0.0-20210725200734-83ba7b4c9228 // indirect
 	github.com/shurcooL/graphql v0.0.0-20181231061246-d48a9a75455f // indirect
 	github.com/tektoncd/pipeline v0.36.0 // indirect
