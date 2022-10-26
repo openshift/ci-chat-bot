@@ -7,7 +7,7 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
-	util "github.com/openshift/ci-chat-bot/pkg"
+	utils "github.com/openshift/ci-chat-bot/pkg"
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	"io/ioutil"
 	"net/http"
@@ -43,12 +43,6 @@ import (
 
 	citools "github.com/openshift/ci-tools/pkg/api"
 )
-
-type envVar struct {
-	name      string
-	value     string
-	platforms sets.String
-}
 
 var errJobCompleted = fmt.Errorf("job is complete")
 
@@ -177,18 +171,6 @@ var envsForTestType = map[string][]envVar{
 	}},
 }
 
-func testStepForPlatform(platform string) string {
-	switch platform {
-	case "aws", "aws-2", "gcp", "azure", "vsphere", "ovirt", "openstack":
-		return "openshift-e2e-test"
-	case "metal":
-		return "baremetalds-e2e-test"
-	default:
-		// currently hypershift has no workflows that do any tests, so we can't override a launch job for e2e tests
-		return ""
-	}
-}
-
 // SupportedArchitectures are the allowed architectures that can be passed to jobs
 var SupportedArchitectures = []string{"amd64", "arm64", "multi"}
 
@@ -199,14 +181,16 @@ var (
 	reVersion = regexp.MustCompile(`^(\d+\.\d+)`)
 )
 
-// ConfigResolver finds a ci-operator config for the given tuple of organization, repository,
-// branch, and variant.
-type ConfigResolver interface {
-	Resolve(org, repo, branch, variant string) ([]byte, bool, error)
-}
-
-type URLConfigResolver struct {
-	URL *url.URL
+func testStepForPlatform(platform string) string {
+	switch platform {
+	case "aws", "aws-2", "gcp", "azure", "vsphere", "ovirt", "openstack":
+		return "openshift-e2e-test"
+	case "metal":
+		return "baremetalds-e2e-test"
+	default:
+		// currently hypershift has no workflows that do any tests, so we can't override a launch job for e2e tests
+		return ""
+	}
 }
 
 func (r *URLConfigResolver) Resolve(org, repo, branch, variant string) ([]byte, bool, error) {
@@ -344,7 +328,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			"release.openshift.io/architecture": job.Architecture,
 		},
 		Labels: map[string]string{
-			util.LaunchLabel: "true",
+			utils.LaunchLabel: "true",
 
 			"prow.k8s.io/type": string(pj.Spec.Type),
 			"prow.k8s.io/job":  pj.Spec.Job,
@@ -354,7 +338,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	// sort the variant inputs
 	var variants []string
 	for k := range job.JobParams {
-		if Contains(SupportedParameters, k) {
+		if utils.Contains(SupportedParameters, k) {
 			variants = append(variants, k)
 		}
 	}
@@ -961,7 +945,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	return prowJobURL, nil
 }
 
-func getClusterClient(m *jobManager, job *Job) (*util.BuildClusterClientConfig, error) {
+func getClusterClient(m *jobManager, job *Job) (*utils.BuildClusterClientConfig, error) {
 	clusterClient, ok := m.clusterClients[job.BuildCluster]
 	if !ok {
 		return nil, fmt.Errorf("Cluster %s not found in %v", job.BuildCluster, m.clusterClients)
@@ -1417,32 +1401,6 @@ func commandContents(podClient coreclientset.CoreV1Interface, podRESTConfig *res
 		return "", err
 	}
 	return buf.String(), nil
-}
-
-// LoadKubeconfig loads connection configuration
-// for the cluster we're deploying to. We prefer to
-// use in-cluster configuration if possible, but will
-// fall back to using default rules otherwise.
-func LoadKubeconfig() (*rest.Config, string, bool, error) {
-	cfg := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{})
-	clusterConfig, err := cfg.ClientConfig()
-	if err != nil {
-		return nil, "", false, fmt.Errorf("could not load client configuration: %v", err)
-	}
-	ns, isSet, err := cfg.Namespace()
-	if err != nil {
-		return nil, "", false, fmt.Errorf("could not load client namespace: %v", err)
-	}
-	return clusterConfig, ns, isSet, nil
-}
-
-func LoadKubeconfigFromFlagOrDefault(path string, def *rest.Config) (*rest.Config, error) {
-	if path == "" {
-		return def, nil
-	}
-	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}, &clientcmd.ConfigOverrides{},
-	).ClientConfig()
 }
 
 // LoadKubeconfig loads connection configuration

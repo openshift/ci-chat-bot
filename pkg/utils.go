@@ -1,6 +1,7 @@
 package util
 
 import (
+	"fmt"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 	clientset "k8s.io/client-go/kubernetes"
@@ -44,4 +45,36 @@ func StripLinks(input string) string {
 		input = input[open+close+1:]
 	}
 	return b.String()
+}
+
+func ParamsFromAnnotation(value string) (map[string]string, error) {
+	values := make(map[string]string)
+	if len(value) == 0 {
+		return values, nil
+	}
+	for _, part := range strings.Split(value, ",") {
+		if len(part) == 0 {
+			return nil, fmt.Errorf("parameter may not be empty")
+		}
+		parts := strings.SplitN(part, "=", 2)
+		key := strings.TrimSpace(parts[0])
+		if len(key) == 0 {
+			return nil, fmt.Errorf("parameter name may not be empty")
+		}
+		if len(parts) == 1 {
+			values[key] = ""
+			continue
+		}
+		values[key] = parts[1]
+	}
+	return values, nil
+}
+
+func Contains(arr []string, s string) bool {
+	for _, item := range arr {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }

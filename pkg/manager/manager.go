@@ -6,16 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	util "github.com/openshift/ci-chat-bot/pkg"
+	utils "github.com/openshift/ci-chat-bot/pkg"
 	"github.com/openshift/ci-chat-bot/pkg/prow"
-	"github.com/openshift/ci-tools/pkg/lease"
 	"math"
 	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"k8s.io/test-infra/prow/github"
@@ -46,40 +44,6 @@ const (
 	maxTotalClusters = 80
 )
 
-// JobRequest keeps information about the request a user made to create
-// a job. This is reconstructable from a ProwJob.
-type JobRequest struct {
-	OriginalMessage string
-
-	User     string
-	UserName string
-
-	// Inputs is one or more list of inputs to build a release image. For each input there may be zero or one images or versions, and
-	// zero or more pull requests. If a base image or version is present, the PRs are built relative to that version. If no build
-	// is necessary then this can be a single build.
-	Inputs [][]string
-
-	// Type is the type of job to run. Allowed types are 'install', 'upgrade', 'test', or 'build'. The default is 'build'.
-	Type JobType
-
-	// An optional string controlling the platform type for jobs that launch clusters. Required for install or upgrade jobs.
-	Platform string
-
-	// WorkflowName is a field used to store the name of the workflow to run for workflow commands
-	WorkflowName string
-
-	Channel     string
-	RequestedAt time.Time
-	Name        string
-
-	JobName   string
-	JobParams map[string]string
-
-	Architecture string
-}
-
-type JobType string
-
 const (
 	JobTypeBuild = "build"
 	// TODO: remove this const. It seems out of date and replaced by launch everywhere except for in JobRequest.JobType. Gets changed to "launch" for job.Mode
@@ -91,128 +55,11 @@ const (
 	JobTypeWorkflowUpgrade = "workflow-upgrade"
 )
 
-// JobManager responds to user actions and tracks the state of the launched
-// clusters.
-type JobManager interface {
-	SetNotifier(JobCallbackFunc)
-
-	LaunchJobForUser(req *JobRequest) (string, error)
-	SyncJobForUser(user string) (string, error)
-	TerminateJobForUser(user string) (string, error)
-	GetLaunchJob(user string) (*Job, error)
-	LookupInputs(inputs []string, architecture string) (string, error)
-	ListJobs(users ...string) string
-}
-
-// JobCallbackFunc is invoked when the job changes state in a significant
-// way.
-type JobCallbackFunc func(Job)
-
-// JobInput defines the input to a job. Different modes need different inputs.
-type JobInput struct {
-	Image    string
-	RunImage string
-	Version  string
-	Refs     []prowapiv1.Refs
-}
-
-// Job responds to user requests and tracks the state of the launched
-// jobs. This object must be recreatable from a ProwJob, but the RequestedChannel
-// field may be empty to indicate the user has already been notified.
-type Job struct {
-	Name string
-
-	OriginalMessage string
-
-	State   prowapiv1.ProwJobState
-	JobName string
-	URL     string
-
-	Platform  string
-	JobParams map[string]string
-
-	TargetType string
-	Mode       string
-
-	Inputs []JobInput
-
-	Credentials     string
-	PasswordSnippet string
-	Failure         string
-
-	RequestedBy      string
-	RequesterUserID  string
-	RequestedChannel string
-
-	RequestedAt   time.Time
-	ExpiresAt     time.Time
-	StartDuration time.Duration
-	Complete      bool
-
-	Architecture string
-	BuildCluster string
-
-	LegacyConfig bool
-
-	WorkflowName string
-
-	UseSecondaryAccount bool
-
-	IsOperator bool
-}
+var reBranchVersion = regexp.MustCompile(`^(openshift-|release-)(\d+\.\d+)$`)
+var reMajorMinorVersion = regexp.MustCompile(`^(\d+)\.(\d+)$`)
 
 func (j Job) IsComplete() bool {
 	return j.Complete || len(j.Credentials) > 0 || (len(j.State) > 0 && j.State != prowapiv1.PendingState)
-}
-
-type WorkflowConfig struct {
-	Workflows map[string]WorkflowConfigItem `yaml:"workflows"`
-	Mutex     sync.RWMutex                  `yaml:"-"` // this field just allows us to update the above values without races
-}
-
-type WorkflowConfigItem struct {
-	BaseImages   map[string]citools.ImageStreamTagReference `yaml:"base_images,omitempty"`
-	Architecture string                                     `yaml:"architecture,omitempty"`
-	Platform     string                                     `yaml:"platform"`
-}
-
-// LeaseClient only include the metrics function, as we don't want to create leases
-type LeaseClient interface {
-	// Metrics queries the states of a particular resource, for informational
-	// purposes.
-	Metrics(rtype string) (lease.Metrics, error)
-}
-
-type jobManager struct {
-	lock                 sync.Mutex
-	requests             map[string]*JobRequest
-	jobs                 map[string]*Job
-	started              time.Time
-	recentStartEstimates []time.Duration
-
-	clusterPrefix string
-	maxClusters   int
-	maxAge        time.Duration
-
-	prowConfigLoader prow.ProwConfigLoader
-	prowClient       dynamic.NamespaceableResourceInterface
-	imageClient      imageclientset.Interface
-	clusterClients   util.BuildClusterClientConfigMap
-	prowNamespace    string
-	githubClient     github.Client
-	forcePROwner     string
-
-	configResolver ConfigResolver
-
-	muJob struct {
-		lock    sync.Mutex
-		running map[string]struct{}
-	}
-
-	notifierFn     JobCallbackFunc
-	workflowConfig *WorkflowConfig
-
-	lClient LeaseClient
 }
 
 // NewJobManager creates a manager that will track the requests made by a user to create clusters
@@ -224,7 +71,7 @@ func NewJobManager(
 	configResolver ConfigResolver,
 	prowClient dynamic.NamespaceableResourceInterface,
 	imageClient imageclientset.Interface,
-	buildClusterClientConfigMap util.BuildClusterClientConfigMap,
+	buildClusterClientConfigMap utils.BuildClusterClientConfigMap,
 	githubClient github.Client,
 	forcePROwner string,
 	workflowConfig *WorkflowConfig,
@@ -264,29 +111,6 @@ func (m *jobManager) Start() error {
 	return nil
 }
 
-func ParamsFromAnnotation(value string) (map[string]string, error) {
-	values := make(map[string]string)
-	if len(value) == 0 {
-		return values, nil
-	}
-	for _, part := range strings.Split(value, ",") {
-		if len(part) == 0 {
-			return nil, fmt.Errorf("parameter may not be empty")
-		}
-		parts := strings.SplitN(part, "=", 2)
-		key := strings.TrimSpace(parts[0])
-		if len(key) == 0 {
-			return nil, fmt.Errorf("parameter name may not be empty")
-		}
-		if len(parts) == 1 {
-			values[key] = ""
-			continue
-		}
-		values[key] = parts[1]
-	}
-	return values, nil
-}
-
 func paramsToString(params map[string]string) string {
 	var pairs []string
 	for k, v := range params {
@@ -306,7 +130,7 @@ func paramsToString(params map[string]string) string {
 func (m *jobManager) sync() error {
 	u, err := m.prowClient.Namespace(m.prowNamespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: labels.SelectorFromSet(labels.Set{
-			util.LaunchLabel: "true",
+			utils.LaunchLabel: "true",
 		}).String(),
 	})
 	if err != nil {
@@ -372,7 +196,7 @@ func (m *jobManager) sync() error {
 		}
 
 		var err error
-		j.JobParams, err = ParamsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
+		j.JobParams, err = utils.ParamsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
 		if err != nil {
 			klog.Infof("Unable to unmarshal parameters from %s: %v", job.Name, err)
 			continue
@@ -435,7 +259,7 @@ func (m *jobManager) sync() error {
 								inputStrings = append(inputStrings, current)
 							}
 						}
-						params, err := ParamsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
+						params, err := utils.ParamsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
 						if err != nil {
 							klog.Infof("Unable to unmarshal parameters from %s: %v", job.Name, err)
 							continue
@@ -510,15 +334,6 @@ func (m *jobManager) estimateCompletion(requestedAt time.Time) time.Duration {
 	return lastEstimate.Truncate(time.Second)
 }
 
-func Contains(arr []string, s string) bool {
-	for _, item := range arr {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
 func (m *jobManager) ListJobs(users ...string) string {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -535,7 +350,7 @@ func (m *jobManager) ListJobs(users ...string) string {
 			clusters = append(clusters, job)
 		} else {
 			totalJobs++
-			if Contains(users, job.RequestedBy) {
+			if utils.Contains(users, job.RequestedBy) {
 				jobs = append(jobs, job)
 			}
 		}
@@ -637,11 +452,11 @@ func (m *jobManager) ListJobs(users ...string) string {
 			var details string
 			switch {
 			case len(job.URL) > 0 && len(job.OriginalMessage) > 0:
-				details = fmt.Sprintf("<%s|%s>", job.URL, util.StripLinks(job.OriginalMessage))
+				details = fmt.Sprintf("<%s|%s>", job.URL, utils.StripLinks(job.OriginalMessage))
 			case len(job.URL) > 0:
 				details = fmt.Sprintf("<%s|%s>", job.URL, job.JobName)
 			case len(job.OriginalMessage) > 0:
-				details = util.StripLinks(job.OriginalMessage)
+				details = utils.StripLinks(job.OriginalMessage)
 			default:
 				details = job.JobName
 			}
@@ -657,8 +472,6 @@ func (m *jobManager) ListJobs(users ...string) string {
 	fmt.Fprintf(buf, "\nbot uptime is %.1f minutes", now.Sub(m.started).Seconds()/60)
 	return buf.String()
 }
-
-type callbackFunc func(job Job)
 
 func (m *jobManager) GetLaunchJob(user string) (*Job, error) {
 	m.lock.Lock()
@@ -681,8 +494,6 @@ func (m *jobManager) GetLaunchJob(user string) (*Job, error) {
 	return &copied, nil
 }
 
-var reBranchVersion = regexp.MustCompile(`^(openshift-|release-)(\d+\.\d+)$`)
-
 func versionForRefs(refs *prowapiv1.Refs) string {
 	if refs == nil || len(refs.BaseRef) == 0 {
 		return ""
@@ -695,8 +506,6 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 	}
 	return ""
 }
-
-var reMajorMinorVersion = regexp.MustCompile(`^(\d+)\.(\d+)$`)
 
 func buildPullSpec(namespace, tagName, isName string) string {
 	var delimiter = ":"
@@ -1255,7 +1064,7 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 		if k == "no-spot" {
 			continue
 		}
-		if Contains(SupportedParameters, k) && !platformParams.Has(k) && k != "test" { // we only need parameters that are not configured via multistage env vars
+		if utils.Contains(SupportedParameters, k) && !platformParams.Has(k) && k != "test" { // we only need parameters that are not configured via multistage env vars
 			variants.Insert(k)
 		}
 	}

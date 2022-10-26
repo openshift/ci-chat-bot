@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	util "github.com/openshift/ci-chat-bot/pkg"
+	utils "github.com/openshift/ci-chat-bot/pkg"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	slackCommandParser "github.com/openshift/ci-chat-bot/pkg/slack"
 	eventhandler "github.com/openshift/ci-chat-bot/pkg/slack/events"
@@ -396,7 +396,7 @@ func Test(client *slack.Client, jobManager manager.JobManager, event *slackevent
 		return fmt.Sprintf("you must specify the name of a test: %s", strings.Join(CodeSlice(manager.SupportedTests), ", "))
 	}
 	switch {
-	case manager.Contains(manager.SupportedTests, test):
+	case utils.Contains(manager.SupportedTests, test):
 	default:
 		return fmt.Sprintf("warning: You are using a custom test name, may not be supported for all platforms: %s", strings.Join(CodeSlice(manager.SupportedTests), ", "))
 	}
@@ -583,7 +583,7 @@ func GetPlatformArchFromWorkflowConfig(workflowConfig *manager.WorkflowConfig, n
 	} else {
 		platform = workflow.Platform
 		if workflow.Architecture != "" {
-			if manager.Contains(manager.SupportedArchitectures, workflow.Architecture) {
+			if utils.Contains(manager.SupportedArchitectures, workflow.Architecture) {
 				architecture = workflow.Architecture
 			} else {
 				return "", "", fmt.Errorf("architecture %s not supported by cluster-bot", workflow.Architecture)
@@ -759,7 +759,7 @@ func parseImageInput(input string) ([]string, error) {
 	if len(input) == 0 {
 		return nil, nil
 	}
-	input = util.StripLinks(input)
+	input = utils.StripLinks(input)
 	parts := strings.Split(input, ",")
 	for _, part := range parts {
 		if len(part) == 0 {
@@ -770,20 +770,20 @@ func parseImageInput(input string) ([]string, error) {
 }
 
 func parseOptions(options string) (string, string, map[string]string, error) {
-	params, err := manager.ParamsFromAnnotation(options)
+	params, err := utils.ParamsFromAnnotation(options)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("options could not be parsed: %w", err)
 	}
 	var platform, architecture string
 	for opt := range params {
 		switch {
-		case manager.Contains(manager.SupportedPlatforms, opt):
+		case utils.Contains(manager.SupportedPlatforms, opt):
 			if len(platform) > 0 {
 				return "", "", nil, fmt.Errorf("you may only specify one platform in options")
 			}
 			platform = opt
 			delete(params, opt)
-		case manager.Contains(manager.SupportedArchitectures, opt):
+		case utils.Contains(manager.SupportedArchitectures, opt):
 			if len(architecture) > 0 {
 				return "", "", nil, fmt.Errorf("you may only specify one architecture in options")
 			}
@@ -791,7 +791,7 @@ func parseOptions(options string) (string, string, map[string]string, error) {
 			delete(params, opt)
 		case opt == "":
 			delete(params, opt)
-		case manager.Contains(manager.SupportedParameters, opt):
+		case utils.Contains(manager.SupportedParameters, opt):
 			// do nothing
 		default:
 			return "", "", nil, fmt.Errorf("unrecognized option: %s", opt)

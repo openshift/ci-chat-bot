@@ -6,6 +6,7 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"io/ioutil"
+	"k8s.io/client-go/tools/clientcmd"
 	"log"
 	"net/url"
 	"os"
@@ -142,21 +143,24 @@ func run() error {
 		return fmt.Errorf("the environment variable BOT_SIGNING_SECRET must be set")
 	}
 
-	prowJobKubeconfig, _, _, err := manager.LoadKubeconfig()
+	prowJobKubeconfig, _, _, err := LoadKubeconfig()
 	if err != nil {
 		return err
 	}
 	dynamicClient, err := dynamic.NewForConfig(prowJobKubeconfig)
 	if err != nil {
-		return fmt.Errorf("unable to create prow client: %v", err)
+		return fmt.Errorf("unable to create prow client: %w", err)
 	}
 	prowClient := dynamicClient.Resource(schema.GroupVersionResource{Group: "prow.k8s.io", Version: "v1", Resource: "prowjobs"})
 
 	// Config and Client to access release images
-	releaseConfig, err := manager.LoadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, prowJobKubeconfig)
+	releaseConfig, err := LoadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, prowJobKubeconfig)
+	if err != nil {
+		return fmt.Errorf("unable to load kubeConfig from flag or default: %w", err)
+	}
 	imageClient, err := imageclientset.NewForConfig(releaseConfig)
 	if err != nil {
-		return fmt.Errorf("unable to create image client: %v", err)
+		return fmt.Errorf("unable to create image client: %w", err)
 	}
 
 	configAgent, err := opt.prowconfig.ConfigAgent()
@@ -278,4 +282,30 @@ func (o *options) initializeLeaseClient() error {
 		return fmt.Errorf("failed to create the lease client: %w", err)
 	}
 	return nil
+}
+
+// LoadKubeconfig loads connection configuration
+// for the cluster we're deploying to. We prefer to
+// use in-cluster configuration if possible, but will
+// fall back to using default rules otherwise.
+func LoadKubeconfig() (*rest.Config, string, bool, error) {
+	cfg := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{})
+	clusterConfig, err := cfg.ClientConfig()
+	if err != nil {
+		return nil, "", false, fmt.Errorf("could not load client configuration: %v", err)
+	}
+	ns, isSet, err := cfg.Namespace()
+	if err != nil {
+		return nil, "", false, fmt.Errorf("could not load client namespace: %v", err)
+	}
+	return clusterConfig, ns, isSet, nil
+}
+
+func LoadKubeconfigFromFlagOrDefault(path string, def *rest.Config) (*rest.Config, error) {
+	if path == "" {
+		return def, nil
+	}
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}, &clientcmd.ConfigOverrides{},
+	).ClientConfig()
 }
