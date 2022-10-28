@@ -1,8 +1,8 @@
 package manager
 
 import (
-	util "github.com/openshift/ci-chat-bot/pkg"
 	"github.com/openshift/ci-chat-bot/pkg/prow"
+	"github.com/openshift/ci-chat-bot/pkg/utils"
 	citools "github.com/openshift/ci-tools/pkg/api"
 	"github.com/openshift/ci-tools/pkg/lease"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
@@ -65,7 +65,7 @@ type jobManager struct {
 	prowConfigLoader prow.ProwConfigLoader
 	prowClient       dynamic.NamespaceableResourceInterface
 	imageClient      imageclientset.Interface
-	clusterClients   util.BuildClusterClientConfigMap
+	clusterClients   utils.BuildClusterClientConfigMap
 	prowNamespace    string
 	githubClient     github.Client
 	forcePROwner     string

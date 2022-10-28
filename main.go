@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/openshift/ci-chat-bot/pkg"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/utils"
 	"io/ioutil"
 	"k8s.io/client-go/tools/clientcmd"
 	"log"
@@ -108,7 +108,7 @@ func run() error {
 	}
 
 	if opt.overrideLaunchLabel != "" {
-		util.LaunchLabel = opt.overrideLaunchLabel
+		utils.LaunchLabel = opt.overrideLaunchLabel
 	}
 
 	err := opt.KubernetesOptions.AddKubeconfigChangeCallback(func() {
@@ -205,8 +205,8 @@ func run() error {
 	return err
 }
 
-func processKubeConfigs(kubeConfigs map[string]rest.Config) (util.BuildClusterClientConfigMap, error) {
-	clusterMap := make(util.BuildClusterClientConfigMap)
+func processKubeConfigs(kubeConfigs map[string]rest.Config) (utils.BuildClusterClientConfigMap, error) {
+	clusterMap := make(utils.BuildClusterClientConfigMap)
 	for clusterName, clusterConfig := range kubeConfigs {
 		tmpClusterConfig := clusterConfig
 		coreClient, err := clientset.NewForConfig(&tmpClusterConfig)
@@ -221,7 +221,7 @@ func processKubeConfigs(kubeConfigs map[string]rest.Config) (util.BuildClusterCl
 		if err != nil {
 			return nil, fmt.Errorf("unable to create project client: %w", err)
 		}
-		clusterMap[clusterName] = &util.BuildClusterClientConfig{
+		clusterMap[clusterName] = &utils.BuildClusterClientConfig{
 			CoreConfig:        &tmpClusterConfig,
 			CoreClient:        coreClient,
 			ProjectClient:     projectClient,
