@@ -6,6 +6,7 @@ import (
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"strings"
 )
 
@@ -77,4 +78,30 @@ func Contains(arr []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// LoadKubeconfig loads connection configuration
+// for the cluster we're deploying to. We prefer to
+// use in-cluster configuration if possible, but will
+// fall back to using default rules otherwise.
+func LoadKubeconfig() (*rest.Config, string, bool, error) {
+	cfg := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{})
+	clusterConfig, err := cfg.ClientConfig()
+	if err != nil {
+		return nil, "", false, fmt.Errorf("could not load client configuration: %v", err)
+	}
+	ns, isSet, err := cfg.Namespace()
+	if err != nil {
+		return nil, "", false, fmt.Errorf("could not load client namespace: %v", err)
+	}
+	return clusterConfig, ns, isSet, nil
+}
+
+func LoadKubeconfigFromFlagOrDefault(path string, def *rest.Config) (*rest.Config, error) {
+	if path == "" {
+		return def, nil
+	}
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}, &clientcmd.ConfigOverrides{},
+	).ClientConfig()
 }

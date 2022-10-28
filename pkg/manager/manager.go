@@ -737,6 +737,9 @@ func findImageStatusTag(is *imagev1.ImageStream, name string) (*imagev1.TagEvent
 	}
 	return nil, ""
 }
+func (m *jobManager) GetWorkflowConfig() *WorkflowConfig {
+	return m.workflowConfig
+}
 
 func (m *jobManager) LookupInputs(inputs []string, architecture string) (string, error) {
 	// default install type jobs to "ci"

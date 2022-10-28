@@ -4,9 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	"io/ioutil"
-	"k8s.io/client-go/tools/clientcmd"
 	"log"
 	"net/url"
 	"os"
@@ -25,7 +25,7 @@ import (
 	"github.com/spf13/pflag"
 
 	citools "github.com/openshift/ci-tools/pkg/api"
-	lease "github.com/openshift/ci-tools/pkg/lease"
+	"github.com/openshift/ci-tools/pkg/lease"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
@@ -143,7 +143,7 @@ func run() error {
 		return fmt.Errorf("the environment variable BOT_SIGNING_SECRET must be set")
 	}
 
-	prowJobKubeconfig, _, _, err := LoadKubeconfig()
+	prowJobKubeconfig, _, _, err := utils.LoadKubeconfig()
 	if err != nil {
 		return err
 	}
@@ -154,7 +154,7 @@ func run() error {
 	prowClient := dynamicClient.Resource(schema.GroupVersionResource{Group: "prow.k8s.io", Version: "v1", Resource: "prowjobs"})
 
 	// Config and Client to access release images
-	releaseConfig, err := LoadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, prowJobKubeconfig)
+	releaseConfig, err := utils.LoadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, prowJobKubeconfig)
 	if err != nil {
 		return fmt.Errorf("unable to load kubeConfig from flag or default: %w", err)
 	}
@@ -199,8 +199,8 @@ func run() error {
 		return fmt.Errorf("unable to load initial configuration: %w", err)
 	}
 
-	bot := NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows)
-	bot.Start(jobManager)
+	bot := slack.NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows)
+	Start(bot, jobManager)
 
 	return err
 }
@@ -282,30 +282,4 @@ func (o *options) initializeLeaseClient() error {
 		return fmt.Errorf("failed to create the lease client: %w", err)
 	}
 	return nil
-}
-
-// LoadKubeconfig loads connection configuration
-// for the cluster we're deploying to. We prefer to
-// use in-cluster configuration if possible, but will
-// fall back to using default rules otherwise.
-func LoadKubeconfig() (*rest.Config, string, bool, error) {
-	cfg := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{})
-	clusterConfig, err := cfg.ClientConfig()
-	if err != nil {
-		return nil, "", false, fmt.Errorf("could not load client configuration: %v", err)
-	}
-	ns, isSet, err := cfg.Namespace()
-	if err != nil {
-		return nil, "", false, fmt.Errorf("could not load client namespace: %v", err)
-	}
-	return clusterConfig, ns, isSet, nil
-}
-
-func LoadKubeconfigFromFlagOrDefault(path string, def *rest.Config) (*rest.Config, error) {
-	if path == "" {
-		return def, nil
-	}
-	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}, &clientcmd.ConfigOverrides{},
-	).ClientConfig()
 }

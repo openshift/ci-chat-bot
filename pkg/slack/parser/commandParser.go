@@ -1,4 +1,4 @@
-package slack
+package parser
 
 import (
 	"github.com/openshift/ci-chat-bot/pkg/manager"
@@ -29,39 +29,6 @@ const (
 var (
 	regexCharacters = []string{"\\", "(", ")", "{", "}", "[", "]", "?", ".", "+", "|", "^", "$"}
 )
-
-type Command struct {
-	tokens      []*Token
-	expressions []*regexp.Regexp
-}
-
-type Token struct {
-	Word string
-	Type int
-}
-
-// CommandDefinition structure contains definition of the bot command
-type CommandDefinition struct {
-	Description string
-	Example     string
-	Handler     func(client *slack.Client, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string
-}
-
-// BotCommand interface
-type BotCommand interface {
-	Usage() string
-	Definition() *CommandDefinition
-	Match(text string) (*Properties, bool)
-	Tokenize() []*Token
-	Execute(client *slack.Client, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string
-}
-
-// botCommand structure Contains the bots' command, description and handler
-type botCommand struct {
-	usage      string
-	definition *CommandDefinition
-	command    *Command
-}
 
 func (c *botCommand) Execute(client *slack.Client, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string {
 	if c.definition == nil || c.definition.Handler == nil {

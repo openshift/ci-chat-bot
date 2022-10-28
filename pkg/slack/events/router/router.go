@@ -2,7 +2,7 @@ package router
 
 import (
 	"github.com/openshift/ci-chat-bot/pkg/manager"
-	slackCommandParser "github.com/openshift/ci-chat-bot/pkg/slack"
+	slackCommandParser "github.com/openshift/ci-chat-bot/pkg/slack/parser"
 	"github.com/slack-go/slack"
 
 	"github.com/openshift/ci-chat-bot/pkg/slack/events"

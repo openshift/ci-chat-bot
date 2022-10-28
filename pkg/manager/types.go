@@ -128,6 +128,7 @@ type JobManager interface {
 	GetLaunchJob(user string) (*Job, error)
 	LookupInputs(inputs []string, architecture string) (string, error)
 	ListJobs(users ...string) string
+	GetWorkflowConfig() *WorkflowConfig
 }
 
 // JobCallbackFunc is invoked when the job changes state in a significant

@@ -3,8 +3,8 @@ package messages
 import (
 	"fmt"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
-	slackCommandParser "github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/slack/events"
+	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func Handle(client *slack.Client, manager manager.JobManager, botCommands []slackCommandParser.BotCommand) events.PartialHandler {
+func Handle(client *slack.Client, manager manager.JobManager, botCommands []parser.BotCommand) events.PartialHandler {
 	return events.PartialHandlerFunc("direct-message",
 		func(callback *slackevents.EventsAPIEvent, logger *logrus.Entry) (handled bool, err error) {
 			if callback.Type != slackevents.CallbackEvent {
@@ -80,7 +80,7 @@ func postResponse(client *slack.Client, event *slackevents.MessageEvent, respons
 	return nil
 }
 
-func help(client *slack.Client, event *slackevents.MessageEvent, botCommands []slackCommandParser.BotCommand) {
+func help(client *slack.Client, event *slackevents.MessageEvent, botCommands []parser.BotCommand) {
 	helpMessage := " "
 	helpMessage += "help" + " - " + fmt.Sprintf("_%s_", "help") + "\n"
 	for _, command := range botCommands {
