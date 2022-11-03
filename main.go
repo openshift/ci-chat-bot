@@ -52,6 +52,8 @@ type options struct {
 	leaseClient                manager.LeaseClient
 
 	overrideLaunchLabel string
+
+	jiraOptions prowflagutil.JiraOptions
 }
 
 func (o *options) Validate() error {
@@ -99,6 +101,7 @@ func run() error {
 	opt.prowconfig.AddFlags(emptyFlags)
 	opt.GitHubOptions.AddFlags(emptyFlags)
 	opt.KubernetesOptions.AddFlags(emptyFlags)
+	opt.jiraOptions.AddFlags(emptyFlags)
 	pflag.CommandLine.AddGoFlagSet(emptyFlags)
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
@@ -200,7 +203,13 @@ func run() error {
 	}
 
 	bot := slack.NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows)
-	Start(bot, jobManager)
+	jiraclient, err := opt.jiraOptions.Client()
+	if err != nil {
+		klog.Errorf("Failed to load the Jira Client: %s", err)
+		Start(bot, nil, jobManager)
+	} else {
+		Start(bot, jiraclient.JiraClient(), jobManager)
+	}
 
 	return err
 }

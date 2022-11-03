@@ -10,6 +10,8 @@ import (
 	"strings"
 )
 
+const CoreOSURL = "https://coreos.slack.com"
+
 var LaunchLabel = "ci-chat-bot.openshift.io/launch"
 
 type BuildClusterClientConfig struct {
@@ -88,11 +90,11 @@ func LoadKubeconfig() (*rest.Config, string, bool, error) {
 	cfg := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{})
 	clusterConfig, err := cfg.ClientConfig()
 	if err != nil {
-		return nil, "", false, fmt.Errorf("could not load client configuration: %v", err)
+		return nil, "", false, fmt.Errorf("could not load client configuration: %w", err)
 	}
 	ns, isSet, err := cfg.Namespace()
 	if err != nil {
-		return nil, "", false, fmt.Errorf("could not load client namespace: %v", err)
+		return nil, "", false, fmt.Errorf("could not load client namespace: %w", err)
 	}
 	return clusterConfig, ns, isSet, nil
 }
