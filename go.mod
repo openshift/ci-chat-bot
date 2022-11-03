@@ -17,6 +17,7 @@ replace (
 )
 
 require (
+	github.com/andygrunwald/go-jira v1.14.0
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/openshift/api v0.0.0-20220531073726-6c4f186339a7
 	github.com/openshift/ci-tools v0.0.0-20221004185624-2bc897a7177c
@@ -50,7 +51,6 @@ require (
 	github.com/GoogleCloudPlatform/testgrid v0.0.123 // indirect
 	github.com/PuerkitoBio/purell v1.1.1 // indirect
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
-	github.com/andygrunwald/go-jira v1.14.0 // indirect
 	github.com/aws/aws-sdk-go v1.37.22 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blendle/zapdriver v1.3.1 // indirect
