@@ -3,6 +3,7 @@ package prow
 import (
 	"bytes"
 	"fmt"
+	"github.com/openshift/ci-chat-bot/pkg/utils"
 	"k8s.io/test-infra/prow/pjutil"
 	"strings"
 
@@ -21,11 +22,11 @@ type ProwConfigLoader interface {
 }
 
 func JobForLabels(prowConfigLoader ProwConfigLoader, selector labels.Selector) (*prowapiv1.ProwJob, error) {
-	config := prowConfigLoader.Config()
-	if config == nil {
+	prowConfig := prowConfigLoader.Config()
+	if prowConfig == nil {
 		return nil, fmt.Errorf("cannot locate prow job: no prow jobs have been defined")
 	}
-	periodicConfig, ok := hasProwJobWithLabels(config, selector)
+	periodicConfig, ok := hasProwJobWithLabels(prowConfig, selector)
 	if !ok {
 		return nil, fmt.Errorf("no prow job matches the label selector %s", selector.String())
 	}
@@ -44,11 +45,11 @@ func JobForLabels(prowConfigLoader ProwConfigLoader, selector labels.Selector) (
 }
 
 func JobForConfig(prowConfigLoader ProwConfigLoader, jobName string) (*prowapiv1.ProwJob, error) {
-	config := prowConfigLoader.Config()
-	if config == nil {
+	prowConfig := prowConfigLoader.Config()
+	if prowConfig == nil {
 		return nil, fmt.Errorf("the prow job %s is not valid: no prow jobs have been defined", jobName)
 	}
-	periodicConfig, ok := hasProwJob(config, jobName)
+	periodicConfig, ok := hasProwJob(prowConfig, jobName)
 	if !ok {
 		return nil, fmt.Errorf("the prow job %s is not valid: no job with that name", jobName)
 	}
@@ -105,40 +106,12 @@ func OverrideJobEnvironment(spec *prowapiv1.ProwJobSpec, image, initialImage, ta
 	}
 }
 
-func contains(slice []string, value string) bool {
-	for _, s := range slice {
-		if s == value {
-			return true
-		}
-	}
-	return false
-}
-
-func RemoveEnvVar(c *corev1.Container, names ...string) {
-	for i, env := range c.Env {
-		if !contains(names, env.Name) {
-			continue
-		}
-
-		removed := make([]corev1.EnvVar, 0, len(c.Env))
-		removed = append(removed, c.Env[:i]...)
-		for _, env := range c.Env[i+1:] {
-			if contains(names, env.Name) {
-				continue
-			}
-			removed = append(removed, env)
-		}
-		c.Env = removed
-		return
-	}
-}
-
 func RemoveJobEnvVar(spec *prowapiv1.ProwJobSpec, names ...string) {
 	for i := range spec.PodSpec.Containers {
 		c := &spec.PodSpec.Containers[i]
 		changed := make([]corev1.EnvVar, 0, len(c.Env))
 		for _, env := range c.Env {
-			if contains(names, env.Name) {
+			if utils.Contains(names, env.Name) {
 				continue
 			}
 			changed = append(changed, env)
@@ -177,32 +150,6 @@ func OverrideJobEnvVar(spec *prowapiv1.ProwJobSpec, name, value string) {
 				c.Env[j].Value = value
 				c.Env[j].ValueFrom = nil
 			}
-		}
-	}
-}
-
-func OverrideJobConfig(spec *prowapiv1.ProwJobSpec, refs *prowapiv1.Refs, value string, installImage string) {
-	spec.Refs = refs
-
-	for i := range spec.PodSpec.Containers {
-		c := &spec.PodSpec.Containers[i]
-		var clearImages bool
-		var hasInitialImage bool
-		for j := range c.Env {
-			switch c.Env[j].Name {
-			case "CONFIG_SPEC":
-				clearImages = true
-				c.Env[j].Value = value
-				c.Env[j].ValueFrom = nil
-			case "RELEASE_IMAGE_INITIAL":
-				hasInitialImage = true
-			}
-		}
-		if clearImages {
-			RemoveEnvVar(c, "RELEASE_IMAGE_INITIAL", "RELEASE_IMAGE_LATEST")
-		}
-		if hasInitialImage && len(installImage) > 0 {
-			c.Env = append(c.Env, corev1.EnvVar{Name: "RELEASE_IMAGE_INITIAL", Value: installImage})
 		}
 	}
 }
