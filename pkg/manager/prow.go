@@ -7,8 +7,6 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
-	"github.com/openshift/ci-chat-bot/pkg/prow"
-	"github.com/openshift/ci-chat-bot/pkg/utils"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -20,6 +18,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/openshift/ci-chat-bot/pkg/prow"
+	"github.com/openshift/ci-chat-bot/pkg/utils"
 
 	"k8s.io/klog"
 	"sigs.k8s.io/yaml"
@@ -720,9 +721,6 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 				}
 
 				if targetConfig.Operator != nil && len(targetConfig.Operator.Bundles) > 0 {
-					if len(targetConfig.Operator.Bundles) > 1 {
-						return "", fmt.Errorf("multiple operator bundles are defined for repo %s; this is not currently supported", fmt.Sprintf("%s/%s", ref.Org, ref.Repo))
-					}
 					if job.IsOperator {
 						if operatorRepo != fmt.Sprintf("%s/%s", ref.Org, ref.Repo) {
 							return "", fmt.Errorf("multiple operator sources were configured; this is not currently supported")
@@ -736,6 +734,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 						indexName := "ci-index"
 						if targetConfig.Operator.Bundles[0].As != "" {
 							indexName = fmt.Sprintf("ci-index-%s", targetConfig.Operator.Bundles[0].As)
+							job.OperatorBundleName = targetConfig.Operator.Bundles[0].As
 						}
 					TestLoop:
 						for _, test := range targetConfig.Tests {
