@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/openshift/ci-chat-bot/pkg/prow"
-	"github.com/openshift/ci-chat-bot/pkg/utils"
 	"math"
 	"net/url"
 	"regexp"
@@ -15,6 +13,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/openshift/ci-chat-bot/pkg/prow"
+	"github.com/openshift/ci-chat-bot/pkg/utils"
 
 	"k8s.io/test-infra/prow/github"
 
@@ -1296,7 +1297,11 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
 		msg = fmt.Sprintf("%sa <%s|cluster is being created>", msg, prowJobUrl)
 		if job.IsOperator {
-			msg = fmt.Sprintf("%s - On completion of the creation of the cluster, your optional operator will begin installation. I'll send you the credentials once both the cluster and the operator are ready", msg)
+			msg = fmt.Sprintf("%s - On completion of the creation of the cluster, your optional operator will begin installation", msg)
+			if job.OperatorBundleName != "" {
+				msg = fmt.Sprintf("%s using the configuration for the `%s` bundle", msg, job.OperatorBundleName)
+			}
+			msg = fmt.Sprintf("%s. I'll send you the credentials once both the cluster and the operator are ready", msg)
 		} else {
 			msg = fmt.Sprintf("%s - I'll send you the credentials in about %d minutes", msg, m.estimateCompletion(req.RequestedAt)/time.Minute)
 		}

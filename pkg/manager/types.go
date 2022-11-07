@@ -1,6 +1,10 @@
 package manager
 
 import (
+	"net/url"
+	"sync"
+	"time"
+
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	citools "github.com/openshift/ci-tools/pkg/api"
@@ -10,9 +14,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 	"k8s.io/test-infra/prow/github"
-	"net/url"
-	"sync"
-	"time"
 )
 
 type envVar struct {
@@ -185,5 +186,6 @@ type Job struct {
 
 	UseSecondaryAccount bool
 
-	IsOperator bool
+	IsOperator         bool
+	OperatorBundleName string
 }
