@@ -728,6 +728,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 					} else {
 						operatorRepo = fmt.Sprintf("%s/%s", ref.Org, ref.Repo)
 						job.IsOperator = true
+						pj.Annotations["ci-chat-bot.openshift.io/IsOperator"] = "true"
 						sourceConfig.Operator = targetConfig.Operator
 						// find test definition referencing the bundle for dependencies and environment
 						var environment []citools.StepParameter
@@ -735,6 +736,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 						if targetConfig.Operator.Bundles[0].As != "" {
 							indexName = fmt.Sprintf("ci-index-%s", targetConfig.Operator.Bundles[0].As)
 							job.OperatorBundleName = targetConfig.Operator.Bundles[0].As
+							pj.Annotations["ci-chat-bot.openshift.io/OperatorBundleName"] = job.OperatorBundleName
 						}
 					TestLoop:
 						for _, test := range targetConfig.Tests {
@@ -794,6 +796,16 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 				// delete sections we don't need
 				targetConfig.Tests = nil
+				// since this run of ci-operator is being run separate of the run doing the install, it does not
+				// have a full graph of dependencies. This can cause optional images that are needed to not be built.
+				// This simplest way to handle this is to just override the optional field for all images
+				updatedImageList := []citools.ProjectDirectoryImageBuildStepConfiguration{}
+				for _, image := range targetConfig.Images {
+					newImage := image
+					newImage.Optional = false
+					updatedImageList = append(updatedImageList, newImage)
+				}
+				targetConfig.Images = updatedImageList
 
 				if i == 0 && len(job.Inputs) > 1 {
 					targetConfig.PromotionConfiguration = &citools.PromotionConfiguration{

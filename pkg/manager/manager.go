@@ -172,20 +172,26 @@ func (m *jobManager) sync() error {
 		if len(buildCluster) == 0 {
 			buildCluster = job.Spec.Cluster
 		}
+		var isOperator bool
+		if job.Annotations["ci-chat-bot.openshift.io/IsOperator"] == "true" {
+			isOperator = true
+		}
 		j := &Job{
-			Name:             job.Name,
-			State:            job.Status.State,
-			URL:              job.Status.URL,
-			OriginalMessage:  job.Annotations["ci-chat-bot.openshift.io/originalMessage"],
-			Mode:             job.Annotations["ci-chat-bot.openshift.io/mode"],
-			JobName:          job.Spec.Job,
-			Platform:         job.Annotations["ci-chat-bot.openshift.io/platform"],
-			Inputs:           inputs,
-			RequestedBy:      job.Annotations["ci-chat-bot.openshift.io/user"],
-			RequestedChannel: job.Annotations["ci-chat-bot.openshift.io/channel"],
-			RequestedAt:      job.CreationTimestamp.Time,
-			Architecture:     architecture,
-			BuildCluster:     buildCluster,
+			Name:               job.Name,
+			State:              job.Status.State,
+			URL:                job.Status.URL,
+			OriginalMessage:    job.Annotations["ci-chat-bot.openshift.io/originalMessage"],
+			Mode:               job.Annotations["ci-chat-bot.openshift.io/mode"],
+			JobName:            job.Spec.Job,
+			Platform:           job.Annotations["ci-chat-bot.openshift.io/platform"],
+			Inputs:             inputs,
+			RequestedBy:        job.Annotations["ci-chat-bot.openshift.io/user"],
+			RequestedChannel:   job.Annotations["ci-chat-bot.openshift.io/channel"],
+			RequestedAt:        job.CreationTimestamp.Time,
+			Architecture:       architecture,
+			BuildCluster:       buildCluster,
+			IsOperator:         isOperator,
+			OperatorBundleName: job.Annotations["ci-chat-bot.openshift.io/OperatorBundleName"],
 		}
 
 		// This is a new annotation and there may be a brief window where not all
