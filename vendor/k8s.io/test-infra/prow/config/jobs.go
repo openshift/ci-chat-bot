@@ -171,6 +171,12 @@ type Presubmit struct {
 	// (Default: `/test <job name>`)
 	RerunCommand string `json:"rerun_command,omitempty"`
 
+	// RunBeforeMerge indicates that a job should always run by Tide as long as
+	// Brancher matches.
+	// This is used when a prowjob is so expensive that it's not ideal to run on
+	// every single push from all PRs.
+	RunBeforeMerge bool `json:"run_before_merge"`
+
 	Brancher
 
 	RegexpChangeMatcher
@@ -301,10 +307,12 @@ type Brancher struct {
 type RegexpChangeMatcher struct {
 	// RunIfChanged defines a regex used to select which subset of file changes should trigger this job.
 	// If any file in the changeset matches this regex, the job will be triggered
+	// Additionally AlwaysRun is mutually exclusive with RunIfChanged.
 	RunIfChanged string `json:"run_if_changed,omitempty"`
 	// SkipIfOnlyChanged defines a regex used to select which subset of file changes should trigger this job.
 	// If all files in the changeset match this regex, the job will be skipped.
 	// In other words, this is the negation of RunIfChanged.
+	// Additionally AlwaysRun is mutually exclusive with SkipIfOnlyChanged.
 	SkipIfOnlyChanged string          `json:"skip_if_only_changed,omitempty"`
 	reChanges         *CopyableRegexp // from RunIfChanged xor SkipIfOnlyChanged
 }

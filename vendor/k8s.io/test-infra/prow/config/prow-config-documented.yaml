@@ -672,6 +672,12 @@ plank:
             # a git http.cookiefile, which should be used during the cloning process.
             cookiefile_secret: ""
 
+            # DefaultMemoryRequest is the default requested memory on a test container.
+            # If SetLimitEqualsMemoryRequest is also true then the Limit will also be
+            # set the same as this request. Could be overridden by memory request
+            # defined explicitly on prowjob.
+            default_memory_request: "0"
+
             # DefaultServiceAccountName is the name of the Kubernetes service account
             # that should be used by the pod if one is not specified in the podspec.
             default_service_account_name: ""
@@ -779,6 +785,9 @@ plank:
             # S3CredentialsSecret is the name of the Kubernetes secret
             # that holds blob storage push credentials.
             s3_credentials_secret: ""
+
+            # SetLimitEqualsMemoryRequest sets memory limit equal to request.
+            set_limit_equals_memory_request: false
 
             # SkipCloning determines if we should clone source code in the
             # initcontainers for jobs that specify refs
@@ -869,6 +878,12 @@ plank:
             # a git http.cookiefile, which should be used during the cloning process.
             cookiefile_secret: ""
 
+            # DefaultMemoryRequest is the default requested memory on a test container.
+            # If SetLimitEqualsMemoryRequest is also true then the Limit will also be
+            # set the same as this request. Could be overridden by memory request
+            # defined explicitly on prowjob.
+            default_memory_request: "0"
+
             # DefaultServiceAccountName is the name of the Kubernetes service account
             # that should be used by the pod if one is not specified in the podspec.
             default_service_account_name: ""
@@ -976,6 +991,9 @@ plank:
             # S3CredentialsSecret is the name of the Kubernetes secret
             # that holds blob storage push credentials.
             s3_credentials_secret: ""
+
+            # SetLimitEqualsMemoryRequest sets memory limit equal to request.
+            set_limit_equals_memory_request: false
 
             # SkipCloning determines if we should clone source code in the
             # initcontainers for jobs that specify refs
@@ -1244,6 +1262,7 @@ tide:
                   - ""
                 excluded_branches:
                   - ""
+                opt_in_by_default: true
             opt_out_help: true
             org: ' '
             repos:

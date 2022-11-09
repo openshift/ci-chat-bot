@@ -321,7 +321,7 @@ type PullRequestChange struct {
 
 // Repo contains general repository information: it includes fields available
 // in repo records returned by GH "List" methods but not those returned by GH
-// "Get" method.
+// "Get" method. Use FullRepo struct for "Get" method.
 // See also https://developer.github.com/v3/repos/#list-organization-repositories
 type Repo struct {
 	Owner         User   `json:"owner"`
@@ -364,9 +364,11 @@ type ParentRepo struct {
 type FullRepo struct {
 	Repo
 
-	AllowSquashMerge bool `json:"allow_squash_merge,omitempty"`
-	AllowMergeCommit bool `json:"allow_merge_commit,omitempty"`
-	AllowRebaseMerge bool `json:"allow_rebase_merge,omitempty"`
+	AllowSquashMerge         bool   `json:"allow_squash_merge,omitempty"`
+	AllowMergeCommit         bool   `json:"allow_merge_commit,omitempty"`
+	AllowRebaseMerge         bool   `json:"allow_rebase_merge,omitempty"`
+	SquashMergeCommitTitle   string `json:"squash_merge_commit_title,omitempty"`
+	SquashMergeCommitMessage string `json:"squash_merge_commit_message,omitempty"`
 }
 
 // RepoRequest contains metadata used in requests to create or update a Repo.
@@ -376,16 +378,18 @@ type FullRepo struct {
 // - https://developer.github.com/v3/repos/#create
 // - https://developer.github.com/v3/repos/#edit
 type RepoRequest struct {
-	Name             *string `json:"name,omitempty"`
-	Description      *string `json:"description,omitempty"`
-	Homepage         *string `json:"homepage,omitempty"`
-	Private          *bool   `json:"private,omitempty"`
-	HasIssues        *bool   `json:"has_issues,omitempty"`
-	HasProjects      *bool   `json:"has_projects,omitempty"`
-	HasWiki          *bool   `json:"has_wiki,omitempty"`
-	AllowSquashMerge *bool   `json:"allow_squash_merge,omitempty"`
-	AllowMergeCommit *bool   `json:"allow_merge_commit,omitempty"`
-	AllowRebaseMerge *bool   `json:"allow_rebase_merge,omitempty"`
+	Name                     *string `json:"name,omitempty"`
+	Description              *string `json:"description,omitempty"`
+	Homepage                 *string `json:"homepage,omitempty"`
+	Private                  *bool   `json:"private,omitempty"`
+	HasIssues                *bool   `json:"has_issues,omitempty"`
+	HasProjects              *bool   `json:"has_projects,omitempty"`
+	HasWiki                  *bool   `json:"has_wiki,omitempty"`
+	AllowSquashMerge         *bool   `json:"allow_squash_merge,omitempty"`
+	AllowMergeCommit         *bool   `json:"allow_merge_commit,omitempty"`
+	AllowRebaseMerge         *bool   `json:"allow_rebase_merge,omitempty"`
+	SquashMergeCommitTitle   *string `json:"squash_merge_commit_title,omitempty"`
+	SquashMergeCommitMessage *string `json:"squash_merge_commit_message,omitempty"`
 }
 
 type WorkflowRuns struct {
@@ -426,6 +430,8 @@ func (r RepoRequest) ToRepo() *FullRepo {
 	setBool(&repo.AllowSquashMerge, r.AllowSquashMerge)
 	setBool(&repo.AllowMergeCommit, r.AllowMergeCommit)
 	setBool(&repo.AllowRebaseMerge, r.AllowRebaseMerge)
+	setString(&repo.SquashMergeCommitTitle, r.SquashMergeCommitTitle)
+	setString(&repo.SquashMergeCommitMessage, r.SquashMergeCommitMessage)
 
 	return &repo
 }
@@ -776,19 +782,20 @@ type IssueCommentEvent struct {
 
 // Issue represents general info about an issue.
 type Issue struct {
-	ID        int       `json:"id"`
-	NodeID    string    `json:"node_id"`
-	User      User      `json:"user"`
-	Number    int       `json:"number"`
-	Title     string    `json:"title"`
-	State     string    `json:"state"`
-	HTMLURL   string    `json:"html_url"`
-	Labels    []Label   `json:"labels"`
-	Assignees []User    `json:"assignees"`
-	Body      string    `json:"body"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Milestone Milestone `json:"milestone"`
+	ID          int       `json:"id"`
+	NodeID      string    `json:"node_id"`
+	User        User      `json:"user"`
+	Number      int       `json:"number"`
+	Title       string    `json:"title"`
+	State       string    `json:"state"`
+	HTMLURL     string    `json:"html_url"`
+	Labels      []Label   `json:"labels"`
+	Assignees   []User    `json:"assignees"`
+	Body        string    `json:"body"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Milestone   Milestone `json:"milestone"`
+	StateReason string    `json:"state_reason"`
 
 	// This will be non-nil if it is a pull request.
 	PullRequest *struct{} `json:"pull_request,omitempty"`
@@ -1145,12 +1152,16 @@ const (
 	// OrgUnaffiliated probably means user not a member yet, this was returned
 	// from an org invitation, had to add it so unmarshal doesn't crash
 	OrgUnaffiliated OrgPermissionLevel = "unaffiliated"
+	// OrgReinstate means the user was removed and the invited again before n months have passed.
+	// More info here: https://docs.github.com/en/github-ae@latest/organizations/managing-membership-in-your-organization/reinstating-a-former-member-of-your-organization
+	OrgReinstate OrgPermissionLevel = "reinstate"
 )
 
 var orgPermissionLevels = map[OrgPermissionLevel]bool{
 	OrgMember:       true,
 	OrgAdmin:        true,
 	OrgUnaffiliated: true,
+	OrgReinstate:    true,
 }
 
 // MarshalText returns the byte representation of the permission

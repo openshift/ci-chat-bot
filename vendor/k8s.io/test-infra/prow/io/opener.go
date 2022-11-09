@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -105,7 +104,7 @@ func NewOpener(ctx context.Context, gcsCredentialsFile, s3CredentialsFile string
 	}
 	var s3Credentials []byte
 	if s3CredentialsFile != "" {
-		s3Credentials, err = ioutil.ReadFile(s3CredentialsFile)
+		s3Credentials, err = os.ReadFile(s3CredentialsFile)
 		if err != nil {
 			return nil, err
 		}
@@ -276,7 +275,8 @@ func (o *opener) Writer(ctx context.Context, p string, opts ...WriterOptions) (i
 		options.apply(writer, nil)
 		return writer, nil
 	}
-	if strings.HasPrefix(p, "/") {
+	if strings.HasPrefix(p, "/") || strings.HasPrefix(p, providers.File+"://") {
+		p := strings.TrimPrefix(p, providers.File+"://")
 		// create parent dir if doesn't exist
 		dir := path.Dir(p)
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -493,7 +493,7 @@ func ReadContent(ctx context.Context, logger *logrus.Entry, opener Opener, path 
 		return nil, err
 	}
 	defer r.Close()
-	return ioutil.ReadAll(r)
+	return io.ReadAll(r)
 }
 
 func WriteContent(ctx context.Context, logger *logrus.Entry, opener Opener, path string, content []byte, opts ...WriterOptions) error {
