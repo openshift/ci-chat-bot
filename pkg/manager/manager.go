@@ -1069,9 +1069,6 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 	}
 	platformParams := multistageParamsForPlatform(platform)
 	variants := sets.NewString()
-	if len(variants) == 0 {
-		return prefix, nil
-	}
 	for k := range params {
 		// the `no-spot` param is just a dummy param to disable use of spot instances for basic aws cluster launches
 		if k == "no-spot" {
@@ -1080,6 +1077,9 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 		if utils.Contains(SupportedParameters, k) && !platformParams.Has(k) && k != "test" { // we only need parameters that are not configured via multistage env vars
 			variants.Insert(k)
 		}
+	}
+	if len(variants) == 0 {
+		return prefix, nil
 	}
 	return fmt.Sprintf("%s-%s", prefix, strings.Join(variants.List(), "-")), nil
 }
