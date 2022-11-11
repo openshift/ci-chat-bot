@@ -3,15 +3,15 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/openshift/ci-chat-bot/pkg/manager"
-	"github.com/openshift/ci-chat-bot/pkg/slack"
-	"github.com/openshift/ci-chat-bot/pkg/utils"
-	"io/ioutil"
 	"log"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/slack"
+	"github.com/openshift/ci-chat-bot/pkg/utils"
 
 	"k8s.io/test-infra/prow/config/secret"
 	prowflagutil "k8s.io/test-infra/prow/flagutil"
@@ -247,7 +247,7 @@ func manageWorkflowConfig(path string, workflows *manager.WorkflowConfig) {
 		// empty map. To prevent broken configs in the future, a presubmit should
 		// be creating for openshift/release that verifies this config.
 		var config manager.WorkflowConfig
-		rawConfig, err := ioutil.ReadFile(path)
+		rawConfig, err := os.ReadFile(path)
 		if err != nil {
 			klog.Errorf("Failed to load workflow config file at %s: %v", path, err)
 		} else if err := yaml.Unmarshal(rawConfig, &config); err != nil {

@@ -3,17 +3,18 @@ package slack
 import (
 	"bytes"
 	"fmt"
-	"github.com/openshift/ci-chat-bot/pkg/manager"
-	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
-	"github.com/openshift/ci-chat-bot/pkg/utils"
-	"github.com/slack-go/slack"
-	"io/ioutil"
-	"k8s.io/klog"
-	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
+	"github.com/openshift/ci-chat-bot/pkg/utils"
+	"github.com/slack-go/slack"
+	"k8s.io/klog"
+	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 )
 
 type Bot struct {
@@ -131,14 +132,14 @@ func VerifiedBody(request *http.Request, signingSecret string) ([]byte, bool) {
 		return nil, false
 	}
 
-	body, err := ioutil.ReadAll(request.Body)
+	body, err := io.ReadAll(request.Body)
 	if err != nil {
 		klog.Errorf("Failed to read an event payload. %v", err)
 		return nil, false
 	}
 
 	// need to use body again when unmarshalling
-	request.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+	request.Body = io.NopCloser(bytes.NewBuffer(body))
 
 	if _, err := verifier.Write(body); err != nil {
 		klog.Errorf("Failed to hash an event payload. %v", err)
@@ -201,13 +202,6 @@ func BuildJobParams(params string) (map[string]string, error) {
 func NotifyJob(client *slack.Client, job *manager.Job) {
 	switch job.Mode {
 	case manager.JobTypeLaunch, manager.JobTypeWorkflowLaunch:
-		if job.LegacyConfig {
-			message := "WARNING: using legacy template based job for this cluster. This is unsupported and the cluster may not install as expected. Contact #forum-crt for more information."
-			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-			if err != nil {
-				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
-			}
-		}
 		switch {
 		case len(job.Failure) > 0 && len(job.URL) > 0:
 			message := fmt.Sprintf("your cluster failed to launch: %s (<%s|logs>)", job.Failure, job.URL)
@@ -236,7 +230,7 @@ func NotifyJob(client *slack.Client, job *manager.Job) {
 		default:
 			comment := fmt.Sprintf(
 				"Your cluster is ready, it will be shut down automatically in ~%d minutes.",
-				job.ExpiresAt.Sub(time.Now())/time.Minute,
+				time.Until(job.ExpiresAt)/time.Minute,
 			)
 			if len(job.PasswordSnippet) > 0 {
 				comment += "\n" + job.PasswordSnippet

@@ -7,7 +7,7 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -33,11 +33,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
-	coreclientset "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/client-go/transport"
 	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -176,8 +173,6 @@ var envsForTestType = map[string][]envVar{
 var SupportedArchitectures = []string{"amd64", "arm64", "multi"}
 
 var (
-	// reReleaseVersion detects whether a branch appears to correlate to a release branch
-	reReleaseVersion = regexp.MustCompile(`^(release|openshift)-(\d+\.\d+)`)
 	// reVersion detects whether a version appears to correlate to a major.minor release
 	reVersion = regexp.MustCompile(`^(\d+\.\d+)`)
 )
@@ -218,7 +213,7 @@ func (r *URLConfigResolver) Resolve(org, repo, branch, variant string) ([]byte, 
 		defer resp.Body.Close()
 		switch resp.StatusCode {
 		case 200:
-			data, err := ioutil.ReadAll(resp.Body)
+			data, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, false, fmt.Errorf("url resolve failed to read body: %v", err)
 			}
@@ -226,7 +221,7 @@ func (r *URLConfigResolver) Resolve(org, repo, branch, variant string) ([]byte, 
 		case 404:
 			return nil, false, nil
 		default:
-			data, _ := ioutil.ReadAll(resp.Body)
+			data, _ := io.ReadAll(resp.Body)
 			return nil, false, fmt.Errorf("url resolve failed with status code %d: %s", resp.StatusCode, string(bytes.TrimSpace(data)))
 		}
 	case "file":
@@ -236,7 +231,7 @@ func (r *URLConfigResolver) Resolve(org, repo, branch, variant string) ([]byte, 
 		}
 		path := filepath.Join(r.URL.Path, org, repo, filename+".yaml")
 		klog.V(2).Infof("Attempting to read config from %s", path)
-		data, err := ioutil.ReadFile(path)
+		data, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
 			return nil, false, nil
 		}
@@ -437,18 +432,8 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		return "", fmt.Errorf("the launch job definition could not be loaded: %v", err)
 	}
 
-	// Which target in the ci-operator config are we going to run?
-	targetName := "launch"
-	if job.LegacyConfig {
-		if testName, ok := job.JobParams["test"]; ok {
-			targetName = testName
-		}
-	} else {
-		// errors should never occur here as this has already been checked by the calling function
-		_, targetName, _ = configContainsVariant(job.JobParams, job.Platform, sourceEnv.Value, job.Mode)
-	}
-
-	var stepBasedTarget bool
+	// errors should never occur here as this has already been checked by the calling function
+	_, targetName, _ := configContainsVariant(job.JobParams, job.Platform, sourceEnv.Value, job.Mode)
 
 	// For workflows, we configure the tests we run; for others, we need to load and modify the tests
 	if job.Mode == JobTypeWorkflowLaunch || job.Mode == JobTypeWorkflowUpgrade {
@@ -483,7 +468,6 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		}
 		sourceConfig.BaseImages = baseImages
 		sourceConfig.Tests = []citools.TestStepConfiguration{test}
-		stepBasedTarget = true
 	} else {
 		var matchedTarget *citools.TestStepConfiguration
 		for _, test := range sourceConfig.Tests {
@@ -495,60 +479,52 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		if matchedTarget == nil {
 			return "", fmt.Errorf("no test definition matched the expected name %q", targetName)
 		}
-		commands := matchedTarget.Commands
-		stepBasedTarget = len(commands) == 0 // if commands are specified, this is a template based target
-
-		if !stepBasedTarget {
-			// TODO: Remove once all launch jobs are step based
-			prow.SetJobEnvVar(&pj.Spec, "TEST_COMMAND", commands)
-		} else {
-			if UseSpotInstances(job) {
-				matchedTarget.MultiStageTestConfiguration.Environment["SPOT_INSTANCES"] = "true"
+		if UseSpotInstances(job) {
+			matchedTarget.MultiStageTestConfiguration.Environment["SPOT_INSTANCES"] = "true"
+		}
+		envParams := sets.NewString()
+		platformParams := multistageParamsForPlatform(job.Platform)
+		for k := range job.JobParams {
+			if platformParams.Has(k) {
+				envParams.Insert(k)
 			}
-			envParams := sets.NewString()
-			platformParams := multistageParamsForPlatform(job.Platform)
-			for k := range job.JobParams {
-				if platformParams.Has(k) {
-					envParams.Insert(k)
-				}
+		}
+		if len(envParams) != 0 {
+			if matchedTarget.MultiStageTestConfiguration.Environment == nil {
+				matchedTarget.MultiStageTestConfiguration.Environment = citools.TestEnvironment{}
 			}
-			if len(envParams) != 0 {
-				if matchedTarget.MultiStageTestConfiguration.Environment == nil {
-					matchedTarget.MultiStageTestConfiguration.Environment = citools.TestEnvironment{}
-				}
-				for param := range envParams {
-					envForParam := multistageParameters[param]
-					matchedTarget.MultiStageTestConfiguration.Environment[envForParam.name] = envForParam.value
-				}
+			for param := range envParams {
+				envForParam := multistageParameters[param]
+				matchedTarget.MultiStageTestConfiguration.Environment[envForParam.name] = envForParam.value
 			}
-			if job.Mode == JobTypeTest {
-				if strings.HasPrefix(targetName, "launch") {
-					testStep := testStepForPlatform(job.Platform)
-					matchedTarget.MultiStageTestConfiguration.Test = []citools.TestStep{{
-						Reference: &testStep,
-					}}
-				}
-				// CLUSTER_DURATION unused by tests; remove to prevent ci-operator from complaining
-				delete(matchedTarget.MultiStageTestConfiguration.Environment, "CLUSTER_DURATION")
+		}
+		if job.Mode == JobTypeTest {
+			if strings.HasPrefix(targetName, "launch") {
+				testStep := testStepForPlatform(job.Platform)
+				matchedTarget.MultiStageTestConfiguration.Test = []citools.TestStep{{
+					Reference: &testStep,
+				}}
 			}
-			if job.Mode == JobTypeUpgrade {
-				if matchedTarget.MultiStageTestConfiguration.Dependencies == nil {
-					matchedTarget.MultiStageTestConfiguration.Dependencies = make(citools.TestDependencies)
-				}
-				matchedTarget.MultiStageTestConfiguration.Dependencies["OPENSHIFT_INSTALL_RELEASE_IMAGE_OVERRIDE"] = "release:initial"
-				matchedTarget.MultiStageTestConfiguration.Dependencies["OPENSHIFT_UPGRADE_RELEASE_IMAGE_OVERRIDE"] = "release:latest"
+			// CLUSTER_DURATION unused by tests; remove to prevent ci-operator from complaining
+			delete(matchedTarget.MultiStageTestConfiguration.Environment, "CLUSTER_DURATION")
+		}
+		if job.Mode == JobTypeUpgrade {
+			if matchedTarget.MultiStageTestConfiguration.Dependencies == nil {
+				matchedTarget.MultiStageTestConfiguration.Dependencies = make(citools.TestDependencies)
 			}
-			if job.Mode == JobTypeTest || job.Mode == JobTypeUpgrade {
-				if matchedTarget.MultiStageTestConfiguration.Environment == nil {
-					matchedTarget.MultiStageTestConfiguration.Environment = make(citools.TestEnvironment)
+			matchedTarget.MultiStageTestConfiguration.Dependencies["OPENSHIFT_INSTALL_RELEASE_IMAGE_OVERRIDE"] = "release:initial"
+			matchedTarget.MultiStageTestConfiguration.Dependencies["OPENSHIFT_UPGRADE_RELEASE_IMAGE_OVERRIDE"] = "release:latest"
+		}
+		if job.Mode == JobTypeTest || job.Mode == JobTypeUpgrade {
+			if matchedTarget.MultiStageTestConfiguration.Environment == nil {
+				matchedTarget.MultiStageTestConfiguration.Environment = make(citools.TestEnvironment)
+			}
+			if envs, ok := envsForTestType[job.JobParams["test"]]; ok {
+				for _, env := range envs {
+					matchedTarget.MultiStageTestConfiguration.Environment[env.name] = env.value
 				}
-				if envs, ok := envsForTestType[job.JobParams["test"]]; ok {
-					for _, env := range envs {
-						matchedTarget.MultiStageTestConfiguration.Environment[env.name] = env.value
-					}
-				} else {
-					return "", fmt.Errorf("unknown test type %s", job.JobParams["test"])
-				}
+			} else {
+				return "", fmt.Errorf("unknown test type %s", job.JobParams["test"])
 			}
 		}
 
@@ -578,36 +554,34 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		}
 	}
 
-	// set releases field and unset tag_specification for all modern jobs
-	if !job.LegacyConfig {
-		sourceConfig.Releases = map[string]citools.UnresolvedRelease{
-			"initial": {
-				Integration: &citools.Integration{
-					Name:      "ocp",
-					Namespace: "$(BRANCH)",
-				},
+	// set releases field and unset tag_specification for all jobs
+	sourceConfig.Releases = map[string]citools.UnresolvedRelease{
+		"initial": {
+			Integration: &citools.Integration{
+				Name:      "ocp",
+				Namespace: "$(BRANCH)",
 			},
-			"latest": {
-				Integration: &citools.Integration{
-					Name:               "ocp",
-					Namespace:          "$(BRANCH)",
-					IncludeBuiltImages: true,
-				},
+		},
+		"latest": {
+			Integration: &citools.Integration{
+				Name:               "ocp",
+				Namespace:          "$(BRANCH)",
+				IncludeBuiltImages: true,
 			},
-		}
-		if job.Architecture == "arm64" {
-			sourceConfig.Releases["arm64-latest"] = citools.UnresolvedRelease{
-				// as this just gets overridden by the env var, the actual details here don't matter
-				Candidate: &citools.Candidate{
-					Architecture: "arm64",
-					Product:      "ocp",
-					Stream:       "nightly",
-					Version:      "4.12",
-				},
-			}
-		}
-		sourceConfig.ReleaseTagConfiguration = nil
+		},
 	}
+	if job.Architecture == "arm64" {
+		sourceConfig.Releases["arm64-latest"] = citools.UnresolvedRelease{
+			// as this just gets overridden by the env var, the actual details here don't matter
+			Candidate: &citools.Candidate{
+				Architecture: "arm64",
+				Product:      "ocp",
+				Stream:       "nightly",
+				Version:      "4.12",
+			},
+		}
+	}
+	sourceConfig.ReleaseTagConfiguration = nil
 
 	var hasRefs bool
 	for _, input := range job.Inputs {
@@ -646,7 +620,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 				}
 				args = append(args, arg)
 			}
-			args = append(args, fmt.Sprintf(`--namespace=$(NAMESPACE)`))
+			args = append(args, `--namespace=$(NAMESPACE)`)
 
 			envPrefix := strings.Join(restoreImageVariableScript, " ")
 			container.Command = []string{"/bin/bash", "-c"}
@@ -662,30 +636,21 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			return "", fmt.Errorf("the prow job %s does not have a recognizable command/args setup and cannot be used with pull request builds", job.JobName)
 		}
 
-		// For template based jobs, we must rely on "tag_specification"
-		if job.LegacyConfig {
-			sourceConfig.Releases = nil
-			sourceConfig.ReleaseTagConfiguration = &citools.ReleaseTagConfiguration{
-				Name:      "pipeline",
-				Namespace: "$(NAMESPACE)",
-			}
-		} else {
-			sourceConfig.ReleaseTagConfiguration = nil
-			sourceConfig.Releases = map[string]citools.UnresolvedRelease{
-				"initial": {
-					Integration: &citools.Integration{
-						Name:      "pipeline",
-						Namespace: "$(NAMESPACE)",
-					},
+		sourceConfig.ReleaseTagConfiguration = nil
+		sourceConfig.Releases = map[string]citools.UnresolvedRelease{
+			"initial": {
+				Integration: &citools.Integration{
+					Name:      "pipeline",
+					Namespace: "$(NAMESPACE)",
 				},
-				"latest": {
-					Integration: &citools.Integration{
-						Name:               "pipeline",
-						Namespace:          "$(NAMESPACE)",
-						IncludeBuiltImages: true,
-					},
+			},
+			"latest": {
+				Integration: &citools.Integration{
+					Name:               "pipeline",
+					Namespace:          "$(NAMESPACE)",
+					IncludeBuiltImages: true,
 				},
-			}
+			},
 		}
 		if len(sourceConfig.Tests) == 0 {
 			sourceConfig.Tests = []citools.TestStepConfiguration{{
@@ -814,30 +779,21 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 						RegistryOverride:  registryHost,
 						DisableBuildCache: true,
 					}
-					// For template based jobs, we must rely on "tag_specification"
-					if job.LegacyConfig {
-						targetConfig.Releases = nil
-						targetConfig.ReleaseTagConfiguration = &citools.ReleaseTagConfiguration{
-							Name:      "stable-initial",
-							Namespace: "$(NAMESPACE)",
-						}
-					} else {
-						targetConfig.ReleaseTagConfiguration = nil
-						targetConfig.Releases = map[string]citools.UnresolvedRelease{
-							"initial": {
-								Integration: &citools.Integration{
-									Name:      "stable-initial",
-									Namespace: "$(NAMESPACE)",
-								},
+					targetConfig.ReleaseTagConfiguration = nil
+					targetConfig.Releases = map[string]citools.UnresolvedRelease{
+						"initial": {
+							Integration: &citools.Integration{
+								Name:      "stable-initial",
+								Namespace: "$(NAMESPACE)",
 							},
-							"latest": {
-								Integration: &citools.Integration{
-									Name:               "stable-initial",
-									Namespace:          "$(NAMESPACE)",
-									IncludeBuiltImages: true,
-								},
+						},
+						"latest": {
+							Integration: &citools.Integration{
+								Name:               "stable-initial",
+								Namespace:          "$(NAMESPACE)",
+								IncludeBuiltImages: true,
 							},
-						}
+						},
 					}
 				} else {
 					targetConfig.PromotionConfiguration = &citools.PromotionConfiguration{
@@ -846,29 +802,20 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 						RegistryOverride:  registryHost,
 						DisableBuildCache: true,
 					}
-					// For template based jobs, we must rely on "tag_specification"
-					if job.LegacyConfig {
-						targetConfig.Releases = nil
-						targetConfig.ReleaseTagConfiguration = &citools.ReleaseTagConfiguration{
-							Name:      "stable",
-							Namespace: "$(NAMESPACE)",
-						}
-					} else {
-						targetConfig.Releases = map[string]citools.UnresolvedRelease{
-							"initial": {
-								Integration: &citools.Integration{
-									Name:      "stable",
-									Namespace: "$(NAMESPACE)",
-								},
+					targetConfig.Releases = map[string]citools.UnresolvedRelease{
+						"initial": {
+							Integration: &citools.Integration{
+								Name:      "stable",
+								Namespace: "$(NAMESPACE)",
 							},
-							"latest": {
-								Integration: &citools.Integration{
-									Name:               "stable",
-									Namespace:          "$(NAMESPACE)",
-									IncludeBuiltImages: true,
-								},
+						},
+						"latest": {
+							Integration: &citools.Integration{
+								Name:               "stable",
+								Namespace:          "$(NAMESPACE)",
+								IncludeBuiltImages: true,
 							},
-						}
+						},
 					}
 				}
 
@@ -900,13 +847,6 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			klog.Infof("Job config after override:\n%s", string(data))
 		}
 	}
-
-	if stepBasedTarget {
-		job.TargetType = "steps"
-	} else {
-		job.TargetType = "template"
-	}
-	pj.Annotations["ci-chat-bot.openshift.io/targetType"] = job.TargetType
 
 	// build jobs do not launch contents
 	if job.Mode == JobTypeBuild {
@@ -1017,7 +957,6 @@ func (m *jobManager) waitForJob(job *Job) error {
 		return nil
 	}
 	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(job.Name))
-	stepBasedMode := job.TargetType == "steps"
 
 	// set up the access RBAC for the cluster Initiator
 	go m.setupAccessRBAC(job, namespace)
@@ -1171,61 +1110,30 @@ func (m *jobManager) waitForJob(job *Job) error {
 		if err != nil {
 			return false, err
 		}
-		if stepBasedMode {
-			prowJobPod, err := clusterClient.CoreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
-			if err != nil {
-				return false, err
-			}
-			if prowJobPod.Status.Phase == "Succeeded" || prowJobPod.Status.Phase == "Failed" {
-				return false, errJobCompleted
-			}
-			secretDir, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
-			if err != nil {
-				// It will take awhile before the secret is established and for the ci-chat-bot serviceaccount
-				// to get permission to access it (see openshift-cluster-bot-rbac step). Ignore errors.
-				return false, nil
-			}
-			if _, ok := secretDir.Data["console.url"]; ok {
-				// If the console.url is established, the cluster was setup.
-				if job.IsOperator {
-					if _, ok := secretDir.Data["oo_deployment_details.yaml"]; ok {
-						return true, nil
-					}
-				} else {
+		prowJobPod, err := clusterClient.CoreClient.CoreV1().Pods(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		if prowJobPod.Status.Phase == "Succeeded" || prowJobPod.Status.Phase == "Failed" {
+			return false, errJobCompleted
+		}
+		secretDir, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+		if err != nil {
+			// It will take awhile before the secret is established and for the ci-chat-bot serviceaccount
+			// to get permission to access it (see openshift-cluster-bot-rbac step). Ignore errors.
+			return false, nil
+		}
+		if _, ok := secretDir.Data["console.url"]; ok {
+			// If the console.url is established, the cluster was setup.
+			if job.IsOperator {
+				if _, ok := secretDir.Data["oo_deployment_details.yaml"]; ok {
 					return true, nil
 				}
+			} else {
+				return true, nil
 			}
-			return false, nil
-		} else {
-			// Execute in template based mode where actual installation pod is monitored.
-			pod, err := clusterClient.CoreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
-			if err != nil {
-				// pod could not be created or we may not have permission yet
-				if !errors.IsNotFound(err) && !errors.IsForbidden(err) {
-					lastErr = err
-					return false, err
-				}
-				if seen {
-					return false, fmt.Errorf("cluster has already been torn down")
-				}
-				return false, nil
-			}
-			seen = true
-			if pod.DeletionTimestamp != nil {
-				return false, fmt.Errorf("cluster is being torn down")
-			}
-			if pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed" {
-				return false, fmt.Errorf("cluster has already been torn down")
-			}
-			ok, err := containerSuccessful(pod, "setup")
-			if err != nil {
-				return false, err
-			}
-			if containerTerminated(pod, "test") {
-				return false, fmt.Errorf("cluster is shutting down")
-			}
-			return ok, nil
 		}
+		return false, nil
 	})
 	if err != nil {
 		if lastErr != nil && err == wait.ErrWaitTimeout {
@@ -1243,45 +1151,17 @@ func (m *jobManager) waitForJob(job *Job) error {
 		return err
 	}
 
-	if stepBasedMode {
-		secretDir, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
-		if err == nil {
-			if content, ok := secretDir.Data["kubeconfig"]; ok {
-				kubeconfig = string(content)
-			} else {
-				klog.Errorf("job %q unable to find kubeconfig entry in step secret in %s/%s", job.Name, namespace, targetName)
-				return fmt.Errorf("could not retrieve kubeconfig from pod %s/%s", namespace, targetName)
-			}
+	secretDir, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+	if err == nil {
+		if content, ok := secretDir.Data["kubeconfig"]; ok {
+			kubeconfig = string(content)
 		} else {
-			klog.Errorf("job %q unable to access step secret in %s/%s", job.Name, namespace, targetName)
-			return fmt.Errorf("could not retrieve kubeconfig from secret %s/%s: %v", namespace, targetName, err)
+			klog.Errorf("job %q unable to find kubeconfig entry in step secret in %s/%s", job.Name, namespace, targetName)
+			return fmt.Errorf("could not retrieve kubeconfig from pod %s/%s", namespace, targetName)
 		}
 	} else {
-		klog.Infof("Job %q waiting for kubeconfig from pod %s/%s", job.Name, namespace, targetName)
-		err = wait.PollImmediate(30*time.Second, 10*time.Minute, func() (bool, error) {
-			if m.jobIsComplete(job) {
-				return false, errJobCompleted
-			}
-			contents, err := commandContents(clusterClient.CoreClient.CoreV1(), clusterClient.CoreConfig, namespace, targetName, "test", []string{"cat", "/tmp/admin.kubeconfig"})
-			if err != nil {
-				if strings.Contains(err.Error(), "container not found") {
-					// periodically check whether the still exists and is not succeeded or failed
-					pod, err := clusterClient.CoreClient.CoreV1().Pods(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
-					if errors.IsNotFound(err) || (pod != nil && (pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed")) {
-						return false, fmt.Errorf("pod cannot be found or has been deleted, assume cluster won't come up")
-					}
-
-					return false, nil
-				}
-				klog.Infof("Unable to retrieve config contents for %s/%s: %v", namespace, targetName, err)
-				return false, nil
-			}
-			kubeconfig = contents
-			return len(contents) > 0, nil
-		})
-		if err != nil {
-			return fmt.Errorf("could not retrieve kubeconfig from pod %s/%s: %v", namespace, targetName, err)
-		}
+		klog.Errorf("job %q unable to access step secret in %s/%s", job.Name, namespace, targetName)
+		return fmt.Errorf("could not retrieve kubeconfig from secret %s/%s: %v", namespace, targetName, err)
 	}
 
 	job.Credentials = kubeconfig
@@ -1297,41 +1177,17 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	var kubeadminPassword string
 	var operatorDeploymentInfo string
-	if stepBasedMode {
-		secretDir, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
-		if err != nil {
-			return fmt.Errorf("unable to retrieve step secret %s/%s: %v", namespace, targetName, err)
-		}
-		if consoleURL, ok := secretDir.Data["console.url"]; ok {
-			job.PasswordSnippet = string(consoleURL)
-		} else {
-			return fmt.Errorf("unable to retrieve console.url from step secret %s/%s", namespace, targetName)
-		}
-		if password, ok := secretDir.Data["kubeadmin-password"]; ok {
-			kubeadminPassword = string(password)
-		}
-		if deployment, ok := secretDir.Data["oo_deployment_details.yaml"]; ok {
-			operatorDeploymentInfo = string(deployment)
-		}
+	if consoleURL, ok := secretDir.Data["console.url"]; ok {
+		job.PasswordSnippet = string(consoleURL)
 	} else {
-		lines := int64(2)
-		logs, err := clusterClient.CoreClient.CoreV1().Pods(namespace).GetLogs(targetName, &corev1.PodLogOptions{Container: "setup", TailLines: &lines}).DoRaw(context.TODO())
-		if err != nil {
-			klog.Infof("error: Job %q unable to get setup logs: %v", job.Name, err)
-		}
-		job.PasswordSnippet = strings.TrimSpace(reFixLines.ReplaceAllString(string(logs), "$1"))
-		password, err := commandContents(clusterClient.CoreClient.CoreV1(), clusterClient.CoreConfig, namespace, targetName, "test", []string{"cat", "/tmp/artifacts/installer/auth/kubeadmin-password"})
-		if err != nil {
-			klog.Infof("error: Job %q unable to get kubeadmin password: %v", job.Name, err)
-			password, err = commandContents(clusterClient.CoreClient.CoreV1(), clusterClient.CoreConfig, namespace, targetName, "test", []string{"cat", "/tmp/shared/installer/auth/kubeadmin-password"})
-		}
-		if err != nil {
-			klog.Infof("error: Job %q unable to locate kubeadmin password: %v", job.Name, err)
-		} else {
-			kubeadminPassword = password
-		}
+		return fmt.Errorf("unable to retrieve console.url from step secret %s/%s", namespace, targetName)
 	}
-
+	if password, ok := secretDir.Data["kubeadmin-password"]; ok {
+		kubeadminPassword = string(password)
+	}
+	if deployment, ok := secretDir.Data["oo_deployment_details.yaml"]; ok {
+		operatorDeploymentInfo = string(deployment)
+	}
 	if len(kubeadminPassword) > 0 {
 		job.PasswordSnippet += fmt.Sprintf("\nLog in to the console with user `kubeadmin` and password `%s`", kubeadminPassword)
 		if len(operatorDeploymentInfo) > 0 {
@@ -1347,8 +1203,6 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	return waitErr
 }
-
-var reFixLines = regexp.MustCompile(`(?m)^level=info msg=\"(.*)\"$`)
 
 // clearNotificationAnnotations removes the channel notification annotations in case we crash,
 // so we don't attempt to redeliver, and set the best estimate we have of the expiration time if we created the cluster
@@ -1390,30 +1244,6 @@ func waitForClusterReachable(kubeconfig string, abortFn func() bool) error {
 	})
 }
 
-// commandContents fetches the result of invoking a command in the provided container from stdout.
-func commandContents(podClient coreclientset.CoreV1Interface, podRESTConfig *rest.Config, ns, name, containerName string, command []string) (string, error) {
-	u := podClient.RESTClient().Post().Resource("pods").Namespace(ns).Name(name).SubResource("exec").VersionedParams(&corev1.PodExecOptions{
-		Container: containerName,
-		Stdout:    true,
-		Stderr:    false,
-		Command:   command,
-	}, scheme.ParameterCodec).URL()
-
-	e, err := remotecommand.NewSPDYExecutor(podRESTConfig, "POST", u)
-	if err != nil {
-		return "", fmt.Errorf("could not initialize a new SPDY executor: %v", err)
-	}
-	buf := &bytes.Buffer{}
-	if err := e.Stream(remotecommand.StreamOptions{
-		Stdout: buf,
-		Stdin:  nil,
-		Stderr: nil,
-	}); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
-}
-
 // LoadKubeconfig loads connection configuration
 // for the cluster we're deploying to. We prefer to
 // use in-cluster configuration if possible, but will
@@ -1447,39 +1277,6 @@ func namespaceSafeHash(values ...string) string {
 	// but we can tolerate it as our input space is
 	// tiny.
 	return oneWayNameEncoding.EncodeToString(hash.Sum(nil)[:4])
-}
-
-func containerSuccessful(pod *corev1.Pod, containerName string) (bool, error) {
-	for _, container := range pod.Status.ContainerStatuses {
-		if container.Name != containerName {
-			continue
-		}
-		if container.State.Terminated == nil {
-			return false, nil
-		}
-		if container.State.Terminated.ExitCode == 0 {
-			return true, nil
-		}
-		return false, fmt.Errorf("container %s did not succeed, see logs for details", containerName)
-	}
-	return false, nil
-}
-
-func containerTerminated(pod *corev1.Pod, containerName string) bool {
-	for _, container := range pod.Status.ContainerStatuses {
-		if container.Name != containerName {
-			continue
-		}
-		if container.State.Terminated != nil {
-			return true
-		}
-	}
-	return false
-}
-
-func errorAppliesToResource(err error, resource string) bool {
-	apierr, ok := err.(errors.APIStatus)
-	return ok && apierr.Status().Details != nil && apierr.Status().Details.Kind == resource
 }
 
 const configInitial = `
@@ -1636,31 +1433,6 @@ func findTargetName(spec *corev1.PodSpec) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("could not find argument --target=X in prow job pod spec to identify target pod name")
-}
-
-func ciOperatorConfigRefForRefs(refs *prowapiv1.Refs) *corev1.ConfigMapKeySelector {
-	if refs == nil || len(refs.Org) == 0 || len(refs.Repo) == 0 {
-		return nil
-	}
-	baseRef := refs.BaseRef
-	if len(refs.BaseRef) == 0 {
-		baseRef = "master"
-	}
-	keyName := fmt.Sprintf("%s-%s-%s.yaml", refs.Org, refs.Repo, baseRef)
-	if m := reBranchVersion.FindStringSubmatch(baseRef); m != nil {
-		return &corev1.ConfigMapKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{
-				Name: fmt.Sprintf("ci-operator-%s-configs", m[2]),
-			},
-			Key: keyName,
-		}
-	}
-	return &corev1.ConfigMapKeySelector{
-		LocalObjectReference: corev1.LocalObjectReference{
-			Name: fmt.Sprintf("ci-operator-%s-configs", baseRef),
-		},
-		Key: keyName,
-	}
 }
 
 func loadJobConfigSpec(client clientset.Interface, env corev1.EnvVar, namespace string) (*citools.ReleaseBuildConfiguration, string, string, error) {
