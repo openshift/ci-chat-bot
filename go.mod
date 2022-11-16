@@ -20,6 +20,7 @@ require (
 	github.com/andygrunwald/go-jira v1.14.0
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/openshift/api v0.0.0-20220531073726-6c4f186339a7
+	github.com/openshift/build-machinery-go v0.0.0-20220913142420-e25cf57ea46d
 	github.com/openshift/ci-tools v0.0.0-20221004185624-2bc897a7177c
 	github.com/openshift/client-go v3.9.0+incompatible
 	github.com/sirupsen/logrus v1.8.1
