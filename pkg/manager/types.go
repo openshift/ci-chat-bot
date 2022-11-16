@@ -32,8 +32,6 @@ type URLConfigResolver struct {
 	URL *url.URL
 }
 
-type callbackFunc func(job Job)
-
 type WorkflowConfig struct {
 	Workflows map[string]WorkflowConfigItem `yaml:"workflows"`
 	Mutex     sync.RWMutex                  `yaml:"-"` // this field just allows us to update the above values without races
@@ -159,8 +157,7 @@ type Job struct {
 	Platform  string
 	JobParams map[string]string
 
-	TargetType string
-	Mode       string
+	Mode string
 
 	Inputs []JobInput
 
@@ -179,8 +176,6 @@ type Job struct {
 
 	Architecture string
 	BuildCluster string
-
-	LegacyConfig bool
 
 	WorkflowName string
 

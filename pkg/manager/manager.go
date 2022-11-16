@@ -194,14 +194,6 @@ func (m *jobManager) sync() error {
 			OperatorBundleName: job.Annotations["ci-chat-bot.openshift.io/OperatorBundleName"],
 		}
 
-		// This is a new annotation and there may be a brief window where not all
-		// prowjobs possess the annotation.
-		if targetType, ok := job.Annotations["ci-chat-bot.openshift.io/targetType"]; ok {
-			j.TargetType = targetType
-		} else {
-			j.TargetType = "template"
-		}
-
 		var err error
 		j.JobParams, err = utils.ParamsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
 		if err != nil {
@@ -334,7 +326,7 @@ func (m *jobManager) estimateCompletion(requestedAt time.Time) time.Duration {
 		return median.Truncate(time.Second)
 	}
 
-	lastEstimate := median - time.Now().Sub(requestedAt)
+	lastEstimate := median - time.Since(requestedAt)
 	if lastEstimate < 0 {
 		return time.Minute
 	}
@@ -1137,30 +1129,24 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		}
 	}
 	if prowJob == nil {
-		var primaryHasVariant bool
-		// Currently, there is an important difference between the template e2e-upgrade-all test and what can be done with the step-registry tests.
-		// For now, fallback to templates for this test until this difference can be resolved.
-		if test := job.JobParams["test"]; test != "e2e-upgrade-all" {
-			architectureLabel := req.Architecture
-			// multiarch image launches use amd64 jobs
-			if architectureLabel == "multi" {
-				architectureLabel = "amd64"
-			}
-			primarySelector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "modern", "job-architecture": architectureLabel} // these jobs will only contain configs using non-deprecated features
-			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(primarySelector))
-			if prowJob != nil {
-				if sourceEnv, _, ok := firstEnvVar(prowJob.Spec.PodSpec, "UNRESOLVED_CONFIG"); ok { // all multistage configs will be unresolved
-					primaryHasVariant, _, err = configContainsVariant(req.JobParams, req.Platform, sourceEnv.Value, job.Mode)
-					if err != nil {
-						return "", err
-					}
+		architectureLabel := req.Architecture
+		// multiarch image launches use amd64 jobs
+		if architectureLabel == "multi" {
+			architectureLabel = "amd64"
+		}
+		selector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "modern", "job-architecture": architectureLabel} // these jobs will only contain configs using non-deprecated features
+		prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(selector))
+		if prowJob != nil {
+			if sourceEnv, _, ok := firstEnvVar(prowJob.Spec.PodSpec, "UNRESOLVED_CONFIG"); ok { // all multistage configs will be unresolved
+				configHasVariant, _, err := configContainsVariant(req.JobParams, req.Platform, sourceEnv.Value, job.Mode)
+				if err != nil {
+					return "", err
+				}
+				// if the config does not contain the wanted variant, reset prowjob to cause configuration error
+				if !configHasVariant {
+					prowJob = nil
 				}
 			}
-		}
-		if !primaryHasVariant && req.Architecture == "amd64" { // only support legacy templates for amd64 arch
-			job.LegacyConfig = true
-			fallbackSelector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "legacy"} // these jobs will contain older, deprecated configs that can be used as fallback for the primary config typr
-			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(fallbackSelector))
 		}
 	}
 	if prowJob == nil {
@@ -1259,7 +1245,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 						waitUntil = c.ExpiresAt
 					}
 				}
-				minutes := waitUntil.Sub(time.Now()).Minutes()
+				minutes := time.Until(waitUntil).Minutes()
 				if minutes < 1 {
 					return "", fmt.Errorf("no clusters are currently available, unable to estimate when next cluster will be free")
 				}
@@ -1292,10 +1278,6 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	go m.handleJobStartup(*job, "start")
 
 	msg = ""
-	if job.LegacyConfig {
-		msg = "WARNING: using legacy template based job for this cluster. This is unsupported and the cluster may not install as expected. Contact #forum-crt for more information.\n"
-	}
-
 	if UseSpotInstances(job) {
 		msg = fmt.Sprintf("%s\nThis AWS cluster will use Spot instances for the worker nodes.", msg)
 		msg = fmt.Sprintf("%s This means that worker nodes may unexpectedly disappear, but will be replaced automatically.", msg)
@@ -1391,7 +1373,7 @@ func (m *jobManager) SyncJobForUser(user string) (string, error) {
 	case len(job.Failure) > 0:
 		msg = fmt.Sprintf("cluster had previously been marked as failed, checking again: %s", job.Failure)
 	case len(job.Credentials) > 0:
-		msg = fmt.Sprintf("cluster had previously been marked as successful, checking again")
+		msg = "cluster had previously been marked as successful, checking again"
 	}
 
 	copied := *job
