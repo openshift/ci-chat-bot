@@ -12,6 +12,7 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
+	botversion "github.com/openshift/ci-chat-bot/pkg/version"
 
 	"k8s.io/test-infra/prow/config/secret"
 	prowflagutil "k8s.io/test-infra/prow/flagutil"
@@ -71,6 +72,8 @@ func (o *options) Validate() error {
 }
 
 func main() {
+	version := botversion.Get()
+	fmt.Printf("CI-Chat-Bot Version: %s, Build Date: %s\n", version.GitVersion, version.BuildDate)
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
