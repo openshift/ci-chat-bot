@@ -1,0 +1,5 @@
+build_root_image:
+  use_build_cache: true
+  namespace: openshift
+  name: release
+  tag: golang-1.18
