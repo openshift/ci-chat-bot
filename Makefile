@@ -30,3 +30,5 @@ validate-vendor: vendor
 run:
 	./hack/run.sh
 .PHONY: run
+
+lint: verify-golint
