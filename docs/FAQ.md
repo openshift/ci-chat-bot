@@ -63,3 +63,23 @@
       once `ci-chat-bot` adds support outside of `amd64`.
 
 
+## Metalkube and Bare-Metal deployments Access
+1. How do I access a bare-metal platform created by ci-chat-bot (links provided to the platform appear invalid/unroutable)
+
+    ci-chat-bot when given a launch paramter that includes `metal` will deploy an instance that requires access via a proxy that is not immediately accessible via Red Hat internal networks or VPN. Access requires exporting httpProxy and httpsProxy values as defined by the bot output on successful cluster deployment. 
+    Example Output and suggested usage:
+>    Your cluster is ready, it will be shut down automatically in ~158 minutes.
+https://console-openshift-console.apps.ostest.test.metalkube.org
+Log in to the console with user kubeadmin and password <redacted>
+cluster-bot-2022-11-15-152108.kubeconfig
+apiVersion: v1
+clusters:
+- cluster:
+    proxy-url: http://145.40.68.183:8213/
+
+
+    - `http_proxy=145.40.68.183:8213 https_proxy=145.40.68.183:8213 curl -L https://console-openshift-console.apps.ostest.test.metalkube.org/ -v`
+    - `curl -kvx http://145.40.68.183:8213 https://console-openshift-console.apps.ostest.test.metalkube.org/dashboards`
+    - `export http_proxy=145.40.68.183:8213 && export https_proxy=145.40.68.183:8213 && oc login -u kubeadmin -p <password> https://api.ostest.test.metalkube.org:6443`
+
+
