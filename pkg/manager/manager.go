@@ -936,6 +936,14 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		return nil, err
 	}
 
+	if req.Platform == "hypershift-hosted" {
+		for _, input := range jobInputs {
+			if input.Version != "" && !(strings.HasPrefix(input.Version, "4.12") || strings.HasPrefix(input.Version, "4.11")) {
+				return nil, fmt.Errorf("hypershift currently only supports 4.11 and 4.12 clusters")
+			}
+		}
+	}
+
 	switch req.Type {
 	case JobTypeBuild:
 		if req.Architecture != "amd64" {
