@@ -2,6 +2,8 @@ package slack
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
@@ -9,7 +11,6 @@ import (
 	"github.com/slack-go/slack/slackevents"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/pkg/version"
-	"strings"
 )
 
 func LaunchCluster(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
@@ -23,7 +24,7 @@ func LaunchCluster(client *slack.Client, jobManager manager.JobManager, event *s
 		inputs = [][]string{from}
 	}
 
-	platform, architecture, params, err := ParseOptions(properties.StringParam("options", ""))
+	platform, architecture, params, err := ParseOptions(properties.StringParam("options", ""), inputs, manager.JobTypeInstall)
 	if err != nil {
 		return err.Error()
 	}
@@ -120,7 +121,7 @@ func TestUpgrade(client *slack.Client, jobManager manager.JobManager, event *sla
 	if len(to) == 0 {
 		to = from
 	}
-	platform, architecture, params, err := ParseOptions(properties.StringParam("options", ""))
+	platform, architecture, params, err := ParseOptions(properties.StringParam("options", ""), [][]string{from, to}, manager.JobTypeUpgrade)
 	if err != nil {
 		return err.Error()
 	}
@@ -167,7 +168,7 @@ func Test(client *slack.Client, jobManager manager.JobManager, event *slackevent
 		return fmt.Sprintf("warning: You are using a custom test name, may not be supported for all platforms: %s", strings.Join(CodeSlice(manager.SupportedTests), ", "))
 	}
 
-	platform, architecture, params, err := ParseOptions(properties.StringParam("options", ""))
+	platform, architecture, params, err := ParseOptions(properties.StringParam("options", ""), [][]string{from}, manager.JobTypeTest)
 	if err != nil {
 		return err.Error()
 	}
@@ -204,7 +205,7 @@ func Build(client *slack.Client, jobManager manager.JobManager, event *slackeven
 		return "you must specify at least one pull request to build a release image"
 	}
 
-	platform, architecture, params, err := ParseOptions(properties.StringParam("options", ""))
+	platform, architecture, params, err := ParseOptions(properties.StringParam("options", ""), [][]string{from}, manager.JobTypeBuild)
 	if err != nil {
 		return err.Error()
 	}
