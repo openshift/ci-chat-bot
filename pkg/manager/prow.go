@@ -55,7 +55,7 @@ var SupportedUpgradeTests = []string{"e2e-upgrade", "e2e-upgrade-all", "e2e-upgr
 var SupportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "hypershift", "ovirt", "openstack", "hypershift-hosted"}
 
 // SupportedParameters are the allowed parameter keys that can be passed to jobs
-var SupportedParameters = []string{"ovn", "ovn-hybrid", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv4", "ipv6", "dualstack", "preserve-bootstrap", "test", "rt", "single-node", "cgroupsv2", "techpreview", "upi", "crun", "nfv", "kuryr", "sdn", "no-spot", "no-capabilities", "virtualization-support", "multi-zone"}
+var SupportedParameters = []string{"ovn", "ovn-hybrid", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv4", "ipv6", "dualstack", "preserve-bootstrap", "test", "rt", "single-node", "cgroupsv2", "techpreview", "upi", "crun", "nfv", "kuryr", "sdn", "no-spot", "no-capabilities", "virtualization-support", "multi-zone", "bundle"}
 
 // multistageParameters is the mapping of SupportedParameters that can be configured via multistage parameters to the correct environment variable format
 var multistageParameters = map[string]envVar{
@@ -697,12 +697,20 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 						sourceConfig.Operator = targetConfig.Operator
 						// find test definition referencing the bundle for dependencies and environment
 						var environment []citools.StepParameter
-						indexName := "ci-index"
-						if targetConfig.Operator.Bundles[0].As != "" {
-							indexName = fmt.Sprintf("ci-index-%s", targetConfig.Operator.Bundles[0].As)
-							job.OperatorBundleName = targetConfig.Operator.Bundles[0].As
-							pj.Annotations["ci-chat-bot.openshift.io/OperatorBundleName"] = job.OperatorBundleName
+						var indexName string
+						if bundleName, ok := job.JobParams["bundle"]; ok {
+							indexName = fmt.Sprintf("ci-index-%s", bundleName)
+							job.OperatorBundleName = bundleName
+						} else {
+							// if no bundle name is provided, default to first bundle in list
+							indexName = "ci-index"
+							if targetConfig.Operator.Bundles[0].As != "" {
+								indexName = fmt.Sprintf("ci-index-%s", targetConfig.Operator.Bundles[0].As)
+								job.OperatorBundleName = targetConfig.Operator.Bundles[0].As
+								pj.Annotations["ci-chat-bot.openshift.io/OperatorBundleName"] = job.OperatorBundleName
+							}
 						}
+						var foundTest bool
 					TestLoop:
 						for _, test := range targetConfig.Tests {
 							// since we retrieved the config from the resolver, the tests are fully resolved "literal" configurations
@@ -713,11 +721,19 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 									for _, env := range step.Dependencies {
 										if env.Env == "OO_INDEX" && env.Name == indexName {
 											environment = step.Environment
+											foundTest = true
 											break TestLoop
 										}
 									}
 								}
 							}
+						}
+						if !foundTest {
+							bundleName := job.OperatorBundleName
+							if bundleName == "" {
+								bundleName = "unnamed"
+							}
+							return "", fmt.Errorf("Unable to locate test using %s bundle", bundleName)
 						}
 						for index, test := range sourceConfig.Tests {
 							if test.As == "launch" {
@@ -846,6 +862,11 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			data, _ := json.MarshalIndent(pj.Spec, "", "  ")
 			klog.Infof("Job config after override:\n%s", string(data))
 		}
+	}
+
+	// error if bundle name is provided but no operator repo PR was provided
+	if bundleName, ok := job.JobParams["bundle"]; ok && !job.IsOperator {
+		return "", fmt.Errorf("Bundle name %s provided, but no PR for an operator repo provided", bundleName)
 	}
 
 	// build jobs do not launch contents
