@@ -59,8 +59,8 @@ func NewBot(botToken, botSigningSecret string, graceperiod time.Duration, port i
 
 func (b *Bot) SupportedCommands() []parser.BotCommand {
 	return []parser.BotCommand{
-		parser.NewBotCommand("launch <image_or_version_or_pr> <options>", &parser.CommandDefinition{
-			Description: fmt.Sprintf("Launch an OpenShift cluster using a known image, version, or PR. You may omit both arguments. Use `nightly` for the latest OCP build, `ci` for the the latest CI build, provide a version directly from any listed on https://amd64.ocp.releases.ci.openshift.org, a stream name (4.1.0-0.ci, 4.1.0-0.nightly, etc), a major/minor `X.Y` to load the \"next stable\" version, from nightly, for that version (`4.1`), `<org>/<repo>#<pr>` to launch from a PR, or an image for the first argument. Options is a comma-delimited list of variations including platform (%s) and variant (%s).",
+		parser.NewBotCommand("launch <image_or_version_or_pr,payload> <options>", &parser.CommandDefinition{
+			Description: fmt.Sprintf("Launch an OpenShift cluster using a known image, version, or PR. You may omit both arguments. Use `nightly` for the latest OCP build, `ci` for the the latest CI build, provide a version directly from any listed on https://amd64.ocp.releases.ci.openshift.org, a stream name (4.1.0-0.ci, 4.1.0-0.nightly, etc), a major/minor `X.Y` to load the \"next stable\" version, from nightly, for that version (`4.1`), `<org>/<repo>#<pr>` to launch from a PR, or an image for the first argument. Options is a comma-delimited list of variations including platform (%s) and variant (%s).\n You can also specify the payload for the unmerged PR, such as 'launch openshift/operator-framework-olm#420,4.13'",
 				strings.Join(CodeSlice(manager.SupportedPlatforms), ", "),
 				strings.Join(CodeSlice(manager.SupportedParameters), ", ")),
 			Example: "launch openshift/origin#49563 gcp",
