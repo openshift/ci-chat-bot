@@ -1401,6 +1401,7 @@ chmod ug+x /tmp/bin/oc
 
 # grant all authenticated users access to the images in this namespace
 oc policy add-role-to-group system:image-puller -n $(NAMESPACE) system:authenticated
+oc policy add-role-to-group system:image-puller -n $(NAMESPACE) system:unauthenticated
 `
 
 type JobSpec struct {
