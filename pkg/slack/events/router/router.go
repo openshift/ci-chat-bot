@@ -2,6 +2,7 @@ package router
 
 import (
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/slack/mention"
 	slackCommandParser "github.com/openshift/ci-chat-bot/pkg/slack/parser"
 	"github.com/slack-go/slack"
 
@@ -14,5 +15,6 @@ import (
 func ForEvents(client *slack.Client, manager manager.JobManager, botCommands []slackCommandParser.BotCommand) events.Handler {
 	return events.MultiHandler(
 		messages.Handle(client, manager, botCommands),
+		mention.Handler(client),
 	)
 }
