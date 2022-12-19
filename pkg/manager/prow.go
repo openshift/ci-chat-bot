@@ -680,7 +680,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 					return "", fmt.Errorf("unable to parse ci-operator config definition from resolver: %v", err)
 				}
 				targetConfig := &cfg
-				if klog.V(2) {
+				if klog.V(4) {
 					data, _ := json.MarshalIndent(targetConfig, "", "  ")
 					klog.Infof("Found target job config:\n%s", string(data))
 				}
