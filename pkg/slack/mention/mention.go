@@ -2,6 +2,8 @@ package mention
 
 import (
 	"fmt"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/consultation"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/enhancement"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/helpdesk"
 	"strings"
 
@@ -61,6 +63,16 @@ func responseFor(message string) []slack.Block {
 			identifier:  helpdesk.Identifier,
 			description: "Request clarification on a subject managed by CRT",
 			buttonText:  "Ask a Question",
+		},
+		{
+			identifier:  consultation.Identifier,
+			description: "Ask for input from the Continuous Release team to aid in achieving some goal.",
+			buttonText:  "Request a Consultation",
+		},
+		{
+			identifier:  enhancement.Identifier,
+			description: "Explain how a new feature could improve your productivity.",
+			buttonText:  "Describe an Enhancement",
 		},
 	}
 

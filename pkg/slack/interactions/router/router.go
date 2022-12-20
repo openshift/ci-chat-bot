@@ -1,6 +1,8 @@
 package router
 
 import (
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/consultation"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/enhancement"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
 
@@ -23,6 +25,8 @@ func ForModals(filer jira.IssueFiler, client *slack.Client) interactions.Handler
 	toRegister := []*modals.FlowWithViewAndFollowUps{
 		bug.Register(filer, client),
 		helpdesk.Register(filer, client),
+		enhancement.Register(filer, client),
+		consultation.Register(filer, client),
 	}
 
 	for _, entry := range toRegister {
