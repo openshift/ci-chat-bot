@@ -32,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/dynamic"
+	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 )
 
@@ -77,6 +78,8 @@ func NewJobManager(
 	forcePROwner string,
 	workflowConfig *WorkflowConfig,
 	lClient LeaseClient,
+	configMapClient corev1.ConfigMapInterface,
+	hypershiftSupportedVersions *HypershiftSupportedVersions,
 ) *jobManager {
 	m := &jobManager{
 		requests:         make(map[string]*JobRequest),
@@ -96,9 +99,45 @@ func NewJobManager(
 		workflowConfig: workflowConfig,
 
 		lClient: lClient,
+
+		configMapClient:             configMapClient,
+		hypershiftSupportedVersions: hypershiftSupportedVersions,
 	}
 	m.muJob.running = make(map[string]struct{})
 	return m
+}
+
+func (m *jobManager) updateSupportedVersions() error {
+	if m.configMapClient == nil {
+		m.hypershiftSupportedVersions.mu.Lock()
+		defer m.hypershiftSupportedVersions.mu.Unlock()
+		// assume that current default release for chat-bot is supported
+		// TODO: have global const for current ci-chat-bot default release
+		m.hypershiftSupportedVersions.versions = []string{"4.12"}
+		return nil
+	}
+	supportedVersionConfigMap, err := m.configMapClient.Get(context.TODO(), "supported-versions", metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	if supportedVersionConfigMap.Data == nil {
+		return errors.New("supported-versions configmap is empty")
+	}
+	if _, ok := supportedVersionConfigMap.Data["supported-versions"]; !ok {
+		return errors.New("supported-versions configmap missing `supported-versions` key")
+	}
+	rawVersions := supportedVersionConfigMap.Data["supported-versions"]
+	convertedVersions := struct {
+		Versions []string `json:"versions"`
+	}{}
+	if err := json.Unmarshal([]byte(rawVersions), &convertedVersions); err != nil {
+		return fmt.Errorf("failed to convert configmap json supported-versions to struct: %w", err)
+	}
+	m.hypershiftSupportedVersions.mu.Lock()
+	defer m.hypershiftSupportedVersions.mu.Unlock()
+	m.hypershiftSupportedVersions.versions = convertedVersions.Versions
+	klog.Infof("Hypershift Supported Versions: %+v", m.hypershiftSupportedVersions.versions)
+	return nil
 }
 
 func (m *jobManager) Start() error {
@@ -109,6 +148,11 @@ func (m *jobManager) Start() error {
 		}
 		time.Sleep(5 * time.Minute)
 	}, time.Minute)
+	go wait.Forever(func() {
+		if err := m.updateSupportedVersions(); err != nil {
+			klog.Warningf("error during updateSupportedVersions: %v", err)
+		}
+	}, time.Minute*5)
 	return nil
 }
 
@@ -938,8 +982,17 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 
 	if req.Platform == "hypershift-hosted" {
 		for _, input := range jobInputs {
-			if input.Version != "" && !(strings.HasPrefix(input.Version, "4.13") || strings.HasPrefix(input.Version, "4.12")) {
-				return nil, fmt.Errorf("hypershift currently only supports 4.12 and 4.13 clusters")
+			if input.Version != "" {
+				var isValidVersion bool
+				for _, version := range m.hypershiftSupportedVersions.versions {
+					if strings.HasPrefix(input.Version, version) {
+						isValidVersion = true
+						break
+					}
+				}
+				if !isValidVersion {
+					return nil, fmt.Errorf("hypershift currently only supports the following releases: %v", m.hypershiftSupportedVersions.versions)
+				}
 			}
 		}
 	}

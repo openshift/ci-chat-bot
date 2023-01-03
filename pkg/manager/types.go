@@ -7,11 +7,13 @@ import (
 
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
+
 	citools "github.com/openshift/ci-tools/pkg/api"
 	"github.com/openshift/ci-tools/pkg/lease"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/dynamic"
+	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 	"k8s.io/test-infra/prow/github"
 )
@@ -64,6 +66,7 @@ type jobManager struct {
 	prowConfigLoader prow.ProwConfigLoader
 	prowClient       dynamic.NamespaceableResourceInterface
 	imageClient      imageclientset.Interface
+	configMapClient  corev1.ConfigMapInterface
 	clusterClients   utils.BuildClusterClientConfigMap
 	prowNamespace    string
 	githubClient     github.Client
@@ -75,6 +78,8 @@ type jobManager struct {
 		lock    sync.Mutex
 		running map[string]struct{}
 	}
+
+	hypershiftSupportedVersions *HypershiftSupportedVersions
 
 	notifierFn     JobCallbackFunc
 	workflowConfig *WorkflowConfig
@@ -183,4 +188,9 @@ type Job struct {
 
 	IsOperator         bool
 	OperatorBundleName string
+}
+
+type HypershiftSupportedVersions struct {
+	mu       sync.RWMutex
+	versions []string
 }
