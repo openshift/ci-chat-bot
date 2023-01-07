@@ -2,7 +2,6 @@ package jira
 
 import (
 	"fmt"
-	"github.com/openshift/ci-chat-bot/pkg/utils"
 	"net/url"
 
 	"github.com/andygrunwald/go-jira"
@@ -77,8 +76,8 @@ type filer struct {
 // quirks like how issue types and projects are provided, as well as
 // transforming the Slack reporter ID to a Jira user, when possible.
 func (f *filer) FileIssue(issueType, title, description, reporter string, logger *logrus.Entry) (*jira.Issue, error) {
-	suffix, requester := f.resolveRequester(reporter, logger)
-	description = fmt.Sprintf("%s\n\nThis issue was filed by %s", description, suffix)
+	requester := f.resolveRequester(reporter, logger)
+	description = fmt.Sprintf("%s\n\nThis issue was filed by %s (%s)", description, reporter, requester.EmailAddress)
 	logger.WithFields(logrus.Fields{
 		"title":    title,
 		"reporter": requester.Name,
@@ -97,29 +96,20 @@ func (f *filer) FileIssue(issueType, title, description, reporter string, logger
 
 // resolveRequester attempts to get more information about the Slack
 // user that requested the Jira issue, doing everything best-effort
-func (f *filer) resolveRequester(reporter string, logger *logrus.Entry) (string, *jira.User) {
-	var suffix string
+func (f *filer) resolveRequester(reporter string, logger *logrus.Entry) *jira.User {
 	var requester *jira.User
-	slackUser, err := f.slackClient.GetUserInfo(reporter)
-	if err != nil {
-		logger.WithError(err).Warn("could not search Slack for requester")
-		suffix = fmt.Sprintf("[a Slack user|%s/team/%s]", utils.CoreOSURL, reporter)
-	} else {
-		jiraUsers, response, err := f.jiraClient.FindUser(slackUser.RealName)
-		if err := jirautil.HandleJiraError(response, err); err != nil {
-			logger.WithError(err).Warn("could not search Jira for requester")
-		}
-		if len(jiraUsers) != 0 {
-			requester = &jiraUsers[0]
-		}
-		suffix = fmt.Sprintf("Slack user [%s|%s/team/%s]", slackUser.RealName, utils.CoreOSURL, slackUser.ID)
+	jiraUsers, response, err := f.jiraClient.FindUser(reporter)
+	if err := jirautil.HandleJiraError(response, err); err != nil {
+		logger.WithError(err).Warn("could not search Jira for requester")
 	}
-
+	if len(jiraUsers) != 0 {
+		requester = &jiraUsers[0]
+	}
 	if requester == nil {
 		logger.Infof("Could not find a Jira user for Slack user %q, defaulting to bot user.", reporter)
 		requester = f.botUser
 	}
-	return suffix, requester
+	return requester
 }
 
 func NewIssueFiler(slackClient *slack.Client, jiraClient *jira.Client) (IssueFiler, error) {
