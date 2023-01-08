@@ -12,14 +12,14 @@ import (
 
 // eventsMap checks both slack.EventsMapping and
 // and slackevents.EventsAPIInnerEventMapping. If the event
-// exists, returns the the unmarshalled struct instance of
+// exists, returns the unmarshalled struct instance of
 // target for the matching event type.
 // TODO: Consider moving all events into its own package?
 func eventsMap(t string) (interface{}, bool) {
 	// Must parse EventsAPI FIRST as both RTM and EventsAPI
 	// have a type: "Message" event.
 	// TODO: Handle these cases more explicitly.
-	v, exists := EventsAPIInnerEventMapping[t]
+	v, exists := EventsAPIInnerEventMapping[EventsAPIType(t)]
 	if exists {
 		return v, exists
 	}
@@ -102,7 +102,7 @@ func parseInnerEvent(e *EventsAPICallbackEvent) (EventsAPIEvent, error) {
 			e.TeamID,
 			"unmarshalling_error",
 			e.APIAppID,
-			"",
+			e.EnterpriseID,
 			&slack.UnmarshallingErrorEvent{ErrorObj: err},
 			EventsAPIInnerEvent{},
 		}, err
@@ -114,7 +114,7 @@ func parseInnerEvent(e *EventsAPICallbackEvent) (EventsAPIEvent, error) {
 			e.TeamID,
 			iE.Type,
 			e.APIAppID,
-			"",
+			e.EnterpriseID,
 			nil,
 			EventsAPIInnerEvent{},
 		}, fmt.Errorf("Inner Event does not exist! %s", iE.Type)
@@ -128,7 +128,7 @@ func parseInnerEvent(e *EventsAPICallbackEvent) (EventsAPIEvent, error) {
 			e.TeamID,
 			"unmarshalling_error",
 			e.APIAppID,
-			"",
+			e.EnterpriseID,
 			&slack.UnmarshallingErrorEvent{ErrorObj: err},
 			EventsAPIInnerEvent{},
 		}, err
@@ -138,7 +138,7 @@ func parseInnerEvent(e *EventsAPICallbackEvent) (EventsAPIEvent, error) {
 		e.TeamID,
 		e.Type,
 		e.APIAppID,
-		"",
+		e.EnterpriseID,
 		e,
 		EventsAPIInnerEvent{iE.Type, recvEvent},
 	}, nil
@@ -176,7 +176,7 @@ func (c TokenComparator) Verify(t string) bool {
 	return subtle.ConstantTimeCompare([]byte(c.VerificationToken), []byte(t)) == 1
 }
 
-// ParseEvent parses the outter and inner events (if applicable) of an events
+// ParseEvent parses the outer and inner events (if applicable) of an events
 // api event returning a EventsAPIEvent type. If the event is a url_verification event,
 // the inner event is empty.
 func ParseEvent(rawEvent json.RawMessage, opts ...Option) (EventsAPIEvent, error) {
