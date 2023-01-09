@@ -2,9 +2,6 @@ package mention
 
 import (
 	"fmt"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/consultation"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/enhancement"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/helpdesk"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -13,7 +10,6 @@ import (
 
 	"github.com/openshift/ci-chat-bot/pkg/slack/events"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/bug"
 )
 
 type messagePoster interface {
@@ -54,26 +50,12 @@ func responseFor(message string) []slack.Block {
 		description, buttonText string
 	}
 	interactions := []interaction{
-		{
-			identifier:  bug.Identifier,
-			description: "Record a defect on one of the CRT projects, providing a reproducer where possible.",
-			buttonText:  "File a Bug",
-		},
-		{
-			identifier:  helpdesk.Identifier,
-			description: "Request clarification on a subject managed by CRT",
-			buttonText:  "Ask a Question",
-		},
-		{
-			identifier:  consultation.Identifier,
-			description: "Ask for input from the Continuous Release team to aid in achieving some goal.",
-			buttonText:  "Request a Consultation",
-		},
-		{
-			identifier:  enhancement.Identifier,
-			description: "Explain how a new feature could improve your productivity.",
-			buttonText:  "Describe an Enhancement",
-		},
+		// sample of an entry
+		//{
+		//	identifier:  bug.Identifier,
+		//	description: "Record a defect on one of the CRT projects, providing a reproducer where possible.",
+		//	buttonText:  "File a Bug",
+		//},
 	}
 
 	block := func(identifier, description, buttonText string) slack.Block {

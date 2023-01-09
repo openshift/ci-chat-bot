@@ -1,13 +1,8 @@
 package router
 
 import (
-	"github.com/openshift/ci-chat-bot/pkg/jira"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/bug"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/consultation"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/enhancement"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/helpdesk"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/stepsFromApp"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
@@ -15,7 +10,7 @@ import (
 
 // ForModals returns a Handler that appropriately routes
 // interaction callbacks for the modals we know about
-func ForModals(filer jira.IssueFiler, client *slack.Client) interactions.Handler {
+func ForModals(client *slack.Client) interactions.Handler {
 	router := &modalRouter{
 		slackClient:         client,
 		viewsByID:           map[modals.Identifier]slack.ModalViewRequest{},
@@ -23,10 +18,8 @@ func ForModals(filer jira.IssueFiler, client *slack.Client) interactions.Handler
 	}
 
 	toRegister := []*modals.FlowWithViewAndFollowUps{
-		bug.Register(filer, client),
-		helpdesk.Register(filer, client),
-		enhancement.Register(filer, client),
-		consultation.Register(filer, client),
+		// sample entry
+		//bug.Register(filer, client),
 	}
 
 	for _, entry := range toRegister {
