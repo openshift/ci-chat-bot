@@ -35,7 +35,10 @@ func Handler(client workflowSubmit, filer jira.IssueFiler) events.PartialHandler
 		case "jira_ticket":
 			err := handleJiraStep(client, event, filer)
 			if err != nil {
-				// TODO: return a workflow.stepFailed here
+				error := client.WorkflowStepFailed(event.WorkflowStep.WorkflowStepExecuteID, err.Error())
+				if error != nil {
+					return false, error
+				}
 				return false, err
 			}
 		}

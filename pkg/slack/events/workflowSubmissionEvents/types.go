@@ -7,6 +7,7 @@ import (
 
 type workflowSubmit interface {
 	WorkflowStepCompleted(workflowStepExecuteID string, options ...slack.WorkflowStepCompletedRequestOption) error
+	WorkflowStepFailed(workflowStepExecuteID string, errorMessage string) error
 }
 
 type Identifier string
