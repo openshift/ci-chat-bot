@@ -18,8 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/slack-go/slack/internal/misc"
 )
 
 // SlackResponse handles parsing out errors from the web api.
@@ -52,7 +50,7 @@ type SlackErrorResponse struct {
 
 func (r SlackErrorResponse) Error() string { return r.Err }
 
-// RateLimitedError represents the rate limit respond from slack
+// RateLimitedError represents the rate limit response from slack
 type RateLimitedError struct {
 	RetryAfter time.Duration
 }
@@ -299,7 +297,7 @@ func checkStatusCode(resp *http.Response, d Debug) error {
 	// Slack seems to send an HTML body along with 5xx error codes. Don't parse it.
 	if resp.StatusCode != http.StatusOK {
 		logResponse(resp, d)
-		return misc.StatusCodeError{Code: resp.StatusCode, Status: resp.Status}
+		return StatusCodeError{Code: resp.StatusCode, Status: resp.Status}
 	}
 
 	return nil
@@ -309,6 +307,9 @@ type responseParser func(*http.Response) error
 
 func newJSONParser(dst interface{}) responseParser {
 	return func(resp *http.Response) error {
+		if dst == nil {
+			return nil
+		}
 		return json.NewDecoder(resp.Body).Decode(dst)
 	}
 }

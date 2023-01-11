@@ -1,21 +1,16 @@
 package router
 
 import (
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/consultation"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/enhancement"
-	"github.com/sirupsen/logrus"
-	"github.com/slack-go/slack"
-
-	"github.com/openshift/ci-chat-bot/pkg/jira"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/bug"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/helpdesk"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/stepsFromApp"
+	"github.com/sirupsen/logrus"
+	"github.com/slack-go/slack"
 )
 
 // ForModals returns a Handler that appropriately routes
 // interaction callbacks for the modals we know about
-func ForModals(filer jira.IssueFiler, client *slack.Client) interactions.Handler {
+func ForModals(client *slack.Client) interactions.Handler {
 	router := &modalRouter{
 		slackClient:         client,
 		viewsByID:           map[modals.Identifier]slack.ModalViewRequest{},
@@ -23,10 +18,8 @@ func ForModals(filer jira.IssueFiler, client *slack.Client) interactions.Handler
 	}
 
 	toRegister := []*modals.FlowWithViewAndFollowUps{
-		bug.Register(filer, client),
-		helpdesk.Register(filer, client),
-		enhancement.Register(filer, client),
-		consultation.Register(filer, client),
+		// sample entry
+		//bug.Register(filer, client),
 	}
 
 	for _, entry := range toRegister {
@@ -52,11 +45,19 @@ type modalRouter struct {
 // Handle routes the interaction callback to the appropriate handler
 func (r *modalRouter) Handle(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 	switch callback.Type {
+	case slack.InteractionTypeWorkflowStepEdit:
+		return nil, r.viewForApplicationStep(callback, logger)
 	case slack.InteractionTypeShortcut:
 		return nil, r.viewForShortcut(callback, logger)
 	case slack.InteractionTypeBlockActions:
 		if isMessageButtonPress(callback) {
 			return nil, r.viewForButton(callback, logger)
+		}
+		return r.delegate(callback, logger)
+	case slack.InteractionTypeViewSubmission:
+		if callback.View.PrivateMetadata == string(slack.InteractionTypeWorkflowStepEdit) {
+			input, output := stepsFromApp.StepFromAppSubmit(callback)
+			return nil, r.slackClient.SaveWorkflowStepConfiguration(callback.WorkflowStep.WorkflowStepEditID, &input, &output)
 		}
 		return r.delegate(callback, logger)
 	default:
@@ -71,6 +72,7 @@ func isMessageButtonPress(callback *slack.InteractionCallback) bool {
 
 type slackClient interface {
 	OpenView(triggerID string, view slack.ModalViewRequest) (*slack.ViewResponse, error)
+	SaveWorkflowStepConfiguration(workflowStepEditID string, inputs *slack.WorkflowStepInputs, outputs *[]slack.WorkflowStepOutput) error
 }
 
 // viewForShortcut reacts to the original shortcut action from the user
@@ -78,6 +80,15 @@ type slackClient interface {
 func (r *modalRouter) viewForShortcut(callback *slack.InteractionCallback, logger *logrus.Entry) error {
 	id := modals.Identifier(callback.CallbackID)
 	return r.openModal(id, callback.TriggerID, logger)
+}
+
+func (r *modalRouter) viewForApplicationStep(callback *slack.InteractionCallback, logger *logrus.Entry) error {
+	response, err := r.slackClient.OpenView(callback.TriggerID, stepsFromApp.WorkflowStepEditView(callback))
+	if err != nil {
+		logger.WithError(err).Warn("Failed to open the workflow_step_edit view.")
+	}
+	logger.WithField("response", response).Trace("Received a workflow_step_edit request")
+	return err
 }
 
 // viewForButton reacts to the a user pressing a button in a bot message
