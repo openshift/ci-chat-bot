@@ -18,10 +18,10 @@ import (
 	"k8s.io/test-infra/prow/github"
 )
 
-type envVar struct {
+type EnvVar struct {
 	name      string
 	value     string
-	platforms sets.String
+	Platforms sets.String
 }
 
 // ConfigResolver finds a ci-operator config for the given tuple of organization, repository,
@@ -133,6 +133,7 @@ type JobManager interface {
 	LookupInputs(inputs []string, architecture string) (string, error)
 	ListJobs(users ...string) string
 	GetWorkflowConfig() *WorkflowConfig
+	ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion, architecture string) (string, string, string, error)
 }
 
 // JobCallbackFunc is invoked when the job changes state in a significant

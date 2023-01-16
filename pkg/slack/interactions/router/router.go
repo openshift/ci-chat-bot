@@ -1,16 +1,19 @@
 package router
 
 import (
+	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/launch"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/stepsFromApp"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
+	"net/http"
 )
 
 // ForModals returns a Handler that appropriately routes
 // interaction callbacks for the modals we know about
-func ForModals(client *slack.Client) interactions.Handler {
+func ForModals(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
 	router := &modalRouter{
 		slackClient:         client,
 		viewsByID:           map[modals.Identifier]slack.ModalViewRequest{},
@@ -18,8 +21,9 @@ func ForModals(client *slack.Client) interactions.Handler {
 	}
 
 	toRegister := []*modals.FlowWithViewAndFollowUps{
-		// sample entry
-		//bug.Register(filer, client),
+		launch.RegisterFirstStep(client, jobmanager, httpclient),
+		launch.RegisterSecondStep(client, jobmanager, httpclient),
+		launch.RegisterThirdStep(client, jobmanager, httpclient),
 	}
 
 	for _, entry := range toRegister {
@@ -67,7 +71,7 @@ func (r *modalRouter) Handle(callback *slack.InteractionCallback, logger *logrus
 
 // isMessageButtonPress determines if an interaction callback is for a button press in a message
 func isMessageButtonPress(callback *slack.InteractionCallback) bool {
-	return callback.View.ID == "" && callback.Message.Text != "" && len(callback.ActionCallback.BlockActions) > 0 && callback.ActionCallback.BlockActions[0].Type == "button"
+	return len(callback.ActionCallback.BlockActions) > 0 && callback.ActionCallback.BlockActions[0].Type == "button"
 }
 
 type slackClient interface {
@@ -121,8 +125,11 @@ func (r *modalRouter) delegate(callback *slack.InteractionCallback, logger *logr
 	logger = logger.WithField("view_id", id)
 	handlersForId, registered := r.handlersByIDAndType[id]
 	if !registered {
-		logger.Debugf("Received a callback ID (%s) for which no handlers were registered.", id)
-		return nil, nil
+		handlersForId, registered = r.handlersByIDAndType[modals.Identifier(callback.ActionCallback.BlockActions[0].ActionID)]
+		if !registered {
+			logger.Debugf("Received a callback ID (%s) for which no handlers were registered.", id)
+			return nil, nil
+		}
 	}
 	handler, exists := handlersForId[callback.Type]
 	if !exists {
