@@ -577,7 +577,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 				Architecture: "arm64",
 				Product:      "ocp",
 				Stream:       "nightly",
-				Version:      "4.12",
+				Version:      "4.13",
 			},
 		}
 	}

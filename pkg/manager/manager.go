@@ -498,7 +498,7 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 		return ""
 	}
 	if refs.BaseRef == "master" || refs.BaseRef == "main" {
-		return "4.12.0-0.latest"
+		return "4.13.0-0.latest"
 	}
 	if m := reBranchVersion.FindStringSubmatch(refs.BaseRef); m != nil {
 		return fmt.Sprintf("%s.0-0.latest", m[2])
@@ -545,8 +545,8 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-arm64", Imagestream: "4-dev-preview-arm64", ArchSuffix: "-arm64"})
 	case "multi":
 		// the release-controller cannot assemble multi-arch release, so we must use the `art-latest` streams instead of `release-multi`
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.13-art-latest-multi", ArchSuffix: "-multi"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.12-art-latest-multi", ArchSuffix: "-multi"})
-		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.11-art-latest-multi", ArchSuffix: "-multi"})
 	default:
 		return "", "", "", fmt.Errorf("Unsupported architecture: %s", architecture)
 	}
@@ -607,11 +607,11 @@ func (m *jobManager) resolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 			}
 			return "", "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
 		} else if unresolved == "nightly" {
-			unresolved = fmt.Sprintf("4.12.0-0.nightly%s", archSuffix)
+			unresolved = fmt.Sprintf("4.13.0-0.nightly%s", archSuffix)
 		} else if unresolved == "ci" {
-			unresolved = fmt.Sprintf("4.12.0-0.ci%s", archSuffix)
+			unresolved = fmt.Sprintf("4.13.0-0.ci%s", archSuffix)
 		} else if unresolved == "prerelease" {
-			unresolved = fmt.Sprintf("4.12.0-0.ci%s", archSuffix)
+			unresolved = fmt.Sprintf("4.13.0-0.ci%s", archSuffix)
 		}
 
 		if tag, name := findImageStatusTag(is, unresolved); tag != nil {
@@ -938,8 +938,8 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 
 	if req.Platform == "hypershift-hosted" {
 		for _, input := range jobInputs {
-			if input.Version != "" && !(strings.HasPrefix(input.Version, "4.12") || strings.HasPrefix(input.Version, "4.11")) {
-				return nil, fmt.Errorf("hypershift currently only supports 4.11 and 4.12 clusters")
+			if input.Version != "" && !(strings.HasPrefix(input.Version, "4.13") || strings.HasPrefix(input.Version, "4.12")) {
+				return nil, fmt.Errorf("hypershift currently only supports 4.12 and 4.13 clusters")
 			}
 		}
 	}
