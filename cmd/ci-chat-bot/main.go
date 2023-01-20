@@ -14,12 +14,18 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	botversion "github.com/openshift/ci-chat-bot/pkg/version"
 
+	"k8s.io/test-infra/pkg/flagutil"
 	"k8s.io/test-infra/prow/config/secret"
 	prowflagutil "k8s.io/test-infra/prow/flagutil"
 	"k8s.io/test-infra/prow/github"
 
+	"k8s.io/client-go/dynamic"
+	clientset "k8s.io/client-go/kubernetes"
+	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/test-infra/pkg/flagutil"
+
+	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
+	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 
 	"gopkg.in/yaml.v2"
 
@@ -27,14 +33,10 @@ import (
 
 	citools "github.com/openshift/ci-tools/pkg/api"
 	"github.com/openshift/ci-tools/pkg/lease"
+
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
-	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 	configflagutil "k8s.io/test-infra/prow/flagutil/config"
-
-	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
-	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 )
 
 type options struct {
@@ -168,6 +170,19 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("unable to create image client: %w", err)
 	}
+	// Config and Client to access hypershift configmaps
+	var hiveConfigMapClient corev1.ConfigMapInterface
+	// TODO: give the hypershiftSupportedVersions variable to the slack bot for defaulting based on supported versions
+	hypershiftSupportedVersions := manager.HypershiftSupportedVersions{}
+	if config, ok := kubeConfigs["hive"]; ok {
+		hiveClient, err := corev1.NewForConfig(&config)
+		if err != nil {
+			return fmt.Errorf("unable to create hive client: %w", err)
+		}
+		hiveConfigMapClient = hiveClient.ConfigMaps("hypershift")
+	} else {
+		klog.Warning("hive config missing `hive` cluster context; will not support hypershift outside of default version")
+	}
 
 	configAgent, err := opt.prowconfig.ConfigAgent()
 	if err != nil {
@@ -200,7 +215,7 @@ func run() error {
 		klog.Warningf("Failed to load lease client. Will not distribute jobs across secondary accounts. Error: %v", err)
 	}
 
-	jobManager := manager.NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, ghClient, opt.ForcePROwner, &workflows, opt.leaseClient)
+	jobManager := manager.NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, ghClient, opt.ForcePROwner, &workflows, opt.leaseClient, hiveConfigMapClient, &hypershiftSupportedVersions)
 	if err := jobManager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %w", err)
 	}
