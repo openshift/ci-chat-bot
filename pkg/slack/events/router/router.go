@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/openshift/ci-chat-bot/pkg/jira"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/slack/events/apphome"
 	"github.com/openshift/ci-chat-bot/pkg/slack/events/workflowSubmissionEvents"
 	"github.com/openshift/ci-chat-bot/pkg/slack/mention"
 	slackCommandParser "github.com/openshift/ci-chat-bot/pkg/slack/parser"
@@ -19,5 +20,6 @@ func ForEvents(client *slack.Client, manager manager.JobManager, botCommands []s
 		messages.Handle(client, manager, botCommands),
 		mention.Handler(client),
 		workflowSubmissionEvents.Handler(client, filer),
+		apphome.Handler(client),
 	)
 }
