@@ -41,7 +41,7 @@ func l(fragment string, children ...simplifypath.Node) simplifypath.Node {
 	return simplifypath.L(fragment, children...)
 }
 
-func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.JobManager) {
+func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.JobManager, httpclient *http.Client) {
 	slackclient := slackClient.New(bot.BotToken)
 	jobManager.SetNotifier(bot.JobResponder(slackclient))
 	var issueFiler jira.IssueFiler
@@ -75,7 +75,7 @@ func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.Job
 	// handle the root to allow for a simple uptime probe
 	mux.Handle("/", handler(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) { writer.WriteHeader(http.StatusOK) })))
 	mux.Handle("/slack/events-endpoint", handler(handleEvent(bot.BotSigningSecret, eventrouter.ForEvents(slackclient, jobManager, bot.SupportedCommands(), issueFiler))))
-	mux.Handle("/slack/interactive-endpoint", handler(handleInteraction(bot.BotSigningSecret, interactionrouter.ForModals(slackclient))))
+	mux.Handle("/slack/interactive-endpoint", handler(handleInteraction(bot.BotSigningSecret, interactionrouter.ForModals(slackclient, jobManager, httpclient))))
 	server := &http.Server{Addr: ":" + strconv.Itoa(bot.Port), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
 	health.ServeReady()

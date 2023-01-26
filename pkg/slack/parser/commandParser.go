@@ -189,17 +189,17 @@ func (c *Command) Match(text string) (*Properties, bool) {
 
 // Properties is a string map decorator
 type Properties struct {
-	propertyMap map[string]string
+	PropertyMap map[string]string
 }
 
 // NewProperties creates a new Properties object
 func NewProperties(m map[string]string) *Properties {
-	return &Properties{propertyMap: m}
+	return &Properties{PropertyMap: m}
 }
 
 // StringParam attempts to look up a string value by key. If not found, return the default string value
 func (p *Properties) StringParam(key string, defaultValue string) string {
-	value, ok := p.propertyMap[key]
+	value, ok := p.PropertyMap[key]
 	if !ok {
 		return defaultValue
 	}

@@ -57,33 +57,33 @@ var SupportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "hy
 // SupportedParameters are the allowed parameter keys that can be passed to jobs
 var SupportedParameters = []string{"ovn", "ovn-hybrid", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv4", "ipv6", "dualstack", "preserve-bootstrap", "test", "rt", "single-node", "cgroupsv2", "techpreview", "upi", "crun", "nfv", "kuryr", "sdn", "no-spot", "no-capabilities", "virtualization-support", "multi-zone", "bundle"}
 
-// multistageParameters is the mapping of SupportedParameters that can be configured via multistage parameters to the correct environment variable format
-var multistageParameters = map[string]envVar{
+// MultistageParameters is the mapping of SupportedParameters that can be configured via multistage parameters to the correct environment variable format
+var MultistageParameters = map[string]EnvVar{
 	"compact": {
 		name:      "SIZE_VARIANT",
 		value:     "compact",
-		platforms: sets.NewString("aws", "aws-2", "gcp", "azure"),
+		Platforms: sets.NewString("aws", "aws-2", "gcp", "azure"),
 	},
 	"large": {
 		name:      "SIZE_VARIANT",
 		value:     "large",
-		platforms: sets.NewString("aws", "aws-2", "gcp", "azure"),
+		Platforms: sets.NewString("aws", "aws-2", "gcp", "azure"),
 	},
 	"xlarge": {
 		name:      "SIZE_VARIANT",
 		value:     "xlarge",
-		platforms: sets.NewString("aws", "aws-2", "gcp", "azure"),
+		Platforms: sets.NewString("aws", "aws-2", "gcp", "azure"),
 	},
 	"preserve-bootstrap": {
 		name:      "OPENSHIFT_INSTALL_PRESERVE_BOOTSTRAP",
 		value:     "true",
-		platforms: sets.NewString("aws", "aws-2", "gcp", "azure", "vsphere", "ovirt"),
+		Platforms: sets.NewString("aws", "aws-2", "gcp", "azure", "vsphere", "ovirt"),
 	},
 }
 
-// envsForTestType maps tests given by users to corresponding parameters/env vars that need to be set on the test. Currently not platform dependent, so the platforms
+// envsForTestType maps tests given by users to corresponding parameters/env vars that need to be set on the test. Currently not platform dependent, so the Platforms
 // list for the envs will be left blank
-var envsForTestType = map[string][]envVar{
+var envsForTestType = map[string][]EnvVar{
 	"e2e": {{
 		name:  "TEST_SUITE",
 		value: "openshift/conformance/parallel",
@@ -494,7 +494,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 				matchedTarget.MultiStageTestConfiguration.Environment = citools.TestEnvironment{}
 			}
 			for param := range envParams {
-				envForParam := multistageParameters[param]
+				envForParam := MultistageParameters[param]
 				matchedTarget.MultiStageTestConfiguration.Environment[envForParam.name] = envForParam.value
 			}
 		}
@@ -1028,7 +1028,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	started := pj.Status.StartTime.Time
 
-	// Some platforms take longer to set up
+	// Some Platforms take longer to set up
 	setupContainerTimeout := 60 * time.Minute
 	if job.Platform == "metal" {
 		setupContainerTimeout = 90 * time.Minute

@@ -43,266 +43,259 @@ func View() slack.HomeTabViewRequest {
 const homeJson = `
 {
   "type":"home",
-  "blocks": [
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "*Cluster Bot gives users the ability to launch and test OpenShift Clusters from any existing custom built releases*\n\n<https://github.com/openshift/ci-chat-bot/blob/master/docs/FAQ.md|Frequently Asked Questions>\n<https://amd64.ocp.releases.ci.openshift.org/|OpenShift Releases>"
-      }
-    },
-    {
-      "type": "divider"
-    },
-    {
-      "type": "header",
-      "text": {
-        "type": "plain_text",
-        "text": "Launch a Cluster",
-        "emoji": true
-      }
-    },
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "Launch an OpenShift cluster using a known image, version, or PR"
-      },
-      "accessory": {
-        "type": "button",
-        "text": {
-          "type": "plain_text",
-          "text": "Launch",
-          "emoji": true
-        },
-        "value": "launch",
-        "action_id": "launch"
-      }
-    },
-    {
-      "type": "divider"
-    },
-    {
-      "type": "header",
-      "text": {
-        "type": "plain_text",
-        "text": "Workflows",
-        "emoji": true
-      }
-    },
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "Launch a cluster using the requested workflow from an image,release or built PRs"
-      },
-      "accessory": {
-        "type": "button",
-        "text": {
-          "type": "plain_text",
-          "text": "Workflow-Launch",
-          "emoji": true
-        },
-        "value": "workflow_launch",
-        "action_id": "workflow_launch"
-      }
-    },
-    {
-      "type": "divider"
-    },
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "Run a custom upgrade using the requested workflow from an image or release or built PRs to a specified version/image/pr from https://amd64.ocp.releases.ci.openshift.org"
-      },
-      "accessory": {
-        "type": "button",
-        "text": {
-          "type": "plain_text",
-          "text": "Workflow-Upgrade",
-          "emoji": true
-        },
-        "value": "workflow_upgrade",
-        "action_id": "workflow_upgrade"
-      }
-    },
-    {
-      "type": "divider"
-    },
-    {
-      "type": "header",
-      "text": {
-        "type": "plain_text",
-        "text": "Test",
-        "emoji": true
-      }
-    },
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "Launch a cluster using the requested workflow from an image,release or built PRs"
-      },
-      "accessory": {
-        "type": "button",
-        "text": {
-          "type": "plain_text",
-          "text": "Test",
-          "emoji": true
-        },
-        "value": "test",
-        "action_id": "test"
-      }
-    },
-    {
-      "type": "divider"
-    },
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "Run the upgrade tests between two release images"
-      },
-      "accessory": {
-        "type": "button",
-        "text": {
-          "type": "plain_text",
-          "text": "Test Upgrade",
-          "emoji": true
-        },
-        "value": "test_upgrade",
-        "action_id": "test_upgrade"
-      }
-    },
-    {
-      "type": "header",
-      "text": {
-        "type": "plain_text",
-        "text": "Helpers",
-        "emoji": true
-      }
-    },
-    {
-      "type": "divider"
-    },
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "See who is hogging all the clusters"
-      },
-      "accessory": {
-        "type": "button",
-        "text": {
-          "type": "plain_text",
-          "text": "List",
-          "emoji": true
-        },
-        "value": "list",
-        "action_id": "list"
-      }
-    },
-    {
-      "type": "divider"
-    },
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "Terminate the running cluster"
-      },
-      "accessory": {
-        "type": "button",
-        "text": {
-          "type": "plain_text",
-          "text": "Done",
-          "emoji": true
-        },
-        "value": "done",
-        "action_id": "done"
-      }
-    },
-    {
-      "type": "divider"
-    },
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "If the cluster is currently marked as failed, retry fetching its credentials in case of an error"
-      },
-      "accessory": {
-        "type": "button",
-        "text": {
-          "type": "plain_text",
-          "text": "Refresh",
-          "emoji": true
-        },
-        "value": "refresh",
-        "action_id": "refresh"
-      }
-    },
-    {
-      "type": "divider"
-    },
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "Send the credentials for the cluster you most recently requested"
-      },
-      "accessory": {
-        "type": "button",
-        "text": {
-          "type": "plain_text",
-          "text": "Auth",
-          "emoji": true
-        },
-        "value": "auth",
-        "action_id": "auth"
-      }
-    },
-    {
-      "type": "divider"
-    },
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "Report the version of the bot\n"
-      },
-      "accessory": {
-        "type": "button",
-        "text": {
-          "type": "plain_text",
-          "text": "Version",
-          "emoji": true
-        },
-        "value": "version",
-        "action_id": "version"
-      }
-    },
-    {
-      "type": "divider"
-    },
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "Get info about a version\n"
-      },
-      "accessory": {
-        "type": "button",
-        "text": {
-          "type": "plain_text",
-          "text": "Lookup",
-          "emoji": true
-        },
-        "value": "lookup",
-        "action_id": "lookup"
-      }
-    }
-  ]
+ 	"blocks": [
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "*Cluster Bot gives users the ability to launch and test OpenShift Clusters from any existing custom built releases*\n\n<https://github.com/openshift/ci-chat-bot/blob/master/docs/FAQ.md|Frequently Asked Questions>\n<https://amd64.ocp.releases.ci.openshift.org/|OpenShift Releases>"
+			}
+		},
+		{
+			"type": "header",
+			"text": {
+				"type": "plain_text",
+				"text": "Launch a Cluster",
+				"emoji": true
+			}
+		},
+		{
+			"type": "divider"
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "Launch an OpenShift cluster using a known image, version, or PR"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "Launch",
+					"emoji": true
+				},
+				"value": "launch",
+				"action_id": "launch",
+				"style": "primary"
+			}
+		},
+		{
+			"type": "header",
+			"text": {
+				"type": "plain_text",
+				"text": "Workflows",
+				"emoji": true
+			}
+		},
+		{
+			"type": "divider"
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "Launch a cluster using the requested workflow from an image,release or built PRs"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "Workflow-Launch",
+					"emoji": true
+				},
+				"value": "workflow_launch",
+				"action_id": "workflow_launch",
+				"style": "primary"
+			}
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "Run a custom upgrade using the requested workflow from an image or release or built PRs to a specified version/image/pr from https://amd64.ocp.releases.ci.openshift.org"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "Workflow-Upgrade",
+					"emoji": true
+				},
+				"value": "workflow_upgrade",
+				"action_id": "workflow_upgrade",
+				"style": "primary"
+			}
+		},
+		{
+			"type": "divider"
+		},
+		{
+			"type": "header",
+			"text": {
+				"type": "plain_text",
+				"text": "Test",
+				"emoji": true
+			}
+		},
+		{
+			"type": "divider"
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "Run the requested test suite from an image or release or built PRs"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "Test",
+					"emoji": true
+				},
+				"value": "test",
+				"action_id": "test",
+				"style": "primary"
+			}
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "Run the upgrade tests between two release images"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "Test Upgrade",
+					"emoji": true
+				},
+				"value": "test_upgrade",
+				"action_id": "test_upgrade",
+				"style": "primary"
+			}
+		},
+		{
+			"type": "header",
+			"text": {
+				"type": "plain_text",
+				"text": "Helpers",
+				"emoji": true
+			}
+		},
+		{
+			"type": "divider"
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "See who is hogging all the clusters"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "List",
+					"emoji": true
+				},
+				"value": "list",
+				"action_id": "list",
+				"style": "primary"
+			}
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "Terminate the running cluster"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "Done",
+					"emoji": true
+				},
+				"value": "done",
+				"action_id": "done",
+				"style": "primary"
+			}
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "If the cluster is currently marked as failed, retry fetching its credentials in case of an error"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "Refresh",
+					"emoji": true
+				},
+				"value": "refresh",
+				"action_id": "refresh",
+				"style": "primary"
+			}
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "Send the credentials for the cluster you most recently requested"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "Auth",
+					"emoji": true
+				},
+				"value": "auth",
+				"action_id": "auth",
+				"style": "primary"
+			}
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "Report the version of the bot\n"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "Version",
+					"emoji": true
+				},
+				"value": "version",
+				"action_id": "version",
+				"style": "primary"
+			}
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "Get info about a version\n"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "Lookup",
+					"emoji": true
+				},
+				"value": "lookup",
+				"action_id": "lookup",
+				"style": "primary"
+			}
+		}
+	]
 }
 `

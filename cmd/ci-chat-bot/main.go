@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -222,11 +223,12 @@ func run() error {
 
 	bot := slack.NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows)
 	jiraclient, err := opt.jiraOptions.Client()
+	httpClient := &http.Client{Timeout: 60 * time.Second}
 	if err != nil {
 		klog.Errorf("Failed to load the Jira Client: %s", err)
-		Start(bot, nil, jobManager)
+		Start(bot, nil, jobManager, nil)
 	} else {
-		Start(bot, jiraclient.JiraClient(), jobManager)
+		Start(bot, jiraclient.JiraClient(), jobManager, httpClient)
 	}
 
 	return err
