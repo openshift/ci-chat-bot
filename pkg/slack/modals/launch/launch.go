@@ -20,7 +20,6 @@ const Identifier3rdStep modals.Identifier = "launch3ddStep"
 
 type callbackData struct {
 	input             map[string]string
-	selection         map[string]string
 	multipleSelection map[string][]string
 	context           map[string]string
 }
@@ -35,8 +34,7 @@ func processNextForFirstStep(updater modals.ViewUpdater, jobmanager manager.JobM
 	return interactions.HandlerFunc("launch2", func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		go func() {
 			callbackData := callbackData{
-				input:     callbackInput(callback),
-				selection: callbackSelection(callback),
+				input: callBackInputAll(callback),
 			}
 			overwriteView := func(view slack.ModalViewRequest) {
 				// don't pass a hash, so we overwrite the View always
@@ -68,12 +66,15 @@ func RegisterSecondStep(client *slack.Client, jobmanager manager.JobManager, htt
 
 func processNextForSecondStep(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
 	return interactions.HandlerFunc("launch3", func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+		submissionData := callbackData{
+			input:   callBackInputAll(callback),
+			context: callbackContext(callback),
+		}
+		response := validateSecondStepSubmission(submissionData)
+		if response != nil {
+			return response, nil
+		}
 		go func() {
-			callbackData := callbackData{
-				input:     callbackInput(callback),
-				selection: callbackSelection(callback),
-				context:   callbackContext(callback),
-			}
 			overwriteView := func(view slack.ModalViewRequest) {
 				// don't pass a hash, so we overwrite the View always
 				response, err := updater.UpdateView(view, "", "", callback.View.ID)
@@ -82,9 +83,9 @@ func processNextForSecondStep(updater modals.ViewUpdater, jobmanager manager.Job
 				}
 				logger.WithField("response", response).Trace("Got a modal response.")
 			}
-			overwriteView(ThirdStepView(callback, jobmanager, httpclient, callbackData))
+			overwriteView(ThirdStepView(callback, jobmanager, httpclient, submissionData))
 		}()
-		response, err := json.Marshal(&slack.ViewSubmissionResponse{
+		response, err = json.Marshal(&slack.ViewSubmissionResponse{
 			ResponseAction: slack.RAUpdate,
 			View:           PrepareNextStepView(),
 		})
@@ -94,6 +95,28 @@ func processNextForSecondStep(updater modals.ViewUpdater, jobmanager manager.Job
 		}
 		return response, nil
 	})
+}
+
+func validateSecondStepSubmission(submissionData callbackData) []byte {
+	var found []string
+	errors := make(map[string]string, 0)
+	checkInput := []string{launchFromReleaseController, launchFromLatestBuild, launchFromStream, launchFromMajorMinor, launchFromCustom}
+	for _, versionType := range checkInput {
+		_, exists := submissionData.input[versionType]
+		if exists {
+			found = append(found, versionType)
+		}
+	}
+	if len(found) > 1 {
+		for _, v := range found {
+			errors[v] = "No more than one version type can be selected at the same time!"
+		}
+		response, err := validationError(errors)
+		if err == nil {
+			return response
+		}
+	}
+	return nil
 }
 
 func RegisterThirdStep(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
@@ -104,45 +127,46 @@ func RegisterThirdStep(client *slack.Client, jobmanager manager.JobManager, http
 
 func processNextForThirdStep(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
 	return interactions.HandlerFunc(string(Identifier3rdStep), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+		var launchInputs []string
+		data := callbackData{
+			input:             callBackInputAll(callback),
+			multipleSelection: callbackMultipleSelect(callback),
+			context:           callbackContext(callback),
+		}
+		platform := data.context[launchPlatform]
+		architecture := data.context[launchArchitecture]
+		version := data.context[launchVersion]
+		launchInputs = append(launchInputs, version)
+		prs, ok := data.context[launchFromPR]
+		if ok && prs != "None" {
+			prSlice := strings.Split(prs, ",")
+			for _, pr := range prSlice {
+				launchInputs = append(launchInputs, strings.TrimSpace(pr))
+			}
+		}
+		parameters := data.multipleSelection[launchParameters]
+		parametersMap := make(map[string]string)
+		for _, parameter := range parameters {
+			parametersMap[parameter] = ""
+		}
+		launch := fmt.Sprintf("launch %s %s,%s,%s ", version, architecture, platform, strings.Join(parameters[:], ","))
+		job := &manager.JobRequest{
+			OriginalMessage: launch,
+			User:            callback.User.ID,
+			UserName:        callback.User.Name,
+			Inputs:          [][]string{launchInputs},
+			Type:            manager.JobTypeInstall,
+			Platform:        platform,
+			Channel:         callback.User.ID,
+			JobParams:       parametersMap,
+			Architecture:    architecture,
+		}
+		errorResponse := validateThirdStepSubmission(jobmanager, job)
+		if errorResponse != nil {
+			return errorResponse, nil
+		}
 		go func() {
-			var launchInputs []string
-			data := callbackData{
-				input:             callbackInput(callback),
-				selection:         callbackSelection(callback),
-				multipleSelection: callbackMultipleSelect(callback),
-				context:           callbackContext(callback),
-			}
-			platform, _ := data.context[launchPlatform]
-			architecture, _ := data.context[launchArchitecture]
-			version, ok := data.context[launchVersion]
-			if !ok || version == defaultLaunchVersion {
-				_, version, _, _ = jobmanager.ResolveImageOrVersion("nightly", "", architecture)
-			}
-			launchInputs = append(launchInputs, version)
-			prs, ok := data.context[launchFromPR]
-			if ok && prs != "None" {
-				prSlice := strings.Split(prs, ",")
-				for _, pr := range prSlice {
-					launchInputs = append(launchInputs, strings.TrimSpace(pr))
-				}
-			}
-			parameters, _ := data.multipleSelection[launchParameters]
-			parametersMap := make(map[string]string)
-			for _, parameter := range parameters {
-				parametersMap[parameter] = ""
-			}
-			launch := fmt.Sprintf("launch %s %s,%s,%s ", version, architecture, platform, strings.Join(parameters[:], ","))
-			msg, err := jobmanager.LaunchJobForUser(&manager.JobRequest{
-				OriginalMessage: launch,
-				User:            callback.User.ID,
-				UserName:        callback.User.Name,
-				Inputs:          [][]string{launchInputs},
-				Type:            manager.JobTypeInstall,
-				Platform:        platform,
-				Channel:         callback.User.ID,
-				JobParams:       parametersMap,
-				Architecture:    architecture,
-			})
+			msg, err := jobmanager.LaunchJobForUser(job)
 			overwriteView := func(view slack.ModalViewRequest) {
 				// don't pass a hash, so we overwrite the View always
 				response, err := updater.UpdateView(view, "", "", callback.View.ID)
@@ -152,12 +176,10 @@ func processNextForThirdStep(updater modals.ViewUpdater, jobmanager manager.JobM
 				logger.WithField("response", response).Trace("Got a modal response.")
 			}
 			if err != nil {
-				// TODO if error, update the view with the error message, and load back the last step
 				overwriteView(SubmissionView(err.Error()))
 			} else {
 				overwriteView(SubmissionView(msg))
 			}
-
 		}()
 		response, err := json.Marshal(&slack.ViewSubmissionResponse{
 			ResponseAction: slack.RAUpdate,
@@ -169,6 +191,21 @@ func processNextForThirdStep(updater modals.ViewUpdater, jobmanager manager.JobM
 		}
 		return response, nil
 	})
+}
+
+func validateThirdStepSubmission(jobManager manager.JobManager, job *manager.JobRequest) []byte {
+	err := jobManager.CheckValidJobConfiguration(job)
+	errors := make(map[string]string, 0)
+	if err != nil {
+		errors[launchParameters] = err.Error()
+	} else {
+		return nil
+	}
+	response, err := validationError(errors)
+	if err == nil {
+		return response
+	}
+	return nil
 }
 
 func buildOptions(options []string, blacklist sets.String) []*slack.OptionBlockObject {
@@ -214,15 +251,15 @@ func callbackSelection(callback *slack.InteractionCallback) map[string]string {
 }
 
 func callbackInput(callback *slack.InteractionCallback) map[string]string {
-	selectionValues := make(map[string]string)
+	inputValues := make(map[string]string)
 	for key, value := range callback.View.State.Values {
 		for _, v := range value {
 			if v.Value != "" {
-				selectionValues[key] = v.Value
+				inputValues[key] = v.Value
 			}
 		}
 	}
-	return selectionValues
+	return inputValues
 }
 
 func callbackMultipleSelect(callback *slack.InteractionCallback) map[string][]string {
@@ -239,6 +276,19 @@ func callbackMultipleSelect(callback *slack.InteractionCallback) map[string][]st
 		}
 	}
 	return selectedValues
+}
+
+func callBackInputAll(callback *slack.InteractionCallback) map[string]string {
+	merged := make(map[string]string, 0)
+	selectionValues := callbackSelection(callback)
+	inputValues := callbackInput(callback)
+	for key, value := range selectionValues {
+		merged[key] = value
+	}
+	for key, value := range inputValues {
+		merged[key] = value
+	}
+	return merged
 }
 
 func callbackContext(callback *slack.InteractionCallback) map[string]string {
@@ -269,4 +319,15 @@ func callbackContext(callback *slack.InteractionCallback) map[string]string {
 		}
 	}
 	return contextMap
+}
+
+func validationError(errors map[string]string) ([]byte, error) {
+	response, err := json.Marshal(&slack.ViewSubmissionResponse{
+		ResponseAction: slack.RAErrors,
+		Errors:         errors,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
 }

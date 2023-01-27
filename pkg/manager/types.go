@@ -127,6 +127,7 @@ type JobManager interface {
 	SetNotifier(JobCallbackFunc)
 
 	LaunchJobForUser(req *JobRequest) (string, error)
+	CheckValidJobConfiguration(req *JobRequest) error
 	SyncJobForUser(user string) (string, error)
 	TerminateJobForUser(user string) (string, error)
 	GetLaunchJob(user string) (*Job, error)
