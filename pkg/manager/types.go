@@ -135,6 +135,7 @@ type JobManager interface {
 	ListJobs(users ...string) string
 	GetWorkflowConfig() *WorkflowConfig
 	ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion, architecture string) (string, string, string, error)
+	ResolveAsPullRequest(spec string) (*prowapiv1.Refs, error)
 }
 
 // JobCallbackFunc is invoked when the job changes state in a significant

@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 // Identifier is the view identifier for this modal
@@ -70,7 +71,7 @@ func processNextForSecondStep(updater modals.ViewUpdater, jobmanager manager.Job
 			input:   callBackInputAll(callback),
 			context: callbackContext(callback),
 		}
-		response := validateSecondStepSubmission(submissionData)
+		response := validateSecondStepSubmission(submissionData, jobmanager)
 		if response != nil {
 			return response, nil
 		}
@@ -97,7 +98,13 @@ func processNextForSecondStep(updater modals.ViewUpdater, jobmanager manager.Job
 	})
 }
 
-func validateSecondStepSubmission(submissionData callbackData) []byte {
+func checkPR(wg *sync.WaitGroup, pr string, jobmanager manager.JobManager) error {
+	defer wg.Done()
+	_, err := jobmanager.ResolveAsPullRequest(pr)
+	return err
+}
+
+func validateSecondStepSubmission(submissionData callbackData, jobmanager manager.JobManager) []byte {
 	var found []string
 	errors := make(map[string]string, 0)
 	checkInput := []string{launchFromReleaseController, launchFromLatestBuild, launchFromStream, launchFromMajorMinor, launchFromCustom}
@@ -107,14 +114,38 @@ func validateSecondStepSubmission(submissionData callbackData) []byte {
 			found = append(found, versionType)
 		}
 	}
+	prs, ok := submissionData.input[launchFromPR]
+	var prErrors []string
+	if ok {
+		var wg sync.WaitGroup
+		prSlice := strings.Split(prs, ",")
+		wg.Add(len(prSlice))
+		for _, pr := range prSlice {
+			tmpPr := pr
+			go func() {
+				err := checkPR(&wg, tmpPr, jobmanager)
+				if err != nil {
+					prErrors = append(prErrors, err.Error())
+				}
+			}()
+		}
+		wg.Wait()
+
+		if len(prErrors) > 0 {
+			errors[launchFromPR] = strings.Join(prErrors, "; ")
+		}
+	}
 	if len(found) > 1 {
 		for _, v := range found {
 			errors[v] = "No more than one version type can be selected at the same time!"
 		}
-		response, err := validationError(errors)
-		if err == nil {
-			return response
-		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	response, err := validationError(errors)
+	if err == nil {
+		return response
 	}
 	return nil
 }

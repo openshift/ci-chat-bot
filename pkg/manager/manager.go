@@ -823,7 +823,7 @@ func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]Job
 		var jobInput JobInput
 		for _, part := range input {
 			// if the user provided a pull spec (org/repo#number) we'll build from that
-			pr, err := m.resolveAsPullRequest(part)
+			pr, err := m.ResolveAsPullRequest(part)
 			if err != nil {
 				return nil, err
 			}
@@ -867,7 +867,7 @@ func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]Job
 	return jobInputs, nil
 }
 
-func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) {
+func (m *jobManager) ResolveAsPullRequest(spec string) (*prowapiv1.Refs, error) {
 	var parts []string
 	switch {
 	case strings.HasPrefix(spec, "https://github.com/"):
