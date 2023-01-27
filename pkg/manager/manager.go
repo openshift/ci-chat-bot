@@ -823,7 +823,7 @@ func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]Job
 		var jobInput JobInput
 		for _, part := range input {
 			// if the user provided a pull spec (org/repo#number) we'll build from that
-			pr, err := m.resolveAsPullRequest(part)
+			pr, err := m.ResolveAsPullRequest(part)
 			if err != nil {
 				return nil, err
 			}
@@ -867,7 +867,7 @@ func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]Job
 	return jobInputs, nil
 }
 
-func (m *jobManager) resolveAsPullRequest(spec string) (*prowapiv1.Refs, error) {
+func (m *jobManager) ResolveAsPullRequest(spec string) (*prowapiv1.Refs, error) {
 	var parts []string
 	switch {
 	case strings.HasPrefix(spec, "https://github.com/"):
@@ -1163,6 +1163,53 @@ func configContainsVariant(params map[string]string, platform, unresolvedConfig,
 		}
 	}
 	return false, "", nil
+}
+
+// TODO remove duplicated code
+func (m *jobManager) CheckValidJobConfiguration(req *JobRequest) error {
+	job, err := m.resolveToJob(req)
+	if err != nil {
+		return err
+	}
+	// try to pick a job that matches the install version, if we can, otherwise use the first that
+	// matches us (we can do better)
+	var prowJob *prowapiv1.ProwJob
+	jobType := JobTypeLaunch
+	if req.Type == JobTypeWorkflowUpgrade {
+		jobType = JobTypeUpgrade
+	}
+	selector := labels.Set{"job-env": req.Platform, "job-type": jobType, "job-architecture": req.Architecture} // TODO: handle versioned variants better
+	if len(job.Inputs[0].Version) > 0 {
+		if v, err := semver.ParseTolerant(job.Inputs[0].Version); err == nil {
+			withRelease := labels.Merge(selector, labels.Set{"job-release": fmt.Sprintf("%d.%d", v.Major, v.Minor)})
+			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(withRelease))
+		}
+	}
+	if prowJob == nil {
+		architectureLabel := req.Architecture
+		// multiarch image launches use amd64 jobs
+		if architectureLabel == "multi" {
+			architectureLabel = "amd64"
+		}
+		selector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "modern", "job-architecture": architectureLabel} // these jobs will only contain configs using non-deprecated features
+		prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(selector))
+		if prowJob != nil {
+			if sourceEnv, _, ok := firstEnvVar(prowJob.Spec.PodSpec, "UNRESOLVED_CONFIG"); ok { // all multistage configs will be unresolved
+				configHasVariant, _, err := configContainsVariant(req.JobParams, req.Platform, sourceEnv.Value, job.Mode)
+				if err != nil {
+					return err
+				}
+				// if the config does not contain the wanted variant, reset prowjob to cause configuration error
+				if !configHasVariant {
+					prowJob = nil
+				}
+			}
+		}
+	}
+	if prowJob == nil {
+		return fmt.Errorf("configuration error, unable to find prow job matching %s with parameters=%v", selector, paramsToString(job.JobParams))
+	}
+	return nil
 }
 
 func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {

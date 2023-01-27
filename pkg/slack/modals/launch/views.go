@@ -5,7 +5,9 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	slackClient "github.com/slack-go/slack"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -15,7 +17,7 @@ const (
 	launchFromMajorMinor        = "major_minor"
 	launchFromStream            = "stream"
 	launchFromLatestBuild       = "latest_build"
-	launchFromReleaseController = "release_controller"
+	launchFromReleaseController = "release_controller_version"
 	launchFromCustom            = "custom"
 	launchPlatform              = "platform"
 	launchArchitecture          = "architecture"
@@ -24,7 +26,6 @@ const (
 	launchStepContext           = "context"
 	defaultPlatform             = "aws"
 	defaultArchitecture         = "amd64"
-	defaultLaunchVersion        = "Latest Nightly"
 )
 
 // FirstStepView is the modal view for submitting a new enhancement card to Jira
@@ -77,11 +78,11 @@ func SecondStepView(callback *slackClient.InteractionCallback, jobmanager manage
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
-	platform, ok := data.selection[launchPlatform]
+	platform, ok := data.input[launchPlatform]
 	if !ok {
 		platform = defaultPlatform
 	}
-	architecture, ok := data.selection[launchArchitecture]
+	architecture, ok := data.input[launchArchitecture]
 	if !ok {
 		architecture = defaultArchitecture
 	}
@@ -97,6 +98,7 @@ func SecondStepView(callback *slackClient.InteractionCallback, jobmanager manage
 	releases, err := fetchReleases(httpclient, architecture)
 	if err != nil {
 		// TODO - return an error view, with a try again
+		klog.Warningf("failed to fetch the data from release controller: %s", err)
 	}
 	var streams []string
 	majorMinor := make(map[string]bool, 0)
@@ -112,13 +114,15 @@ func SecondStepView(callback *slackClient.InteractionCallback, jobmanager manage
 		}
 		streams = append(streams, stream)
 	}
+
 	var majorMinorReleases []string
 	for key := range majorMinor {
 		majorMinorReleases = append(majorMinorReleases, key)
 	}
+	sort.Strings(streams)
+	sort.Strings(majorMinorReleases)
 	streamsOptions := buildOptions(streams, nil)
 	majorMinorOptions := buildOptions(majorMinorReleases, nil)
-
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: string(Identifier2ndStep),
@@ -139,18 +143,20 @@ func SecondStepView(callback *slackClient.InteractionCallback, jobmanager manage
 				Type: slackClient.MBTSection,
 				Text: &slackClient.TextBlockObject{
 					Type: slackClient.MarkdownType,
-					Text: "You can select a version from one of the drop-downs, and/or one or multiple PRs. To specify more that one PR, use a coma separator ",
+					Text: "Select *only one of the following:* a Version, Stream name, Major/Minor or a Custom Build, and one or multiple PRs. All inputs are optional",
 				},
 			},
 			&slackClient.DividerBlock{
 				Type:    slackClient.MBTDivider,
 				BlockID: "divider",
 			},
-			&slackClient.SectionBlock{
-				Type: slackClient.MBTSection,
+			&slackClient.HeaderBlock{
+				Type: slackClient.MBTHeader,
 				Text: &slackClient.TextBlockObject{
-					Type: slackClient.MarkdownType,
-					Text: "Select *only one of the following:* a Version, Stream name, Major/Minor or a Custom Build.",
+					Type:     slackClient.PlainTextType,
+					Text:     "Versions",
+					Emoji:    false,
+					Verbatim: false,
 				},
 			},
 			&slackClient.InputBlock{
@@ -164,18 +170,10 @@ func SecondStepView(callback *slackClient.InteractionCallback, jobmanager manage
 				},
 			},
 			&slackClient.SectionBlock{
-				Type:    slackClient.MBTSection,
-				Text:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select a Version from Release Controller"},
-				BlockID: "release_controller_link",
-				Accessory: &slackClient.Accessory{
-					ButtonElement: &slackClient.ButtonBlockElement{
-						Type:     slackClient.METButton,
-						Text:     &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Link"},
-						ActionID: "button-action",
-						URL:      fmt.Sprintf("https://%s.ocp.releases.ci.openshift.org", architecture),
-						Value:    "click_release_controller_link",
-						Style:    slackClient.StylePrimary,
-					},
+				Type: slackClient.MBTSection,
+				Text: &slackClient.TextBlockObject{
+					Type: slackClient.MarkdownType,
+					Text: fmt.Sprintf("<https://%s.ocp.releases.ci.openshift.org|Link to Release Controller>", architecture),
 				},
 			},
 			&slackClient.InputBlock{
@@ -224,15 +222,20 @@ func SecondStepView(callback *slackClient.InteractionCallback, jobmanager manage
 					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Enter a custom build...."},
 				},
 			},
-			&slackClient.DividerBlock{
-				Type:    slackClient.MBTDivider,
-				BlockID: "2nd_divider",
+			&slackClient.HeaderBlock{
+				Type: slackClient.MBTHeader,
+				Text: &slackClient.TextBlockObject{
+					Type:     slackClient.PlainTextType,
+					Text:     "PR",
+					Emoji:    false,
+					Verbatim: false,
+				},
 			},
 			&slackClient.SectionBlock{
 				Type: slackClient.MBTSection,
 				Text: &slackClient.TextBlockObject{
 					Type: slackClient.MarkdownType,
-					Text: "Enter one or more PRs, separated by coma",
+					Text: ":pull-request: *Enter one or more PRs, separated by coma*",
 				},
 			},
 			&slackClient.InputBlock{
@@ -269,26 +272,25 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
-	platform, _ := data.context["platform"]
+	platform := data.context["platform"]
+	architecture := data.context[launchArchitecture]
 	prs, ok := data.input[launchFromPR]
 	if !ok {
 		prs = "None"
 	}
-	version, ok := data.selection[launchFromLatestBuild]
+	version, ok := data.input[launchFromLatestBuild]
 	if !ok {
-		version, ok = data.selection[launchFromMajorMinor]
+		version, ok = data.input[launchFromMajorMinor]
 		if !ok {
-			version, ok = data.selection[launchFromStream]
+			version, ok = data.input[launchFromStream]
 			if !ok {
 				version, ok = data.input[launchFromReleaseController]
-			}
-			if !ok {
-				version = defaultLaunchVersion
+				if !ok {
+					_, version, _, _ = jobmanager.ResolveImageOrVersion("nightly", "", architecture)
+				}
 			}
 		}
 	}
-	// get a list of unsuported parameters and filter them from the options, do not modify the slice!!!
-	architecture, _ := data.context[launchArchitecture]
 	blacklist := sets.String{}
 	for _, parameter := range manager.SupportedParameters {
 		for k, envs := range manager.MultistageParameters {
@@ -302,7 +304,6 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 	}
 	options := buildOptions(manager.SupportedParameters, blacklist)
 	context := fmt.Sprintf("Architecture: %s;Platform: %s;Version: %s;PRs: %s", architecture, platform, version, prs)
-
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: string(Identifier3rdStep),
