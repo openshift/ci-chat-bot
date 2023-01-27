@@ -3,6 +3,7 @@ package launch
 import (
 	"fmt"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
 	slackClient "github.com/slack-go/slack"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
@@ -30,8 +31,8 @@ const (
 
 // FirstStepView is the modal view for submitting a new enhancement card to Jira
 func FirstStepView() slackClient.ModalViewRequest {
-	platformOptions := buildOptions(manager.SupportedPlatforms, nil)
-	architectureOptions := buildOptions(manager.SupportedArchitectures, nil)
+	platformOptions := modals.BuildOptions(manager.SupportedPlatforms, nil)
+	architectureOptions := modals.BuildOptions(manager.SupportedArchitectures, nil)
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: string(Identifier),
@@ -121,8 +122,8 @@ func SecondStepView(callback *slackClient.InteractionCallback, jobmanager manage
 	}
 	sort.Strings(streams)
 	sort.Strings(majorMinorReleases)
-	streamsOptions := buildOptions(streams, nil)
-	majorMinorOptions := buildOptions(majorMinorReleases, nil)
+	streamsOptions := modals.BuildOptions(streams, nil)
+	majorMinorOptions := modals.BuildOptions(majorMinorReleases, nil)
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: string(Identifier2ndStep),
@@ -302,7 +303,7 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 
 		}
 	}
-	options := buildOptions(manager.SupportedParameters, blacklist)
+	options := modals.BuildOptions(manager.SupportedParameters, blacklist)
 	context := fmt.Sprintf("Architecture: %s;Platform: %s;Version: %s;PRs: %s", architecture, platform, version, prs)
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,

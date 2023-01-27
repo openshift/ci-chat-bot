@@ -74,7 +74,7 @@ func Lookup(client *slack.Client, jobManager manager.JobManager, event *slackeve
 }
 
 func List(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
-	return jobManager.ListJobs(event.User)
+	return jobManager.ListJobs([]string{event.User}, manager.ListFilters{})
 }
 
 func Done(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {

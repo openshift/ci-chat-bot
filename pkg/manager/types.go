@@ -132,7 +132,7 @@ type JobManager interface {
 	TerminateJobForUser(user string) (string, error)
 	GetLaunchJob(user string) (*Job, error)
 	LookupInputs(inputs []string, architecture string) (string, error)
-	ListJobs(users ...string) string
+	ListJobs(users []string, filters ListFilters) string
 	GetWorkflowConfig() *WorkflowConfig
 	ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion, architecture string) (string, string, string, error)
 	ResolveAsPullRequest(spec string) (*prowapiv1.Refs, error)
@@ -196,4 +196,10 @@ type Job struct {
 type HypershiftSupportedVersions struct {
 	mu       sync.RWMutex
 	versions []string
+}
+
+type ListFilters struct {
+	Platform  string
+	Version   string
+	Requestor string
 }
