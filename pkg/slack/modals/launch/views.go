@@ -7,6 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -113,10 +114,13 @@ func SecondStepView(callback *slackClient.InteractionCallback, jobmanager manage
 		}
 		streams = append(streams, stream)
 	}
+
 	var majorMinorReleases []string
 	for key := range majorMinor {
 		majorMinorReleases = append(majorMinorReleases, key)
 	}
+	sort.Strings(streams)
+	sort.Strings(majorMinorReleases)
 	streamsOptions := buildOptions(streams, nil)
 	majorMinorOptions := buildOptions(majorMinorReleases, nil)
 	return slackClient.ModalViewRequest{
