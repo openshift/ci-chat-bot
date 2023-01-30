@@ -67,12 +67,17 @@ func SubmissionView(msg string) slackClient.ModalViewRequest {
 		Title: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "List Running Clusters"},
 		Close: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Close"},
 		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
-			&slackClient.SectionBlock{
-				Type: slackClient.MBTSection,
-				Text: &slackClient.TextBlockObject{
-					Type: slackClient.MarkdownType,
-					Text: msg,
-				},
+			&slackClient.ContextBlock{
+				Type:    slackClient.MBTContext,
+				BlockID: "list",
+				ContextElements: slackClient.ContextElements{Elements: []slackClient.MixedElement{
+					&slackClient.TextBlockObject{
+						Type:     slackClient.MarkdownType,
+						Text:     msg,
+						Emoji:    false,
+						Verbatim: false,
+					},
+				}},
 			},
 		}},
 	}
