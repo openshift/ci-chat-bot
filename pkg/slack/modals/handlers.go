@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"strings"
 	"text/template"
 
@@ -17,7 +18,10 @@ import (
 const (
 	// BlockIdTitle is the block identifier to use for inputs
 	// that should be used as the title of a Jira issue
-	BlockIdTitle = "title"
+	BlockIdTitle                     = "title"
+	IdentifierJira        Identifier = "jira"
+	IdentifierJiraPending Identifier = "jira_pending"
+	IdentifierError       Identifier = "error"
 )
 
 // ViewUpdater is a subset of the Slack client
@@ -121,12 +125,6 @@ func ToJiraIssue(parameters JiraIssueParameters, filer jira.IssueFiler, updater 
 		return response, nil
 	})
 }
-
-const (
-	IdentifierJira        Identifier = "jira"
-	IdentifierJiraPending Identifier = "jira_pending"
-	IdentifierError       Identifier = "error"
-)
 
 // PendingJiraView is a placeholder modal View for the user
 // to know we are working on publishing a Jira issue
@@ -248,4 +246,87 @@ func BulletListFunc() template.FuncMap {
 			return strings.Join(output, "\n")
 		},
 	}
+}
+
+func CallbackSelection(callback *slack.InteractionCallback) map[string]string {
+	selectionValues := make(map[string]string)
+	for key, value := range callback.View.State.Values {
+		for _, v := range value {
+			if v.SelectedOption.Value != "" {
+				selectionValues[key] = v.SelectedOption.Text.Text
+			}
+			if v.SelectedUser != "" {
+				selectionValues[key] = v.SelectedUser
+			}
+		}
+	}
+	return selectionValues
+}
+
+func CallbackInput(callback *slack.InteractionCallback) map[string]string {
+	inputValues := make(map[string]string)
+	for key, value := range callback.View.State.Values {
+		for _, v := range value {
+			if v.Value != "" {
+				inputValues[key] = v.Value
+			}
+		}
+	}
+	return inputValues
+}
+
+func CallbackMultipleSelect(callback *slack.InteractionCallback) map[string][]string {
+	selectedValues := make(map[string][]string)
+	for key, value := range callback.View.State.Values {
+		var selections []string
+		for _, v := range value {
+			if len(v.SelectedOptions) > 0 {
+				for _, selection := range v.SelectedOptions {
+					selections = append(selections, selection.Value)
+				}
+				selectedValues[key] = selections
+			}
+		}
+	}
+	return selectedValues
+}
+
+func CallBackInputAll(callback *slack.InteractionCallback) map[string]string {
+	merged := make(map[string]string, 0)
+	selectionValues := CallbackSelection(callback)
+	inputValues := CallbackInput(callback)
+	for key, value := range selectionValues {
+		merged[key] = value
+	}
+	for key, value := range inputValues {
+		merged[key] = value
+	}
+	return merged
+}
+
+func ValidationError(errors map[string]string) ([]byte, error) {
+	response, err := json.Marshal(&slack.ViewSubmissionResponse{
+		ResponseAction: slack.RAErrors,
+		Errors:         errors,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func BuildOptions(options []string, blacklist sets.String) []*slack.OptionBlockObject {
+	slackOptions := make([]*slack.OptionBlockObject, 0)
+	for _, parameter := range options {
+		if !blacklist.Has(parameter) {
+			slackOptions = append(slackOptions, &slack.OptionBlockObject{
+				Value: parameter,
+				Text: &slack.TextBlockObject{
+					Type: slack.PlainTextType,
+					Text: parameter,
+				},
+			})
+		}
+	}
+	return slackOptions
 }

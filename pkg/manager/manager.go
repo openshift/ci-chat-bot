@@ -377,7 +377,7 @@ func (m *jobManager) estimateCompletion(requestedAt time.Time) time.Duration {
 	return lastEstimate.Truncate(time.Second)
 }
 
-func (m *jobManager) ListJobs(users ...string) string {
+func (m *jobManager) ListJobs(users []string, filters ListFilters) string {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -424,16 +424,19 @@ func (m *jobManager) ListJobs(users ...string) string {
 	} else {
 		fmt.Fprintf(buf, "%d/%d clusters up (start time is approximately %d minutes):\n\n", runningClusters, m.maxClusters, m.estimateCompletion(time.Time{})/time.Minute)
 		for _, job := range clusters {
+			var jobInput JobInput
+			if len(job.Inputs) > 0 {
+				jobInput = job.Inputs[0]
+			}
+			if !((filters.Requestor == "" || filters.Requestor == job.RequestedBy) && (filters.Platform == "" || filters.Platform == job.Platform) && (filters.Version == "" || strings.Contains(jobInput.Version, filters.Version))) {
+				continue
+			}
 			var details string
 			if len(job.URL) > 0 {
 				details = fmt.Sprintf(", <%s|view logs>", job.URL)
 			}
 			var imageOrVersion string
 			var inputParts []string
-			var jobInput JobInput
-			if len(job.Inputs) > 0 {
-				jobInput = job.Inputs[0]
-			}
 			switch {
 			case len(jobInput.Version) > 0:
 				inputParts = append(inputParts, fmt.Sprintf("<https://%s.ocp.releases.ci.openshift.org/releasetag/%s|%s>", job.Architecture, url.PathEscape(jobInput.Version), jobInput.Version))

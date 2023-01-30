@@ -8,7 +8,6 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"net/http"
 	"strings"
 	"sync"
@@ -35,7 +34,7 @@ func processNextForFirstStep(updater modals.ViewUpdater, jobmanager manager.JobM
 	return interactions.HandlerFunc("launch2", func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		go func() {
 			callbackData := callbackData{
-				input: callBackInputAll(callback),
+				input: modals.CallBackInputAll(callback),
 			}
 			overwriteView := func(view slack.ModalViewRequest) {
 				// don't pass a hash, so we overwrite the View always
@@ -68,7 +67,7 @@ func RegisterSecondStep(client *slack.Client, jobmanager manager.JobManager, htt
 func processNextForSecondStep(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
 	return interactions.HandlerFunc("launch3", func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		submissionData := callbackData{
-			input:   callBackInputAll(callback),
+			input:   modals.CallBackInputAll(callback),
 			context: callbackContext(callback),
 		}
 		response := validateSecondStepSubmission(submissionData, jobmanager)
@@ -143,7 +142,7 @@ func validateSecondStepSubmission(submissionData callbackData, jobmanager manage
 	if len(errors) == 0 {
 		return nil
 	}
-	response, err := validationError(errors)
+	response, err := modals.ValidationError(errors)
 	if err == nil {
 		return response
 	}
@@ -160,8 +159,8 @@ func processNextForThirdStep(updater modals.ViewUpdater, jobmanager manager.JobM
 	return interactions.HandlerFunc(string(Identifier3rdStep), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		var launchInputs []string
 		data := callbackData{
-			input:             callBackInputAll(callback),
-			multipleSelection: callbackMultipleSelect(callback),
+			input:             modals.CallBackInputAll(callback),
+			multipleSelection: modals.CallbackMultipleSelect(callback),
 			context:           callbackContext(callback),
 		}
 		platform := data.context[launchPlatform]
@@ -232,29 +231,12 @@ func validateThirdStepSubmission(jobManager manager.JobManager, job *manager.Job
 	} else {
 		return nil
 	}
-	response, err := validationError(errors)
+	response, err := modals.ValidationError(errors)
 	if err == nil {
 		return response
 	}
 	return nil
 }
-
-func buildOptions(options []string, blacklist sets.String) []*slack.OptionBlockObject {
-	slackOptions := make([]*slack.OptionBlockObject, 0)
-	for _, parameter := range options {
-		if !blacklist.Has(parameter) {
-			slackOptions = append(slackOptions, &slack.OptionBlockObject{
-				Value: parameter,
-				Text: &slack.TextBlockObject{
-					Type: slack.PlainTextType,
-					Text: parameter,
-				},
-			})
-		}
-	}
-	return slackOptions
-}
-
 func fetchReleases(client *http.Client, architecture string) (map[string][]string, error) {
 	url := fmt.Sprintf("https://%s.ocp.releases.ci.openshift.org/api/v1/releasestreams/accepted", architecture)
 	acceptedReleases := make(map[string][]string, 0)
@@ -267,59 +249,6 @@ func fetchReleases(client *http.Client, architecture string) (map[string][]strin
 		return nil, err
 	}
 	return acceptedReleases, nil
-}
-
-func callbackSelection(callback *slack.InteractionCallback) map[string]string {
-	selectionValues := make(map[string]string)
-	for key, value := range callback.View.State.Values {
-		for _, v := range value {
-			if v.SelectedOption.Value != "" {
-				selectionValues[key] = v.SelectedOption.Text.Text
-			}
-		}
-	}
-	return selectionValues
-}
-
-func callbackInput(callback *slack.InteractionCallback) map[string]string {
-	inputValues := make(map[string]string)
-	for key, value := range callback.View.State.Values {
-		for _, v := range value {
-			if v.Value != "" {
-				inputValues[key] = v.Value
-			}
-		}
-	}
-	return inputValues
-}
-
-func callbackMultipleSelect(callback *slack.InteractionCallback) map[string][]string {
-	selectedValues := make(map[string][]string)
-	for key, value := range callback.View.State.Values {
-		var selections []string
-		for _, v := range value {
-			if len(v.SelectedOptions) > 0 {
-				for _, selection := range v.SelectedOptions {
-					selections = append(selections, selection.Value)
-				}
-				selectedValues[key] = selections
-			}
-		}
-	}
-	return selectedValues
-}
-
-func callBackInputAll(callback *slack.InteractionCallback) map[string]string {
-	merged := make(map[string]string, 0)
-	selectionValues := callbackSelection(callback)
-	inputValues := callbackInput(callback)
-	for key, value := range selectionValues {
-		merged[key] = value
-	}
-	for key, value := range inputValues {
-		merged[key] = value
-	}
-	return merged
 }
 
 func callbackContext(callback *slack.InteractionCallback) map[string]string {
@@ -350,15 +279,4 @@ func callbackContext(callback *slack.InteractionCallback) map[string]string {
 		}
 	}
 	return contextMap
-}
-
-func validationError(errors map[string]string) ([]byte, error) {
-	response, err := json.Marshal(&slack.ViewSubmissionResponse{
-		ResponseAction: slack.RAErrors,
-		Errors:         errors,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return response, nil
 }
