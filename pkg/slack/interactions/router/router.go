@@ -7,6 +7,7 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/done"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/launch"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/list"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/refresh"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/stepsFromApp"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
@@ -28,6 +29,7 @@ func ForModals(client *slack.Client, jobmanager manager.JobManager, httpclient *
 		launch.RegisterThirdStep(client, jobmanager, httpclient),
 		list.Register(client, jobmanager),
 		done.Register(client, jobmanager),
+		refresh.Register(client, jobmanager),
 	}
 
 	for _, entry := range toRegister {
