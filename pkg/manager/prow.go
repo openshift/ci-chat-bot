@@ -1204,7 +1204,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 		return fmt.Errorf("unable to retrieve console.url from step secret %s/%s", namespace, targetName)
 	}
 	if password, ok := secretDir.Data["kubeadmin-password"]; ok {
-		kubeadminPassword = string(password)
+		kubeadminPassword = strings.ReplaceAll(string(password), "\n", "")
 	}
 	if deployment, ok := secretDir.Data["oo_deployment_details.yaml"]; ok {
 		operatorDeploymentInfo = string(deployment)
