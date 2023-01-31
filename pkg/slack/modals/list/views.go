@@ -10,7 +10,7 @@ func View() slackClient.ModalViewRequest {
 	platformOptions := modals.BuildOptions(manager.SupportedPlatforms, nil)
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
-		PrivateMetadata: string(Identifier),
+		PrivateMetadata: Identifier,
 		Title:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "List Running Clusters"},
 		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
 		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Submit"},
