@@ -348,7 +348,7 @@ func ParseImageInput(input string) ([]string, error) {
 	return parts, nil
 }
 
-func ParseOptions(options string) (string, string, map[string]string, error) {
+func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (string, string, map[string]string, error) {
 	params, err := utils.ParamsFromAnnotation(options)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("options could not be parsed: %w", err)
@@ -381,7 +381,31 @@ func ParseOptions(options string) (string, string, map[string]string, error) {
 	}
 	if len(platform) == 0 {
 		switch architecture {
-		case "amd64", "arm64", "multi":
+		case "amd64":
+			// for hypershift, only support normal launchs
+			if jobType == manager.JobTypeInstall || jobType == manager.JobTypeLaunch {
+				// only use hypershift for supported versions
+				manager.HypershiftSupportedVersions.Mu.RLock()
+				defer manager.HypershiftSupportedVersions.Mu.RUnlock()
+				var validVersion bool
+				if len(inputs) == 1 {
+					for version := range manager.HypershiftSupportedVersions.Versions {
+						if strings.HasPrefix(inputs[0][0], version) {
+							validVersion = true
+							break
+						}
+					}
+				}
+				if validVersion {
+					platform = "hypershift-hosted"
+				} else if manager.HypershiftSupportedVersions.Versions.Has(fmt.Sprintf("%d.%d", manager.CurrentRelease.Major, manager.CurrentRelease.Minor)) &&
+					(len(inputs) == 0 || inputs[0][0] == "nightly" || inputs[0][0] == "ci" || inputs[0][0] == "prerelease") {
+					platform = "hypershift-hosted"
+				} else {
+					platform = "aws"
+				}
+			}
+		case "arm64", "multi":
 			platform = "aws"
 		default:
 			return "", "", nil, fmt.Errorf("unknown architecture: %s", architecture)

@@ -79,8 +79,6 @@ type jobManager struct {
 		running map[string]struct{}
 	}
 
-	hypershiftSupportedVersions *HypershiftSupportedVersions
-
 	notifierFn     JobCallbackFunc
 	workflowConfig *WorkflowConfig
 
@@ -193,9 +191,9 @@ type Job struct {
 	OperatorBundleName string
 }
 
-type HypershiftSupportedVersions struct {
-	mu       sync.RWMutex
-	versions []string
+type HypershiftSupportedVersionsType struct {
+	Mu       sync.RWMutex
+	Versions sets.String
 }
 
 type ListFilters struct {

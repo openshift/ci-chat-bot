@@ -173,8 +173,6 @@ func run() error {
 	}
 	// Config and Client to access hypershift configmaps
 	var hiveConfigMapClient corev1.ConfigMapInterface
-	// TODO: give the hypershiftSupportedVersions variable to the slack bot for defaulting based on supported versions
-	hypershiftSupportedVersions := manager.HypershiftSupportedVersions{}
 	if config, ok := kubeConfigs["hive"]; ok {
 		hiveClient, err := corev1.NewForConfig(&config)
 		if err != nil {
@@ -216,7 +214,7 @@ func run() error {
 		klog.Warningf("Failed to load lease client. Will not distribute jobs across secondary accounts. Error: %v", err)
 	}
 
-	jobManager := manager.NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, ghClient, opt.ForcePROwner, &workflows, opt.leaseClient, hiveConfigMapClient, &hypershiftSupportedVersions)
+	jobManager := manager.NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, ghClient, opt.ForcePROwner, &workflows, opt.leaseClient, hiveConfigMapClient)
 	if err := jobManager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %w", err)
 	}

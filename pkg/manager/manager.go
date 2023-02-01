@@ -57,6 +57,13 @@ const (
 	JobTypeWorkflowUpgrade = "workflow-upgrade"
 )
 
+var CurrentRelease = semver.Version{
+	Major: 4,
+	Minor: 13,
+}
+
+var HypershiftSupportedVersions = HypershiftSupportedVersionsType{}
+
 var reBranchVersion = regexp.MustCompile(`^(openshift-|release-)(\d+\.\d+)$`)
 var reMajorMinorVersion = regexp.MustCompile(`^(\d+)\.(\d+)$`)
 
@@ -79,7 +86,6 @@ func NewJobManager(
 	workflowConfig *WorkflowConfig,
 	lClient LeaseClient,
 	configMapClient corev1.ConfigMapInterface,
-	hypershiftSupportedVersions *HypershiftSupportedVersions,
 ) *jobManager {
 	m := &jobManager{
 		requests:         make(map[string]*JobRequest),
@@ -100,8 +106,7 @@ func NewJobManager(
 
 		lClient: lClient,
 
-		configMapClient:             configMapClient,
-		hypershiftSupportedVersions: hypershiftSupportedVersions,
+		configMapClient: configMapClient,
 	}
 	m.muJob.running = make(map[string]struct{})
 	return m
@@ -109,11 +114,10 @@ func NewJobManager(
 
 func (m *jobManager) updateSupportedVersions() error {
 	if m.configMapClient == nil {
-		m.hypershiftSupportedVersions.mu.Lock()
-		defer m.hypershiftSupportedVersions.mu.Unlock()
+		HypershiftSupportedVersions.Mu.Lock()
+		defer HypershiftSupportedVersions.Mu.Unlock()
 		// assume that current default release for chat-bot is supported
-		// TODO: have global const for current ci-chat-bot default release
-		m.hypershiftSupportedVersions.versions = []string{"4.12"}
+		HypershiftSupportedVersions.Versions = sets.NewString(fmt.Sprintf("%d.%d", CurrentRelease.Major, CurrentRelease.Minor))
 		return nil
 	}
 	supportedVersionConfigMap, err := m.configMapClient.Get(context.TODO(), "supported-versions", metav1.GetOptions{})
@@ -133,10 +137,12 @@ func (m *jobManager) updateSupportedVersions() error {
 	if err := json.Unmarshal([]byte(rawVersions), &convertedVersions); err != nil {
 		return fmt.Errorf("failed to convert configmap json supported-versions to struct: %w", err)
 	}
-	m.hypershiftSupportedVersions.mu.Lock()
-	defer m.hypershiftSupportedVersions.mu.Unlock()
-	m.hypershiftSupportedVersions.versions = convertedVersions.Versions
-	klog.Infof("Hypershift Supported Versions: %+v", m.hypershiftSupportedVersions.versions)
+	HypershiftSupportedVersions.Mu.Lock()
+	defer HypershiftSupportedVersions.Mu.Unlock()
+	HypershiftSupportedVersions.Versions = sets.NewString(convertedVersions.Versions...)
+	// 4.11 is currently broken in hypershift 4.13 with no plans to fix at the moment
+	HypershiftSupportedVersions.Versions.Delete("4.11")
+	klog.Infof("Hypershift Supported Versions: %+v", HypershiftSupportedVersions.Versions.List())
 	return nil
 }
 
@@ -545,7 +551,7 @@ func versionForRefs(refs *prowapiv1.Refs) string {
 		return ""
 	}
 	if refs.BaseRef == "master" || refs.BaseRef == "main" {
-		return "4.13.0-0.latest"
+		return fmt.Sprintf("%d.%d.0-0.latest", CurrentRelease.Major, CurrentRelease.Minor)
 	}
 	if m := reBranchVersion.FindStringSubmatch(refs.BaseRef); m != nil {
 		return fmt.Sprintf("%s.0-0.latest", m[2])
@@ -615,6 +621,7 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 			}
 		}
 
+		currentReleasePrefix := fmt.Sprintf("%d.%d", CurrentRelease.Major, CurrentRelease.Minor)
 		if m := reMajorMinorVersion.FindStringSubmatch(unresolved); m != nil {
 			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.nightly%s", unresolved, archSuffix)); tag != nil {
 				klog.Infof("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
@@ -654,11 +661,11 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 			}
 			return "", "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
 		} else if unresolved == "nightly" {
-			unresolved = fmt.Sprintf("4.13.0-0.nightly%s", archSuffix)
+			unresolved = fmt.Sprintf("%s.0-0.nightly%s", currentReleasePrefix, archSuffix)
 		} else if unresolved == "ci" {
-			unresolved = fmt.Sprintf("4.13.0-0.ci%s", archSuffix)
+			unresolved = fmt.Sprintf("%s.0-0.ci%s", currentReleasePrefix, archSuffix)
 		} else if unresolved == "prerelease" {
-			unresolved = fmt.Sprintf("4.13.0-0.ci%s", archSuffix)
+			unresolved = fmt.Sprintf("%s.0-0.ci%s", currentReleasePrefix, archSuffix)
 		}
 
 		if tag, name := findImageStatusTag(is, unresolved); tag != nil {
@@ -984,20 +991,23 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 	}
 
 	if req.Platform == "hypershift-hosted" {
+		HypershiftSupportedVersions.Mu.RLock()
 		for _, input := range jobInputs {
 			if input.Version != "" {
 				var isValidVersion bool
-				for _, version := range m.hypershiftSupportedVersions.versions {
+				for version := range HypershiftSupportedVersions.Versions {
 					if strings.HasPrefix(input.Version, version) {
 						isValidVersion = true
 						break
 					}
 				}
 				if !isValidVersion {
-					return nil, fmt.Errorf("hypershift currently only supports the following releases: %v", m.hypershiftSupportedVersions.versions)
+					HypershiftSupportedVersions.Mu.RUnlock()
+					return nil, fmt.Errorf("hypershift currently only supports the following releases: %v", HypershiftSupportedVersions.Versions.List())
 				}
 			}
 		}
+		HypershiftSupportedVersions.Mu.RUnlock()
 	}
 
 	switch req.Type {
@@ -1391,6 +1401,15 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		msg = fmt.Sprintf("%s If your workload cannot tolerate disruptions, add the `no-spot` option to the options argument when launching your cluster.", msg)
 		msg = fmt.Sprintf("%s For more information on Spot instances, see this blog post: https://cloud.redhat.com/blog/a-guide-to-red-hat-openshift-and-aws-spot-instances.\n\n", msg)
 	}
+	if job.Platform == "hypershift-hosted" {
+		msg = fmt.Sprintf("%s\nThis cluster is being launched as a hypershift cluster.", msg)
+		msg = fmt.Sprintf("%s This means that the cluster will not have dedicated master nodes and its control plane will run as a pod on another cluster managed by DPTP.", msg)
+		msg = fmt.Sprintf("%s The cluster will also only have 1 worker node. This has the advantage of much faster startup times and lower costs.", msg)
+		msg = fmt.Sprintf("%s However, if you are testing specific functionality relating to the control plane in the release version you provided or you require", msg)
+		msg = fmt.Sprintf("%s multiple worker nodes, please end abort this launch with `done` and launch a cluster using another platform such as `aws` or `gcp`", msg)
+		msg = fmt.Sprintf("%s (e.g. `launch 4.13 aws`).", msg)
+		msg = fmt.Sprintf("%s For more information on hypershift, visit the documentation page here: https://hypershift-docs.netlify.app/.\n\n", msg)
+	}
 
 	if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
 		msg = fmt.Sprintf("%sa <%s|cluster is being created>", msg, prowJobUrl)
@@ -1401,7 +1420,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 			}
 			msg = fmt.Sprintf("%s. I'll send you the credentials once both the cluster and the operator are ready", msg)
 		} else {
-			msg = fmt.Sprintf("%s - I'll send you the credentials in about %d minutes", msg, m.estimateCompletion(req.RequestedAt)/time.Minute)
+			msg = fmt.Sprintf("%s - I'll send you the credentials when the cluster is ready.", msg)
 		}
 		return "", errors.New(msg)
 	}
