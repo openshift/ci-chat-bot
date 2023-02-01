@@ -404,6 +404,8 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 				} else {
 					platform = "aws"
 				}
+			} else {
+				platform = "aws"
 			}
 		case "arm64", "multi":
 			platform = "aws"
