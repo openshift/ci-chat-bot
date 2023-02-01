@@ -797,7 +797,7 @@ func (m *jobManager) GetWorkflowConfig() *WorkflowConfig {
 func (m *jobManager) LookupInputs(inputs []string, architecture string) (string, error) {
 	// default install type jobs to "ci"
 	if len(inputs) == 0 {
-		_, version, _, err := m.ResolveImageOrVersion("ci", "", architecture)
+		_, version, _, err := m.ResolveImageOrVersion("nightly", "", architecture)
 		if err != nil {
 			return "", err
 		}
