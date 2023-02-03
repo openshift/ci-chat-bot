@@ -17,7 +17,7 @@ import (
 
 const (
 	IdentifierInitialView        modals.Identifier = "launch"
-	Identifier3rdStep            modals.Identifier = "launch3ddStep"
+	Identifier3rdStep            modals.Identifier = "launch3rdStep"
 	IdentifierPRInputView        modals.Identifier = "pr_input_view"
 	IdentifierFilterVersionView  modals.Identifier = "filter_version_view"
 	IdentifierRegisterLaunchMode modals.Identifier = "launch_mode_view"
@@ -31,20 +31,20 @@ const (
 	launchFromStream            = "stream"
 	launchFromLatestBuild       = "latest_build"
 	launchFromReleaseController = "release_controller_version"
-	//launchFromCustom            = "custom" TODO - if necessary, add a custom build input field in version selection
-	launchPlatform       = "platform"
-	launchArchitecture   = "architecture"
-	launchParameters     = "parameters"
-	launchVersion        = "version"
-	launchStepContext    = "context"
-	defaultPlatform      = "aws"
-	defaultArchitecture  = "amd64"
-	launchMode           = "launch_mode"
-	launchModeVersion    = "version"
-	launchModePR         = "pr"
-	launchModePRKey      = "One or multiple PR-s"
-	launchModeVersionKey = "A Version"
-	launchModeContext    = "Launch Mode"
+	launchFromCustom            = "custom"
+	launchPlatform              = "platform"
+	launchArchitecture          = "architecture"
+	launchParameters            = "parameters"
+	launchVersion               = "version"
+	launchStepContext           = "context"
+	defaultPlatform             = "aws"
+	defaultArchitecture         = "amd64"
+	launchMode                  = "launch_mode"
+	launchModeVersion           = "version"
+	launchModePR                = "pr"
+	launchModePRKey             = "One or multiple PRs"
+	launchModeVersionKey        = "A Version"
+	launchModeContext           = "Launch Mode"
 )
 
 type callbackData struct {
@@ -160,6 +160,7 @@ func processNextFilterVersion(updater modals.ViewUpdater, jobmanager manager.Job
 			return errorResponse, nil
 		}
 		nightlyOrCi := submissionData.input[launchFromLatestBuild]
+		customBuild := submissionData.input[launchFromCustom]
 		mode := submissionData.context[launchMode]
 		launchModeSplit := strings.Split(mode, ",")
 		launchWithPr := false
@@ -177,9 +178,9 @@ func processNextFilterVersion(updater modals.ViewUpdater, jobmanager manager.Job
 				}
 				logger.WithField("response", response).Trace("Got a modal response.")
 			}
-			if nightlyOrCi != "" && launchWithPr {
+			if (nightlyOrCi != "" || customBuild != "") && launchWithPr {
 				overwriteView(PRInputView(callback, submissionData))
-			} else if nightlyOrCi != "" && !launchWithPr {
+			} else if (nightlyOrCi != "" || customBuild != "") && !launchWithPr {
 				overwriteView(ThirdStepView(callback, jobmanager, httpclient, submissionData))
 			} else {
 				overwriteView(SelectVersionView(callback, jobmanager, httpclient, submissionData))
@@ -215,7 +216,6 @@ func processNextSelectVersion(updater modals.ViewUpdater, jobmanager manager.Job
 		launchModeSplit := strings.Split(m, ",")
 		launchWithPR := false
 		for _, key := range launchModeSplit {
-			// TODO - 2 constant for PRs, consolidate
 			if strings.TrimSpace(key) == launchModePR {
 				launchWithPR = true
 			}
@@ -418,8 +418,18 @@ func validateThirdStepSubmission(jobManager manager.JobManager, job *manager.Job
 }
 
 func validateFilterVersion(submissionData callbackData, httpclient *http.Client) []byte {
+	errors := make(map[string]string, 0)
 	nightlyOrCi := submissionData.input[launchFromLatestBuild]
-	if nightlyOrCi != "" {
+	customBuild := submissionData.input[launchFromCustom]
+	if nightlyOrCi != "" && customBuild != "" {
+		errors[launchFromCustom] = "Chose either one or the other parameter!"
+		errors[launchFromLatestBuild] = "Chose either one or the other parameter!"
+		response, err := modals.ValidationError(errors)
+		if err == nil {
+			return response
+		}
+	}
+	if nightlyOrCi != "" || customBuild != "" {
 		return nil
 	}
 	architecture := submissionData.context[launchArchitecture]
@@ -436,7 +446,6 @@ func validateFilterVersion(submissionData callbackData, httpclient *http.Client)
 		}
 	}
 	message := fmt.Sprintf("Can't find any tags with this combination (Stream: %s, Major.Minor: %s)!", selectedStream, selectedMajorMinor)
-	errors := make(map[string]string, 0)
 	errors[launchFromMajorMinor] = message
 	errors[launchFromStream] = message
 	response, err := modals.ValidationError(errors)

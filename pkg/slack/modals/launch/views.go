@@ -12,7 +12,6 @@ import (
 	"strings"
 )
 
-// FirstStepView is the modal view for submitting a new enhancement card to Jira
 func FirstStepView() slackClient.ModalViewRequest {
 	platformOptions := modals.BuildOptions(manager.SupportedPlatforms, nil)
 	architectureOptions := modals.BuildOptions(manager.SupportedArchitectures, nil)
@@ -76,7 +75,10 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 			if !ok {
 				version, ok = data.input[launchFromReleaseController]
 				if !ok {
-					_, version, _, _ = jobmanager.ResolveImageOrVersion("nightly", "", architecture)
+					version, ok = data.input[launchFromCustom]
+					if !ok {
+						_, version, _, _ = jobmanager.ResolveImageOrVersion("nightly", "", architecture)
+					}
 				}
 			}
 		}
@@ -182,7 +184,7 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: string(IdentifierRegisterLaunchMode),
-		Title:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch a Workflow"},
+		Title:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch a Cluster"},
 		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
 		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Next"},
 		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
@@ -271,7 +273,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: string(IdentifierFilterVersionView),
-		Title:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch a Workflow"},
+		Title:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch a Cluster"},
 		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
 		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Next"},
 		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
@@ -288,12 +290,8 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 				Type: slackClient.MBTSection,
 				Text: &slackClient.TextBlockObject{
 					Type: slackClient.MarkdownType,
-					Text: "*To get a list of version to select from, specify the _stream_ and/or _major.minor_*\nIf the *_stable_* stream is selected, please specify the *_major.minor_* as well.\nFor any other *_streams_*, you may omit the major.minor",
+					Text: "*To get a list of versions to select from, specify the _stream_ and/or _major.minor_*\nIf the *_stable_* stream is selected, please specify the *_major.minor_* as well.\nFor any other *_streams_*, you may omit the major.minor",
 				},
-			},
-			&slackClient.DividerBlock{
-				Type:    slackClient.MBTDivider,
-				BlockID: "divider_section",
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
@@ -317,16 +315,16 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 					Options:     majorMinorOptions,
 				},
 			},
+			&slackClient.DividerBlock{
+				Type:    slackClient.MBTDivider,
+				BlockID: "divider_section",
+			},
 			&slackClient.SectionBlock{
 				Type: slackClient.MBTSection,
 				Text: &slackClient.TextBlockObject{
 					Type: slackClient.MarkdownType,
 					Text: "\n*Alternatively:*\n*Launch using the latest Nightly or CI build*",
 				},
-			},
-			&slackClient.DividerBlock{
-				Type:    slackClient.MBTDivider,
-				BlockID: "divider_2nd_section",
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
@@ -340,6 +338,27 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 						{Value: "nightly", Text: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: nightly}},
 						{Value: "ci", Text: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: ci}},
 					},
+				},
+			},
+			&slackClient.DividerBlock{
+				Type:    slackClient.MBTDivider,
+				BlockID: "divider_2nd_section",
+			},
+			&slackClient.SectionBlock{
+				Type: slackClient.MBTSection,
+				Text: &slackClient.TextBlockObject{
+					Type: slackClient.MarkdownType,
+					Text: "\n*Alternatively:*\n*Launch using a _Custom_ Pull Spec*",
+				},
+			},
+			&slackClient.InputBlock{
+				Type:     slackClient.MBTInput,
+				BlockID:  launchFromCustom,
+				Optional: true,
+				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Enter a Custom Pull Spec:"},
+				Element: &slackClient.PlainTextInputBlockElement{
+					Type:        slackClient.METPlainTextInput,
+					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Enter a custom pull spec..."},
 				},
 			},
 			&slackClient.DividerBlock{
@@ -382,12 +401,15 @@ func PRInputView(callback *slackClient.InteractionCallback, data callbackData) s
 		if version == "" {
 			version = data.input[launchFromLatestBuild]
 		}
+		if version == "" {
+			version = data.input[launchFromCustom]
+		}
 		metadata = fmt.Sprintf("%s;Version: %s", metadata, version)
 	}
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: string(IdentifierPRInputView),
-		Title:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch a Workflow"},
+		Title:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch a Cluster"},
 		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
 		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Next"},
 		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
