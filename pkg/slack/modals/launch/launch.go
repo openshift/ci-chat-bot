@@ -8,15 +8,44 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog"
 	"net/http"
 	"strings"
 	"sync"
 )
 
-// Identifier is the view identifier for this modal
-const Identifier modals.Identifier = "launch"
-const Identifier2ndStep modals.Identifier = "launch2ndStep"
-const Identifier3rdStep modals.Identifier = "launch3ddStep"
+const (
+	IdentifierInitialView        modals.Identifier = "launch"
+	Identifier3rdStep            modals.Identifier = "launch3ddStep"
+	IdentifierPRInputView        modals.Identifier = "pr_input_view"
+	IdentifierFilterVersionView  modals.Identifier = "filter_version_view"
+	IdentifierRegisterLaunchMode modals.Identifier = "launch_mode_view"
+	IdentifierSelectVersion                        = "select_version"
+)
+
+const (
+	stableReleasesPrefix        = "4-stable"
+	launchFromPR                = "pr"
+	launchFromMajorMinor        = "major_minor"
+	launchFromStream            = "stream"
+	launchFromLatestBuild       = "latest_build"
+	launchFromReleaseController = "release_controller_version"
+	//launchFromCustom            = "custom" TODO - if necessary, add a custom build input field in version selection
+	launchPlatform       = "platform"
+	launchArchitecture   = "architecture"
+	launchParameters     = "parameters"
+	launchVersion        = "version"
+	launchStepContext    = "context"
+	defaultPlatform      = "aws"
+	defaultArchitecture  = "amd64"
+	launchMode           = "launch_mode"
+	launchModeVersion    = "version"
+	launchModePR         = "pr"
+	launchModePRKey      = "One or multiple PR-s"
+	launchModeVersionKey = "A Version"
+	launchModeContext    = "Launch Mode"
+)
 
 type callbackData struct {
 	input             map[string]string
@@ -25,12 +54,12 @@ type callbackData struct {
 }
 
 func RegisterFirstStep(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(Identifier, FirstStepView()).WithFollowUps(map[slack.InteractionType]interactions.Handler{
-		slack.InteractionTypeViewSubmission: processNextForFirstStep(client, jobmanager, httpclient),
+	return modals.ForView(IdentifierInitialView, FirstStepView()).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+		slack.InteractionTypeViewSubmission: processNextRegisterFirstStep(client, jobmanager, httpclient),
 	})
 }
 
-func processNextForFirstStep(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
+func processNextRegisterFirstStep(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
 	return interactions.HandlerFunc("launch2", func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		go func() {
 			callbackData := callbackData{
@@ -44,7 +73,7 @@ func processNextForFirstStep(updater modals.ViewUpdater, jobmanager manager.JobM
 				}
 				logger.WithField("response", response).Trace("Got a modal response.")
 			}
-			overwriteView(SecondStepView(callback, jobmanager, httpclient, callbackData))
+			overwriteView(SelectModeView(callback, jobmanager, callbackData))
 		}()
 		response, err := json.Marshal(&slack.ViewSubmissionResponse{
 			ResponseAction: slack.RAUpdate,
@@ -58,21 +87,27 @@ func processNextForFirstStep(updater modals.ViewUpdater, jobmanager manager.JobM
 	})
 }
 
-func RegisterSecondStep(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(Identifier2ndStep, ThirdStepView(nil, jobmanager, httpclient, callbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
-		slack.InteractionTypeViewSubmission: processNextForSecondStep(client, jobmanager, httpclient),
+func RegisterLaunchModeStep(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
+	return modals.ForView(IdentifierRegisterLaunchMode, ThirdStepView(nil, jobmanager, httpclient, callbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+		slack.InteractionTypeViewSubmission: processNextLaunchModeStep(client, jobmanager, httpclient),
 	})
 }
 
-func processNextForSecondStep(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
+func processNextLaunchModeStep(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
 	return interactions.HandlerFunc("launch3", func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		submissionData := callbackData{
-			input:   modals.CallBackInputAll(callback),
-			context: callbackContext(callback),
+			input:             modals.CallBackInputAll(callback),
+			context:           callbackContext(callback),
+			multipleSelection: modals.CallbackMultipleSelect(callback),
 		}
-		response := validateSecondStepSubmission(submissionData, jobmanager)
-		if response != nil {
-			return response, nil
+		mode := make(sets.String)
+		for _, selection := range submissionData.multipleSelection[launchMode] {
+			switch selection {
+			case launchModePRKey:
+				mode.Insert(launchModePR)
+			case launchModeVersionKey:
+				mode.Insert(launchModeVersion)
+			}
 		}
 		go func() {
 			overwriteView := func(view slack.ModalViewRequest) {
@@ -83,9 +118,14 @@ func processNextForSecondStep(updater modals.ViewUpdater, jobmanager manager.Job
 				}
 				logger.WithField("response", response).Trace("Got a modal response.")
 			}
-			overwriteView(ThirdStepView(callback, jobmanager, httpclient, submissionData))
+			if mode.Has(launchModeVersion) {
+				overwriteView(FilterVersionView(callback, jobmanager, submissionData, httpclient, mode))
+			} else {
+				overwriteView(PRInputView(callback, submissionData))
+			}
+
 		}()
-		response, err = json.Marshal(&slack.ViewSubmissionResponse{
+		response, err := json.Marshal(&slack.ViewSubmissionResponse{
 			ResponseAction: slack.RAUpdate,
 			View:           PrepareNextStepView(),
 		})
@@ -97,24 +137,164 @@ func processNextForSecondStep(updater modals.ViewUpdater, jobmanager manager.Job
 	})
 }
 
-func checkPR(wg *sync.WaitGroup, pr string, jobmanager manager.JobManager) error {
-	defer wg.Done()
-	_, err := jobmanager.ResolveAsPullRequest(pr)
-	return err
+func RegisterFilterVersion(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
+	return modals.ForView(IdentifierFilterVersionView, FilterVersionView(nil, nil, callbackData{}, nil, nil)).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+		slack.InteractionTypeViewSubmission: processNextFilterVersion(client, jobmanager, httpclient),
+	})
 }
 
-func validateSecondStepSubmission(submissionData callbackData, jobmanager manager.JobManager) []byte {
-	var found []string
-	errors := make(map[string]string, 0)
-	checkInput := []string{launchFromReleaseController, launchFromLatestBuild, launchFromStream, launchFromMajorMinor, launchFromCustom}
-	for _, versionType := range checkInput {
-		_, exists := submissionData.input[versionType]
-		if exists {
-			found = append(found, versionType)
+func processNextFilterVersion(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
+	// TODO - validate the combination. Check the version from the release controller, and if it is empty, retrun an
+	// error, like: this combination this and that does not seem right, no version found.
+
+	// TODO - if a stream that has multiple major.minor versions is selected, enforce the selection of major.minor
+	// if a major.minor is selected without a stream name, enforce the stream name selection.
+	return interactions.HandlerFunc("launch3", func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+		submissionData := callbackData{
+			input:             modals.CallBackInputAll(callback),
+			context:           callbackContext(callback),
+			multipleSelection: modals.CallbackMultipleSelect(callback),
 		}
-	}
+		errorResponse := validateFilterVersion(submissionData, httpclient)
+		if errorResponse != nil {
+			return errorResponse, nil
+		}
+		nightlyOrCi := submissionData.input[launchFromLatestBuild]
+		mode := submissionData.context[launchMode]
+		launchModeSplit := strings.Split(mode, ",")
+		launchWithPr := false
+		for _, key := range launchModeSplit {
+			if strings.TrimSpace(key) == launchModePR {
+				launchWithPr = true
+			}
+		}
+		go func() {
+			overwriteView := func(view slack.ModalViewRequest) {
+				// don't pass a hash, so we overwrite the View always
+				response, err := updater.UpdateView(view, "", "", callback.View.ID)
+				if err != nil {
+					logger.WithError(err).Warn("Failed to update a modal View.")
+				}
+				logger.WithField("response", response).Trace("Got a modal response.")
+			}
+			if nightlyOrCi != "" && launchWithPr {
+				overwriteView(PRInputView(callback, submissionData))
+			} else if nightlyOrCi != "" && !launchWithPr {
+				overwriteView(ThirdStepView(callback, jobmanager, httpclient, submissionData))
+			} else {
+				overwriteView(SelectVersionView(callback, jobmanager, httpclient, submissionData))
+			}
+
+		}()
+		response, err := json.Marshal(&slack.ViewSubmissionResponse{
+			ResponseAction: slack.RAUpdate,
+			View:           PrepareNextStepView(),
+		})
+		if err != nil {
+			logger.WithError(err).Error("Failed to marshal FirstStepView update submission response.")
+			return nil, err
+		}
+		return response, nil
+	})
+}
+
+func RegisterSelectVersion(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
+	return modals.ForView(IdentifierSelectVersion, SelectVersionView(nil, jobmanager, httpclient, callbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+		slack.InteractionTypeViewSubmission: processNextSelectVersion(client, jobmanager, httpclient),
+	})
+}
+
+func processNextSelectVersion(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
+	return interactions.HandlerFunc("launch3", func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+		submissionData := callbackData{
+			input:             modals.CallBackInputAll(callback),
+			context:           callbackContext(callback),
+			multipleSelection: modals.CallbackMultipleSelect(callback),
+		}
+		m := submissionData.context[launchMode]
+		launchModeSplit := strings.Split(m, ",")
+		launchWithPR := false
+		for _, key := range launchModeSplit {
+			// TODO - 2 constant for PRs, consolidate
+			if strings.TrimSpace(key) == launchModePR {
+				launchWithPR = true
+			}
+		}
+		go func() {
+			overwriteView := func(view slack.ModalViewRequest) {
+				// don't pass a hash, so we overwrite the View always
+				response, err := updater.UpdateView(view, "", "", callback.View.ID)
+				if err != nil {
+					logger.WithError(err).Warn("Failed to update a modal View.")
+				}
+				logger.WithField("response", response).Trace("Got a modal response.")
+			}
+			if launchWithPR {
+				overwriteView(PRInputView(callback, submissionData))
+			} else {
+				overwriteView(ThirdStepView(callback, jobmanager, httpclient, submissionData))
+			}
+		}()
+		response, err := json.Marshal(&slack.ViewSubmissionResponse{
+			ResponseAction: slack.RAUpdate,
+			View:           PrepareNextStepView(),
+		})
+		if err != nil {
+			logger.WithError(err).Error("Failed to marshal FirstStepView update submission response.")
+			return nil, err
+		}
+		return response, nil
+	})
+}
+
+func RegisterPRInput(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
+	return modals.ForView(IdentifierPRInputView, PRInputView(nil, callbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+		slack.InteractionTypeViewSubmission: processNextPRInput(client, jobmanager, httpclient),
+	})
+}
+
+func processNextPRInput(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
+	return interactions.HandlerFunc("launch3", func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+		submissionData := callbackData{
+			input:             modals.CallBackInputAll(callback),
+			context:           callbackContext(callback),
+			multipleSelection: modals.CallbackMultipleSelect(callback),
+		}
+		errorsResponse := validatePRInputView(submissionData, jobmanager)
+		if errorsResponse != nil {
+			return errorsResponse, nil
+		}
+		go func() {
+			overwriteView := func(view slack.ModalViewRequest) {
+				// don't pass a hash, so we overwrite the View always
+				response, err := updater.UpdateView(view, "", "", callback.View.ID)
+				if err != nil {
+					logger.WithError(err).Warn("Failed to update a modal View.")
+				}
+				logger.WithField("response", response).Trace("Got a modal response.")
+			}
+
+			overwriteView(ThirdStepView(callback, jobmanager, httpclient, submissionData))
+
+		}()
+		response, err := json.Marshal(&slack.ViewSubmissionResponse{
+			ResponseAction: slack.RAUpdate,
+			View:           PrepareNextStepView(),
+		})
+		if err != nil {
+			logger.WithError(err).Error("Failed to marshal FirstStepView update submission response.")
+			return nil, err
+		}
+		return response, nil
+	})
+}
+
+func validatePRInputView(submissionData callbackData, jobmanager manager.JobManager) []byte {
+	// TODO - there must be a better way to validate here. Slack will wait for 3 seconds before timing out the view
+	// in case of a 404, this might take longer (I assume due to some retries). Maybe check with a 404 before validating the PR
 	prs, ok := submissionData.input[launchFromPR]
 	var prErrors []string
+	errors := make(map[string]string, 0)
 	if ok {
 		var wg sync.WaitGroup
 		prSlice := strings.Split(prs, ",")
@@ -129,24 +309,23 @@ func validateSecondStepSubmission(submissionData callbackData, jobmanager manage
 			}()
 		}
 		wg.Wait()
-
-		if len(prErrors) > 0 {
-			errors[launchFromPR] = strings.Join(prErrors, "; ")
+		if len(prErrors) == 0 {
+			return nil
 		}
 	}
-	if len(found) > 1 {
-		for _, v := range found {
-			errors[v] = "No more than one version type can be selected at the same time!"
-		}
-	}
-	if len(errors) == 0 {
+	errors[launchFromPR] = strings.Join(prErrors, "; ")
+	response, err := modals.ValidationError(errors)
+	if err != nil {
+		klog.Warningf("failed to build validation error: %v", err)
 		return nil
 	}
-	response, err := modals.ValidationError(errors)
-	if err == nil {
-		return response
-	}
-	return nil
+	return response
+}
+
+func checkPR(wg *sync.WaitGroup, pr string, jobmanager manager.JobManager) error {
+	defer wg.Done()
+	_, err := jobmanager.ResolveAsPullRequest(pr)
+	return err
 }
 
 func RegisterThirdStep(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
@@ -168,7 +347,7 @@ func processNextForThirdStep(updater modals.ViewUpdater, jobmanager manager.JobM
 		version := data.context[launchVersion]
 		launchInputs = append(launchInputs, version)
 		prs, ok := data.context[launchFromPR]
-		if ok && prs != "None" {
+		if ok && prs != "none" {
 			prSlice := strings.Split(prs, ",")
 			for _, pr := range prSlice {
 				launchInputs = append(launchInputs, strings.TrimSpace(pr))
@@ -237,6 +416,36 @@ func validateThirdStepSubmission(jobManager manager.JobManager, job *manager.Job
 	}
 	return nil
 }
+
+func validateFilterVersion(submissionData callbackData, httpclient *http.Client) []byte {
+	nightlyOrCi := submissionData.input[launchFromLatestBuild]
+	if nightlyOrCi != "" {
+		return nil
+	}
+	architecture := submissionData.context[launchArchitecture]
+	selectedStream := submissionData.input[launchFromStream]
+	selectedMajorMinor := submissionData.input[launchFromMajorMinor]
+	releases, _ := fetchReleases(httpclient, architecture)
+	for stream, tags := range releases {
+		if stream == selectedStream {
+			for _, tag := range tags {
+				if strings.HasPrefix(tag, selectedMajorMinor) {
+					return nil
+				}
+			}
+		}
+	}
+	message := fmt.Sprintf("Can't find any tags with this combination (Stream: %s, Major.Minor: %s)!", selectedStream, selectedMajorMinor)
+	errors := make(map[string]string, 0)
+	errors[launchFromMajorMinor] = message
+	errors[launchFromStream] = message
+	response, err := modals.ValidationError(errors)
+	if err == nil {
+		return response
+	}
+	return nil
+}
+
 func fetchReleases(client *http.Client, architecture string) (map[string][]string, error) {
 	url := fmt.Sprintf("https://%s.ocp.releases.ci.openshift.org/api/v1/releasestreams/accepted", architecture)
 	acceptedReleases := make(map[string][]string, 0)
@@ -267,15 +476,19 @@ func callbackContext(callback *slack.InteractionCallback) map[string]string {
 	}
 	mSplit := strings.Split(context, ";")
 	for _, v := range mSplit {
-		switch strings.ToLower(strings.TrimSpace(strings.Split(v, ":")[0])) {
+		key := strings.ToLower(strings.TrimSpace(strings.Split(v, ":")[0]))
+		value := strings.ToLower(strings.TrimSpace(strings.Split(v, ":")[1]))
+		switch key {
 		case launchArchitecture:
-			contextMap[launchArchitecture] = strings.TrimSpace(strings.Split(v, ":")[1])
+			contextMap[launchArchitecture] = value
 		case launchPlatform:
-			contextMap[launchPlatform] = strings.TrimSpace(strings.Split(v, ":")[1])
+			contextMap[launchPlatform] = value
 		case launchVersion:
-			contextMap[launchVersion] = strings.TrimSpace(strings.Split(v, ":")[1])
+			contextMap[launchVersion] = value
 		case launchFromPR:
-			contextMap[launchFromPR] = strings.TrimSpace(strings.Split(v, ":")[1])
+			contextMap[launchFromPR] = value
+		case strings.ToLower(launchModeContext):
+			contextMap[launchMode] = value
 		}
 	}
 	return contextMap
