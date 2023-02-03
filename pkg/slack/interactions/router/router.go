@@ -25,8 +25,11 @@ func ForModals(client *slack.Client, jobmanager manager.JobManager, httpclient *
 
 	toRegister := []*modals.FlowWithViewAndFollowUps{
 		launch.RegisterFirstStep(client, jobmanager, httpclient),
-		launch.RegisterSecondStep(client, jobmanager, httpclient),
+		launch.RegisterLaunchModeStep(client, jobmanager, httpclient),
 		launch.RegisterThirdStep(client, jobmanager, httpclient),
+		launch.RegisterSelectVersion(client, jobmanager, httpclient),
+		launch.RegisterFilterVersion(client, jobmanager, httpclient),
+		launch.RegisterPRInput(client, jobmanager, httpclient),
 		list.Register(client, jobmanager),
 		done.Register(client, jobmanager),
 		refresh.Register(client, jobmanager),
