@@ -799,7 +799,7 @@ func (m *jobManager) LookupInputs(inputs []string, architecture string) (string,
 	if err != nil {
 		return "", err
 	}
-	// len(inputs) much match len(JobInputs), so if lookupInputs defaulted a version, we need to update inputs
+	// len(inputs) must match len(JobInputs), so if lookupInputs defaulted a version, we need to update inputs
 	if defaultedVersion != "" {
 		inputs = []string{defaultedVersion}
 	}
