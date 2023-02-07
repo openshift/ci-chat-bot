@@ -795,17 +795,13 @@ func (m *jobManager) GetWorkflowConfig() *WorkflowConfig {
 }
 
 func (m *jobManager) LookupInputs(inputs []string, architecture string) (string, error) {
-	// default install type jobs to "ci"
-	if len(inputs) == 0 {
-		_, version, _, err := m.ResolveImageOrVersion("nightly", "", architecture)
-		if err != nil {
-			return "", err
-		}
-		inputs = []string{version}
-	}
-	jobInputs, err := m.lookupInputs([][]string{inputs}, architecture)
+	jobInputs, defaultedVersion, err := m.lookupInputs([][]string{inputs}, architecture)
 	if err != nil {
 		return "", err
+	}
+	// len(inputs) much match len(JobInputs), so if lookupInputs defaulted a version, we need to update inputs
+	if defaultedVersion != "" {
+		inputs = []string{defaultedVersion}
 	}
 	var out []string
 	for i, job := range jobInputs {
@@ -826,16 +822,27 @@ func (m *jobManager) LookupInputs(inputs []string, architecture string) (string,
 	return strings.Join(out, "\n"), nil
 }
 
-func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]JobInput, error) {
-	var jobInputs []JobInput
+func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]JobInput, string, error) {
+	// LookupInputs needs len(inputs) to match len(JobInputs), so we need to return the defaulted version for it
+	defaultedVersion := ""
+	// default lookups to "nightly"
+	if len(inputs) == 0 || (len(inputs) == 1 && len(inputs[0]) == 0) {
+		_, version, _, err := m.ResolveImageOrVersion("nightly", "", architecture)
+		if err != nil {
+			return nil, "", err
+		}
+		inputs = [][]string{{version}}
+		defaultedVersion = version
+	}
 
+	var jobInputs []JobInput
 	for _, input := range inputs {
 		var jobInput JobInput
 		for _, part := range input {
 			// if the user provided a pull spec (org/repo#number) we'll build from that
 			pr, err := m.ResolveAsPullRequest(part)
 			if err != nil {
-				return nil, err
+				return nil, defaultedVersion, err
 			}
 			if pr != nil {
 				var existing bool
@@ -853,16 +860,16 @@ func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]Job
 				// otherwise, resolve as a semantic version (as a tag on the release image stream) or as an image
 				image, version, runImage, err := m.ResolveImageOrVersion(part, "", architecture)
 				if err != nil {
-					return nil, err
+					return nil, defaultedVersion, err
 				}
 				if len(image) == 0 {
-					return nil, fmt.Errorf("unable to resolve %q to an image", part)
+					return nil, defaultedVersion, fmt.Errorf("unable to resolve %q to an image", part)
 				}
 				if len(jobInput.Image) > 0 {
-					return nil, fmt.Errorf("only one image or version may be specified in a list of installs")
+					return nil, defaultedVersion, fmt.Errorf("only one image or version may be specified in a list of installs")
 				}
 				if architecture == "arm64" && (len(runImage) == 0 || len(version) == 0) {
-					return nil, fmt.Errorf("only version numbers (like: 4.11.0) may be used for arm64 based clusters")
+					return nil, defaultedVersion, fmt.Errorf("only version numbers (like: 4.11.0) may be used for arm64 based clusters")
 				}
 				jobInput.Image = image
 				jobInput.Version = version
@@ -874,7 +881,7 @@ func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]Job
 		}
 		jobInputs = append(jobInputs, jobInput)
 	}
-	return jobInputs, nil
+	return jobInputs, defaultedVersion, nil
 }
 
 func (m *jobManager) ResolveAsPullRequest(spec string) (*prowapiv1.Refs, error) {
@@ -977,15 +984,7 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		WorkflowName: req.WorkflowName,
 	}
 
-	// default install type jobs to "ci"
-	if len(req.Inputs) == 0 && req.Type == JobTypeInstall {
-		_, version, _, err := m.ResolveImageOrVersion("ci", "", job.Architecture)
-		if err != nil {
-			return nil, err
-		}
-		req.Inputs = append(req.Inputs, []string{version})
-	}
-	jobInputs, err := m.lookupInputs(req.Inputs, job.Architecture)
+	jobInputs, _, err := m.lookupInputs(req.Inputs, job.Architecture)
 	if err != nil {
 		return nil, err
 	}
