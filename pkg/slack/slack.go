@@ -243,7 +243,7 @@ func NotifyJob(client *slack.Client, job *manager.Job) {
 	if len(job.URL) > 0 {
 		switch job.State {
 		case prowapiv1.FailureState, prowapiv1.AbortedState, prowapiv1.ErrorState:
-			message := fmt.Sprintf("job <%s|%s> failed", job.URL, job.OriginalMessage)
+			message := fmt.Sprintf("job <%s | %s> failed", job.URL, job.OriginalMessage)
 			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
 			if err != nil {
 				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
