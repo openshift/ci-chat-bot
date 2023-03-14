@@ -462,7 +462,11 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 				Reference: &waitRef,
 			}}
 		}
+
 		baseImages := sourceConfig.BaseImages
+		if sourceConfig.BaseImages == nil {
+			baseImages = make(map[string]citools.ImageStreamTagReference, 0)
+		}
 		for imageName, imageDef := range m.workflowConfig.Workflows[job.WorkflowName].BaseImages {
 			baseImages[imageName] = imageDef
 		}
