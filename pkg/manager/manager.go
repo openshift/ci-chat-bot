@@ -1401,13 +1401,12 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		msg = fmt.Sprintf("%s For more information on Spot instances, see this blog post: https://cloud.redhat.com/blog/a-guide-to-red-hat-openshift-and-aws-spot-instances.\n\n", msg)
 	}
 	if job.Platform == "hypershift-hosted" {
-		msg = fmt.Sprintf("%s\nThis cluster is being launched as a hypershift cluster.", msg)
-		msg = fmt.Sprintf("%s This means that the cluster will not have dedicated master nodes and its control plane will run as a pod on another cluster managed by DPTP.", msg)
-		msg = fmt.Sprintf("%s The cluster will also only have 1 worker node. This has the advantage of much faster startup times and lower costs.", msg)
+		msg = fmt.Sprintf("%s\nThis cluster is being launched with a <https://hypershift-docs.netlify.app/|hosted control plane (hypershift)>.", msg)
+		msg = fmt.Sprintf("%s This means that the control plane will run as pods (not virtual machines) on another cluster managed by DPTP; also by default there is 1 worker node.", msg)
+		msg = fmt.Sprintf("%s This has the advantage of much faster startup times and lower costs.", msg)
 		msg = fmt.Sprintf("%s However, if you are testing specific functionality relating to the control plane in the release version you provided or you require", msg)
 		msg = fmt.Sprintf("%s multiple worker nodes, please end abort this launch with `done` and launch a cluster using another platform such as `aws` or `gcp`", msg)
 		msg = fmt.Sprintf("%s (e.g. `launch 4.13 aws`).", msg)
-		msg = fmt.Sprintf("%s For more information on hypershift, visit the documentation page here: https://hypershift-docs.netlify.app/.\n\n", msg)
 	}
 
 	if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
