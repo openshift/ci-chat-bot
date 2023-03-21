@@ -1406,7 +1406,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		msg = fmt.Sprintf("%s This has the advantage of much faster startup times and lower costs.", msg)
 		msg = fmt.Sprintf("%s However, if you are testing specific functionality relating to the control plane in the release version you provided or you require", msg)
 		msg = fmt.Sprintf("%s multiple worker nodes, please end abort this launch with `done` and launch a cluster using another platform such as `aws` or `gcp`", msg)
-		msg = fmt.Sprintf("%s (e.g. `launch 4.13 aws`).", msg)
+		msg = fmt.Sprintf("%s (e.g. `launch 4.13 aws`).\n\n", msg)
 	}
 
 	if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
