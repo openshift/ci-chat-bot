@@ -129,7 +129,7 @@ func fileTicket(event *slackevents.WorkflowStepExecuteEvent, parameters JiraIssu
 		return nil, fmt.Errorf("failed to render %s template: %w", parameters.Id, err)
 	}
 	logger := logrus.WithField("api", "events")
-	issue, err := filer.FileIssue(jira.IssueTypeBug, title, body.String(), reporter, logger)
+	issue, err := filer.FileIssue(parameters.IssueType, title, body.String(), reporter, logger)
 	if err != nil {
 		logger.WithError(err).Errorf("Failed to create %s Jira.", parameters.Id)
 		return nil, err
