@@ -37,7 +37,7 @@ const (
 	launchParameters            = "parameters"
 	launchVersion               = "version"
 	launchStepContext           = "context"
-	defaultPlatform             = "aws"
+	defaultPlatform             = "hypershift-hosted"
 	defaultArchitecture         = "amd64"
 	launchMode                  = "launch_mode"
 	launchModeVersion           = "version"
