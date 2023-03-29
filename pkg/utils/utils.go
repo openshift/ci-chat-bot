@@ -1,18 +1,28 @@
 package utils
 
 import (
+	"context"
 	"fmt"
+	"strings"
+	"time"
+
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"strings"
 )
 
-const CoreOSURL = "https://coreos.slack.com"
-
 var LaunchLabel = "ci-chat-bot.openshift.io/launch"
+
+const CoreOSURL = "https://coreos.slack.com"
+const UserTag = "ci-chat-bot/user"
+const ChannelTag = "ci-chat-bot/channel"
+const ExpiryTimeTag = "ci-chat-bot/expiry-time"
 
 type BuildClusterClientConfig struct {
 	CoreConfig        *rest.Config
@@ -106,4 +116,47 @@ func LoadKubeconfigFromFlagOrDefault(path string, def *rest.Config) (*rest.Confi
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}, &clientcmd.ConfigOverrides{},
 	).ClientConfig()
+}
+
+func UpdateSecret(name string, client v1.SecretInterface, fn func(*corev1.Secret)) error {
+	var updateSuccess bool
+	for i := 0; i < 10; i++ {
+		currentMap, err := client.Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				newMap := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: name,
+					},
+					Data: map[string][]byte{},
+				}
+				fn(newMap)
+				_, err := client.Create(context.TODO(), newMap, metav1.CreateOptions{})
+				if err != nil {
+					return fmt.Errorf("Failed to create `%s` configmap: %w", name, err)
+				}
+				return nil
+			}
+			return fmt.Errorf("Failed to update `%s` configmap: %w", name, err)
+		}
+		if currentMap.Data == nil {
+			currentMap.Data = map[string][]byte{}
+		}
+		fn(currentMap)
+		if _, err := client.Update(context.TODO(), currentMap, metav1.UpdateOptions{}); err != nil {
+			// just retry after 1 second wait on conflict
+			if errors.IsConflict(err) {
+				time.Sleep(time.Second)
+				continue
+			} else {
+				return fmt.Errorf("Failed to update `%s` configmap: %w", name, err)
+			}
+		}
+		updateSuccess = true
+		break
+	}
+	if !updateSuccess {
+		return fmt.Errorf("Failed to update `%s` configmap after 10 retries", name)
+	}
+	return nil
 }

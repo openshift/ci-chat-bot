@@ -1,0 +1,501 @@
+package manager
+
+import (
+	"crypto/rand"
+	"encoding/base64"
+	"fmt"
+	"math/big"
+	"net"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/openshift/ci-chat-bot/pkg/utils"
+
+	"github.com/openshift/rosa/pkg/arguments"
+	"github.com/openshift/rosa/pkg/aws"
+	"github.com/openshift/rosa/pkg/helper/roles"
+	"github.com/openshift/rosa/pkg/ocm"
+
+	awssdk "github.com/aws/aws-sdk-go/aws"
+	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
+	"github.com/openshift/oc/pkg/helpers/tokencmd"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/rest"
+	"k8s.io/klog"
+)
+
+var RosaClusterSecretName = "ci-chat-bot-rosa-clusters"
+
+const adminUsername = "cluster-admin"
+
+func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel string, duration time.Duration) (*clustermgmtv1.Cluster, string, error) {
+	clusterName, err := generateRandomString(15, true)
+	if err != nil {
+		return nil, "", fmt.Errorf("Failed to generate random name: %v", err)
+	}
+	versions := m.lookupRosaVersions(providedVersion)
+	if len(versions) == 0 {
+		return nil, "", fmt.Errorf("No supported openshift version for Rosa with prefix `%s` found", providedVersion)
+	}
+	rawVersion := versions[0]
+	var version string
+	// do this in an inline function to unlock rosaVersions mutex more quickly and ensure it is removed on error as well
+	if err := func() error {
+		m.rosaVersions.lock.RLock()
+		defer m.rosaVersions.lock.RUnlock()
+		version, err = m.rClient.OCMClient.ValidateVersion(rawVersion, m.rosaVersions.versions, ocm.DefaultChannelGroup, true, true)
+		return err
+	}(); err != nil {
+		return nil, "", err
+	}
+
+	minor := ocm.GetVersionMinor(version)
+	role := aws.AccountRoles[aws.InstallerAccountRole]
+
+	// Find all installer roles in the current account using AWS resource tags
+	foundRoleARNs, err := m.rClient.AWSClient.FindRoleARNs(aws.InstallerAccountRole, minor)
+	if err != nil {
+		return nil, "", fmt.Errorf("Failed to find %s role: %s", role.Name, err)
+	}
+	// TODO: this can be hardcoded when we have a permanent account set up
+	roleARN := foundRoleARNs[0]
+	// Prioritize roles with the default prefix
+	for _, rARN := range foundRoleARNs {
+		if strings.Contains(rARN, fmt.Sprintf("%s-%s-Role", aws.DefaultPrefix, role.Name)) {
+			roleARN = rARN
+		}
+	}
+	// Get role prefix
+	roleName, err := aws.GetResourceIdFromARN(roleARN)
+	if err != nil {
+		return nil, "", fmt.Errorf("Failed to find prefix from %s account role", role.Name)
+	}
+	rolePrefix := aws.TrimRoleSuffix(roleName, fmt.Sprintf("-%s-Role", role.Name))
+	klog.Infof("Using '%s' as the role prefix", rolePrefix)
+
+	// set up other ARNs
+	var supportRoleARN, controlPlaneRoleARN, workerRoleARN string
+	for roleType, role := range aws.AccountRoles {
+		if roleType == aws.InstallerAccountRole {
+			// Already dealt with
+			continue
+		}
+		if roleType == aws.ControlPlaneAccountRole {
+			// Not needed for Hypershift clusters
+			continue
+		}
+		roleARNs, err := m.rClient.AWSClient.FindRoleARNs(roleType, minor)
+		if err != nil {
+			return nil, "", fmt.Errorf("Failed to find %s role: %s", role.Name, err)
+		}
+		selectedARN := ""
+		expectedResourceIDForAccRole := strings.ToLower(fmt.Sprintf("%s-%s-Role", rolePrefix, role.Name))
+		for _, rARN := range roleARNs {
+			resourceId, err := aws.GetResourceIdFromARN(rARN)
+			if err != nil {
+				return nil, "", fmt.Errorf("Failed to get resource ID from arn. %s", err)
+			}
+			lowerCaseResourceIdToCheck := strings.ToLower(resourceId)
+			if lowerCaseResourceIdToCheck == expectedResourceIDForAccRole {
+				selectedARN = rARN
+				break
+			}
+		}
+		if selectedARN == "" {
+			return nil, "", fmt.Errorf("No %s account roles found.", role.Name)
+		}
+		switch roleType {
+		case aws.InstallerAccountRole:
+			roleARN = selectedARN
+		case aws.SupportAccountRole:
+			supportRoleARN = selectedARN
+		case aws.ControlPlaneAccountRole:
+			controlPlaneRoleARN = selectedARN
+		case aws.WorkerAccountRole:
+			workerRoleARN = selectedARN
+		}
+	}
+
+	// combine role arns to list
+	roleARNs := []string{
+		roleARN,
+		supportRoleARN,
+		controlPlaneRoleARN,
+		workerRoleARN,
+	}
+
+	if err := roles.ValidateUnmanagedAccountRoles(roleARNs, m.rClient.AWSClient, version); err != nil {
+		return nil, "", fmt.Errorf("Failed while validating account roles: %s", err)
+	}
+
+	operatorRolePath, _ := aws.GetPathFromARN(roleARN)
+	operatorIAMRoleList := []ocm.OperatorIAMRole{}
+	credRequests, err := m.rClient.OCMClient.GetCredRequests(true)
+	if err != nil {
+		return nil, "", fmt.Errorf("Error getting operator credential request from OCM %s", err)
+	}
+	for _, operator := range credRequests {
+		//If the cluster version is less than the supported operator version
+		if operator.MinVersion() != "" {
+			isSupported, err := ocm.CheckSupportedVersion(ocm.GetVersionMinor(version), operator.MinVersion())
+			if err != nil {
+				return nil, "", fmt.Errorf("Error validating operator role '%s' version %s", operator.Name(), err)
+			}
+			if !isSupported {
+				continue
+			}
+		}
+		operatorIAMRoleList = append(operatorIAMRoleList, ocm.OperatorIAMRole{
+			Name:      operator.Name(),
+			Namespace: operator.Namespace(),
+			RoleARN: aws.ComputeOperatorRoleArn(clusterName, operator,
+				m.rClient.Creator, operatorRolePath),
+		})
+
+	}
+
+	// Get AWS region
+	region, err := aws.GetRegion(arguments.GetRegion())
+	if err != nil {
+		return nil, "", fmt.Errorf("Error getting region: %v", err)
+	}
+	dMachineCIDR, dPodCIDR, dServiceCIDR, hostPrefix, computeMachineType := m.rClient.OCMClient.GetDefaultClusterFlavors("")
+	var machineCIDR, serviceCIDR, podCIDR net.IPNet
+	if dMachineCIDR != nil {
+		machineCIDR = *dMachineCIDR
+	}
+	if dServiceCIDR != nil {
+		serviceCIDR = *dServiceCIDR
+	}
+	if dPodCIDR != nil {
+		podCIDR = *dPodCIDR
+	}
+
+	// reloading updated subnets from a file is fast and not time sensitive, so we can just defer the unlock
+	m.rosaSubnets.Lock.RLock()
+	defer m.rosaSubnets.Lock.RUnlock()
+	// set subnets and identify correct availability zone for private subnet(s)
+	subnets, err := m.rClient.AWSClient.GetSubnetIDs()
+	if err != nil {
+		return nil, "", fmt.Errorf("Failed to get the list of subnets: %s", err)
+	}
+	availabilityZones := sets.NewString()
+	foundSubnets := 0
+	for _, subnet := range subnets {
+		if m.rosaSubnets.Subnets.Has(awssdk.StringValue(subnet.SubnetId)) {
+			availabilityZones.Insert(awssdk.StringValue(subnet.AvailabilityZone))
+			foundSubnets++
+		}
+	}
+	if foundSubnets != len(m.rosaSubnets.Subnets) {
+		return nil, "", fmt.Errorf("Only found %d subnets out of %d provided subnet IDs", foundSubnets, len(m.rosaSubnets.Subnets))
+	}
+
+	no := false
+	var expiryTime []byte
+	if duration == 0 {
+		expiryTime, err = time.Now().Add(m.defaultRosaAge).MarshalText()
+		if err != nil {
+			return nil, "", fmt.Errorf("Failed to marshal expiry time as text: %w", err)
+		}
+	} else {
+		expiryTime, err = time.Now().Add(duration).MarshalText()
+		if err != nil {
+			return nil, "", fmt.Errorf("Failed to marshal expiry time as text: %w", err)
+		}
+	}
+	clusterConfig := ocm.Spec{
+		Name:                clusterName,
+		Region:              region,
+		DryRun:              &no,
+		Version:             version,
+		ComputeMachineType:  computeMachineType,
+		MachineCIDR:         machineCIDR,
+		ServiceCIDR:         serviceCIDR,
+		PodCIDR:             podCIDR,
+		HostPrefix:          hostPrefix,
+		IsSTS:               true,
+		RoleARN:             roleARN,
+		SupportRoleARN:      supportRoleARN,
+		OperatorIAMRoles:    operatorIAMRoleList,
+		ControlPlaneRoleARN: controlPlaneRoleARN,
+		WorkerRoleARN:       workerRoleARN,
+		Mode:                aws.ModeAuto,
+		ComputeNodes:        2,
+		SubnetIds:           m.rosaSubnets.Subnets.UnsortedList(),
+		AvailabilityZones:   availabilityZones.UnsortedList(),
+		MultiAZ:             true, // required for Hypershift, even if we only configured 1 AZ
+		Hypershift: ocm.Hypershift{
+			Enabled: true,
+		},
+		Tags: map[string]string{
+			trimTagName(utils.LaunchLabel): "true",
+			utils.UserTag:                  slackID,
+			utils.ChannelTag:               slackChannel,
+			utils.ExpiryTimeTag:            base64.RawStdEncoding.EncodeToString([]byte(expiryTime)),
+		},
+	}
+
+	klog.Infof("Cluster Definition: %+v", clusterConfig)
+	klog.Infof("Creating rosa cluster %s", clusterName)
+	cluster, err := m.rClient.OCMClient.CreateCluster(clusterConfig)
+	if err != nil {
+		return nil, "", fmt.Errorf("Failed to create cluster: %s", err)
+	}
+
+	m.rosaClusters.lock.Lock()
+	// use an if statement in case the syncRosa function has already added the cluster to the list
+	if m.rosaClusters.clusters[cluster.ID()] == nil {
+		if m.rosaClusters.clusters == nil {
+			m.rosaClusters.clusters = map[string]*clustermgmtv1.Cluster{}
+		}
+		m.rosaClusters.clusters[cluster.ID()] = cluster
+	}
+
+	// add new cluster to configmap before creating operator-roles and oidc-provider
+	klog.Infof("Updating rosa clusters secret")
+	if err := utils.UpdateSecret(RosaClusterSecretName, m.rosaSecretClient, func(secret *corev1.Secret) {
+		secret.Data[cluster.ID()] = []byte("")
+	}); err != nil {
+		m.rosaClusters.lock.Unlock()
+		return cluster, "", fmt.Errorf("Failed to update `%s` secret to add cluster %s to list after 10 retries", RosaClusterSecretName, cluster.ID())
+	}
+	m.rosaClusters.lock.Unlock()
+	klog.Infof("Creating operator-roles and oidc-provider for cluster %s", cluster.ID())
+	rolesCMD := fmt.Sprintf("rosa create operator-roles --cluster %s --yes --mode auto", cluster.ID())
+	oidcCMD := fmt.Sprintf("rosa create oidc-provider --cluster %s --yes --mode auto", cluster.ID())
+	rolesOutput := exec.Command(strings.Split(rolesCMD, " ")[0], strings.Split(rolesCMD, " ")[1:]...)
+	klog.Infof("Running %s\n", rolesOutput.String())
+	if err := rolesOutput.Run(); err != nil {
+		return nil, "", fmt.Errorf("Failed to run command: %v", err)
+	}
+	oidcOutput := exec.Command(strings.Split(oidcCMD, " ")[0], strings.Split(oidcCMD, " ")[1:]...)
+	klog.Infof("Running %s\n", oidcOutput.String())
+	if err := oidcOutput.Run(); err != nil {
+		return nil, "", fmt.Errorf("Failed to run command: %v", err)
+	}
+	klog.Infof("Created rosa roles and oidc for %s", cluster.ID())
+	// update clusters list
+	go m.rosaSync() // nolint:errcheck
+	return cluster, version, nil
+}
+
+func (m *jobManager) deleteCluster(clusterID string) error {
+	klog.Infof("Deleting cluster '%s'", clusterID)
+	_, err := m.rClient.OCMClient.DeleteCluster(clusterID, m.rClient.Creator)
+	if err != nil {
+		return fmt.Errorf("%s", err)
+	}
+	klog.Infof("Cluster '%s' will start uninstalling now", clusterID)
+	return nil
+}
+
+func (m *jobManager) removeAssociatedAWSResources(clusterID string) error {
+	rolesCMD := fmt.Sprintf("rosa delete operator-roles --cluster %s --yes --mode auto", clusterID)
+	oidcCMD := fmt.Sprintf("rosa delete oidc-provider --cluster %s --yes --mode auto", clusterID)
+	rolesOutput := exec.Command(strings.Split(rolesCMD, " ")[0], strings.Split(rolesCMD, " ")[1:]...)
+	klog.Infof("Running %s\n", rolesOutput.String())
+	if err := rolesOutput.Run(); err != nil {
+		return fmt.Errorf("Failed to run command: %v", err)
+	}
+	oidcOutput := exec.Command(strings.Split(oidcCMD, " ")[0], strings.Split(oidcCMD, " ")[1:]...)
+	klog.Infof("Running %s\n", oidcOutput.String())
+	if err := oidcOutput.Run(); err != nil {
+		return fmt.Errorf("Failed to run command: %v", err)
+	}
+	klog.Infof("Deleted rosa roles and oidc for %s", clusterID)
+	return nil
+}
+
+// addClusterAuthAndWait is a wrapper for addClusterAuth that sleeps until the new auth is active
+func (m *jobManager) addClusterAuthAndWait(cluster *clustermgmtv1.Cluster) (bool, error) {
+	password, alreadyExists, err := m.addClusterAuth(cluster.ID())
+	if err != nil || alreadyExists {
+		return alreadyExists, err
+	}
+	clientConfig := rest.Config{
+		Host:     cluster.API().URL(),
+		Username: adminUsername,
+		Password: password,
+	}
+	authReady := false
+	for i := 0; i < 10; i++ {
+		if _, err := tokencmd.RequestToken(&clientConfig, nil, adminUsername, password); err != nil {
+			if errors.IsUnauthorized(err) {
+				klog.Infof("Cluster auth for %s not ready yet", cluster.ID())
+				time.Sleep(time.Minute)
+			} else {
+				return false, err
+			}
+		} else {
+			authReady = true
+			break
+		}
+	}
+	if !authReady {
+		return false, fmt.Errorf("Cluster auth never became ready")
+	}
+	klog.Infof("Cluster auth for %s became ready", cluster.ID())
+	// hosted clusters become ready and accept the new auth before the workers are done
+	// and a console URL exists. We should wait for the console to be ready.
+	for i := 0; i < 10; i++ {
+		updatedCluster, err := m.rClient.OCMClient.GetCluster(cluster.ID(), m.rClient.Creator)
+		if err != nil {
+			return false, err
+		}
+		if _, ok := updatedCluster.GetConsole(); ok {
+			klog.Infof("Console for %s became ready", cluster.ID())
+			return false, nil
+		}
+		klog.Infof("Console for %s not ready yet", cluster.ID())
+		time.Sleep(time.Minute)
+	}
+	return false, fmt.Errorf("Console URL never became available")
+}
+
+func (m *jobManager) addClusterAuth(clusterID string) (string, bool, error) {
+	// Try to find an existing htpasswd identity provider and
+	// check if cluster-admin user already exists
+	idps, err := m.rClient.OCMClient.GetIdentityProviders(clusterID)
+	if err != nil {
+		return "", false, fmt.Errorf("Failed to get identity providers for cluster '%s': %v", clusterID, err)
+	}
+
+	for _, item := range idps {
+		if ocm.IdentityProviderType(item) == ocm.HTPasswdIDPType {
+			return "", true, nil
+		}
+	}
+	password, err := generateRandomString(23, false)
+	if err != nil {
+		return "", false, fmt.Errorf("Failed to generate a random password: %w", err)
+	}
+
+	// Add cluster-admin user to the cluster-admins group
+	klog.Infof("Adding '%s' user to cluster '%s'", adminUsername, clusterID)
+	user, err := clustermgmtv1.NewUser().ID(adminUsername).Build()
+	if err != nil {
+		return "", false, fmt.Errorf("Failed to create user '%s' for cluster '%s'", adminUsername, clusterID)
+	}
+
+	_, err = m.rClient.OCMClient.CreateUser(clusterID, "cluster-admins", user)
+	if err != nil {
+		return "", false, fmt.Errorf("Failed to add user '%s' to cluster '%s': %s", adminUsername, clusterID, err)
+	}
+
+	klog.Infof("Adding 'htpasswd' idp to cluster '%s'", clusterID)
+	htpasswdIDP := clustermgmtv1.NewHTPasswdIdentityProvider().Users(clustermgmtv1.NewHTPasswdUserList().Items(
+		CreateHTPasswdUserBuilder(adminUsername, password),
+	))
+	newIDP, err := clustermgmtv1.NewIdentityProvider().
+		Type(clustermgmtv1.IdentityProviderTypeHtpasswd).
+		Name("htpasswd").
+		Htpasswd(htpasswdIDP).
+		Build()
+	if err != nil {
+		return "", false, fmt.Errorf("Failed to create 'htpasswd' identity provider for cluster '%s'", clusterID)
+	}
+
+	// Add HTPasswd IDP to cluster:
+	_, err = m.rClient.OCMClient.CreateIdentityProvider(clusterID, newIDP)
+	if err != nil {
+		//since we could not add the HTPasswd IDP to the cluster, roll back and remove the cluster admin
+		return "", false, fmt.Errorf("Failed to add 'htpasswd' identity provider to cluster '%s': %v", clusterID, err)
+	}
+
+	// update secret with new passwd
+	klog.Infof("Updating rosa clusters secret with password for %s", clusterID)
+	if err := utils.UpdateSecret(RosaClusterSecretName, m.rosaSecretClient, func(secret *corev1.Secret) {
+		secret.Data[clusterID] = []byte(password)
+	}); err != nil {
+		return "", false, fmt.Errorf("Failed to update `%s` secret to add cluster %s to list after 10 retries", RosaClusterSecretName, clusterID)
+	}
+	klog.Infof("Updated rosa clusters secret with password for %s", clusterID)
+	m.rosaClusters.lock.Lock()
+	defer m.rosaClusters.lock.Unlock()
+	if m.rosaClusters.clusterPasswords == nil {
+		m.rosaClusters.clusterPasswords = map[string]string{}
+	}
+	m.rosaClusters.clusterPasswords[clusterID] = password
+	return password, false, nil
+}
+
+func (m *jobManager) getROSAClusterForUser(username string) (*clustermgmtv1.Cluster, string) {
+	m.rosaClusters.lock.RLock()
+	defer m.rosaClusters.lock.RUnlock()
+	for _, cluster := range m.rosaClusters.clusters {
+		if cluster.State() != clustermgmtv1.ClusterStateUninstalling && cluster.AWS().Tags() != nil && cluster.AWS().Tags()[utils.UserTag] == username {
+			return cluster, m.rosaClusters.clusterPasswords[cluster.ID()]
+		}
+	}
+	return nil, ""
+}
+
+// based on github.com/openshift/rosa/cmd/create/admin/cmd.go
+func generateRandomString(length int, onlyLower bool) (string, error) {
+	const (
+		lowerLetters = "abcdefghijkmnopqrstuvwxyz"
+		upperLetters = "ABCDEFGHIJKLMNPQRSTUVWXYZ"
+		digits       = "23456789"
+	)
+	var all string
+	if onlyLower {
+		all = lowerLetters + digits
+	} else {
+		all = lowerLetters + upperLetters + digits
+	}
+	var password string
+	for i := 1; i < length-1; i++ {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(all))))
+		if err != nil {
+			return "", err
+		}
+		newchar := string(all[n.Int64()])
+		if password == "" {
+			password = newchar
+		}
+		n, err = rand.Int(rand.Reader, big.NewInt(int64(len(password)+1)))
+		if err != nil {
+			return "", err
+		}
+		j := n.Int64()
+		password = password[0:j] + newchar + password[j:]
+	}
+
+	// cluster names must start with letter
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(len(lowerLetters))))
+	if err != nil {
+		return "", err
+	}
+	password = string(lowerLetters[n.Int64()]) + password
+
+	pw := []rune(password)
+	for _, replace := range []int{5, 11, 17} {
+		// last character cannot be a `-`
+		if replace > len(password)-2 {
+			break
+		}
+		pw[replace] = '-'
+	}
+
+	return string(pw), nil
+}
+
+func CreateHTPasswdUserBuilder(username, password string) *clustermgmtv1.HTPasswdUserBuilder {
+	builder := clustermgmtv1.NewHTPasswdUser()
+	if username != "" {
+		builder = builder.Username(username)
+	}
+	if password != "" {
+		builder = builder.Password(password)
+	}
+	return builder
+}
+
+// trimTagName removes `.openshift.io` from a string to make it a usable tag for AWS
+func trimTagName(tagName string) string {
+	return strings.Replace(tagName, ".openshift.io", "", 1)
+}

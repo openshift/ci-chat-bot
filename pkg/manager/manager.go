@@ -3,6 +3,7 @@ package manager
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
+	"github.com/openshift/rosa/pkg/ocm"
+	"github.com/openshift/rosa/pkg/rosa"
 
 	"k8s.io/test-infra/prow/github"
 
@@ -26,13 +29,16 @@ import (
 
 	"github.com/blang/semver"
 
+	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	imagev1 "github.com/openshift/api/image/v1"
 	citools "github.com/openshift/ci-tools/pkg/api"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/dynamic"
-	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 )
 
@@ -85,7 +91,11 @@ func NewJobManager(
 	forcePROwner string,
 	workflowConfig *WorkflowConfig,
 	lClient LeaseClient,
-	configMapClient corev1.ConfigMapInterface,
+	hiveConfigMapClient typedcorev1.ConfigMapInterface,
+	rosaClient *rosa.Runtime,
+	rosaSecretClient typedcorev1.SecretInterface,
+	rosaSubnetList *RosaSubnets,
+	rosaClusterLimit int,
 ) *jobManager {
 	m := &jobManager{
 		requests:         make(map[string]*JobRequest),
@@ -106,21 +116,27 @@ func NewJobManager(
 
 		lClient: lClient,
 
-		configMapClient: configMapClient,
+		hiveConfigMapClient: hiveConfigMapClient,
+		rosaSecretClient:    rosaSecretClient,
+		rClient:             rosaClient,
+		maxRosaAge:          6 * time.Hour,
+		defaultRosaAge:      6 * time.Hour,
+		rosaSubnets:         rosaSubnetList,
+		rosaClusterLimit:    rosaClusterLimit,
 	}
 	m.muJob.running = make(map[string]struct{})
 	return m
 }
 
-func (m *jobManager) updateSupportedVersions() error {
-	if m.configMapClient == nil {
+func (m *jobManager) updateHypershiftSupportedVersions() error {
+	if m.hiveConfigMapClient == nil {
 		HypershiftSupportedVersions.Mu.Lock()
 		defer HypershiftSupportedVersions.Mu.Unlock()
 		// assume that current default release for chat-bot is supported
 		HypershiftSupportedVersions.Versions = sets.NewString(fmt.Sprintf("%d.%d", CurrentRelease.Major, CurrentRelease.Minor))
 		return nil
 	}
-	supportedVersionConfigMap, err := m.configMapClient.Get(context.TODO(), "supported-versions", metav1.GetOptions{})
+	supportedVersionConfigMap, err := m.hiveConfigMapClient.Get(context.TODO(), "supported-versions", metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -146,17 +162,60 @@ func (m *jobManager) updateSupportedVersions() error {
 	return nil
 }
 
+func (m *jobManager) updateRosaVersions() error {
+	vs, err := m.rClient.OCMClient.GetVersions(ocm.DefaultChannelGroup)
+	if err != nil {
+		return fmt.Errorf("Failed to retrieve versions: %s", err)
+	}
+
+	var versionList []string
+	for _, v := range vs {
+		// we only run in STS mode
+		if !ocm.HasSTSSupport(v.RawID(), v.ChannelGroup()) {
+			continue
+		}
+		valid, err := ocm.HasHostedCPSupport(v)
+		if err != nil {
+			return fmt.Errorf("failed to check HostedCP support: %v", err)
+		}
+		if !valid {
+			continue
+		}
+		versionList = append(versionList, v.RawID())
+	}
+
+	if len(versionList) == 0 {
+		return fmt.Errorf("Could not find versions for the provided channel-group: '%s'", ocm.DefaultChannelGroup)
+	}
+
+	m.rosaVersions.lock.Lock()
+	defer m.rosaVersions.lock.Unlock()
+	m.rosaVersions.versions = versionList
+	return nil
+}
+
 func (m *jobManager) Start() error {
+	m.started = time.Now()
 	go wait.Forever(func() {
 		if err := m.sync(); err != nil {
 			klog.Infof("error during sync: %v", err)
 			return
 		}
-		time.Sleep(5 * time.Minute)
-	}, time.Minute)
+	}, time.Minute*5)
 	go wait.Forever(func() {
-		if err := m.updateSupportedVersions(); err != nil {
+		if err := m.rosaSync(); err != nil {
+			klog.Infof("error during rosa sync: %v", err)
+			return
+		}
+	}, time.Minute*5)
+	go wait.Forever(func() {
+		if err := m.updateHypershiftSupportedVersions(); err != nil {
 			klog.Warningf("error during updateSupportedVersions: %v", err)
+		}
+	}, time.Minute*5)
+	go wait.Forever(func() {
+		if err := m.updateRosaVersions(); err != nil {
+			klog.Warningf("error during updateRosaVersions: %v", err)
 		}
 	}, time.Minute*5)
 	return nil
@@ -178,6 +237,124 @@ func paramsToString(params map[string]string) string {
 	return strings.Join(pairs, ",")
 }
 
+func (m *jobManager) rosaSync() error {
+	klog.Infof("Getting ROSA clusters")
+	clusterList, err := m.rClient.OCMClient.GetAllClusters(m.rClient.Creator)
+	if err != nil {
+		klog.Warningf("Failed to get clusters: %v", err)
+	}
+	klog.Infof("Found %d rosa clusters", len(clusterList))
+
+	m.rosaClusters.lock.RLock()
+	defer m.rosaClusters.lock.RUnlock()
+	clustersByID := map[string]*clustermgmtv1.Cluster{}
+	for _, cluster := range clusterList {
+		if cluster.AWS().Tags() == nil || cluster.AWS().Tags()[trimTagName(utils.LaunchLabel)] != "true" {
+			continue
+		}
+		previous := m.rosaClusters.clusters[cluster.ID()]
+
+		switch cluster.State() {
+		case clustermgmtv1.ClusterStateReady:
+			if previous == nil || previous.State() != cluster.State() {
+				go func() {
+					alreadyExists, err := m.addClusterAuthAndWait(cluster)
+					if err != nil {
+						klog.Errorf("Failed to add cluster auth: %v", err)
+					}
+					// don't renottify users on chat-bot restart
+					if !alreadyExists {
+						activeRosaIDs, err := m.rosaSecretClient.Get(context.TODO(), RosaClusterSecretName, metav1.GetOptions{})
+						if err != nil {
+							klog.Errorf("Failed to get `%s` secret: %v", RosaClusterSecretName, err)
+						}
+						// update cluster info to get console URL
+						updatedCluster, err := m.rClient.OCMClient.GetCluster(cluster.ID(), m.rClient.Creator)
+						if err != nil {
+							klog.Errorf("Failed to get updated cluster info after deletion call: %v", err)
+						} else {
+							cluster = updatedCluster
+						}
+						m.rosaNotifierFn(cluster, string(activeRosaIDs.Data[cluster.ID()]))
+						// update cluster list
+						go m.rosaSync() // nolint:errcheck
+					}
+				}()
+			}
+		case clustermgmtv1.ClusterStateError:
+			if previous == nil || previous.State() != cluster.State() {
+				klog.Infof("Reporting failure for cluster %s", cluster.ID())
+				m.rosaNotifierFn(cluster, "")
+				// TODO: should we immediately trigger a deletion?
+			}
+		}
+		expiryTime, err := base64.RawStdEncoding.DecodeString(cluster.AWS().Tags()[utils.ExpiryTimeTag])
+		if err != nil {
+			klog.Errorf("Failed to base64 decode expiry time tag: %v", err)
+		} else if parsedExpiryTime, err := time.Parse(time.RFC3339, string(expiryTime)); err == nil && parsedExpiryTime.Before(time.Now()) {
+			if err := m.deleteCluster(cluster.ID()); err != nil {
+				klog.Errorf("Failed to delete cluster %s due to expiry: %v", cluster.ID(), err)
+			}
+			updatedCluster, err := m.rClient.OCMClient.GetCluster(cluster.ID(), m.rClient.Creator)
+			if err != nil {
+				klog.Errorf("Failed to get updated cluster info after deletion call: %v", err)
+			} else {
+				cluster = updatedCluster
+			}
+		}
+		clustersByID[cluster.ID()] = cluster
+	}
+	klog.Infof("Found %d chat-bot owned rosa clusters", len(clustersByID))
+
+	activeRosaIDs, err := m.rosaSecretClient.Get(context.TODO(), RosaClusterSecretName, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	klog.Infof("Found %d entries in ROSA ID secret", len(activeRosaIDs.Data))
+
+	var toDelete []string
+	passwords := map[string]string{}
+	for id, password := range activeRosaIDs.Data {
+		if _, ok := clustersByID[id]; !ok {
+			toDelete = append(toDelete, id)
+		} else {
+			passwords[id] = string(password)
+		}
+	}
+
+	// temporarily use full lock to update cluster list
+	m.rosaClusters.lock.RUnlock()
+	m.rosaClusters.lock.Lock()
+	m.rosaClusters.clusters = clustersByID
+	m.rosaClusters.clusterPasswords = passwords
+	m.rosaClusters.lock.Unlock()
+	m.rosaClusters.lock.RLock()
+
+	var deletedEntries []string
+	var awsCleanupErrors []error
+	for _, id := range toDelete {
+		if err := m.removeAssociatedAWSResources(id); err != nil {
+			awsCleanupErrors = append(awsCleanupErrors, err)
+		} else {
+			deletedEntries = append(deletedEntries, id)
+		}
+	}
+
+	if len(deletedEntries) != 0 {
+		klog.Infof("Removing %d stale entries from rosa ID list", len(deletedEntries))
+		if err := utils.UpdateSecret(RosaClusterSecretName, m.rosaSecretClient, func(secret *corev1.Secret) {
+			for _, id := range deletedEntries {
+				klog.Infof("Removed %s from Rosa ID list", id)
+				delete(secret.Data, id)
+			}
+		}); err != nil {
+			return fmt.Errorf("Failed to update `%s` secret to remove stale clusters from list: %w", RosaClusterSecretName, err)
+		}
+	}
+
+	return utilerrors.NewAggregate(awsCleanupErrors)
+}
+
 func (m *jobManager) sync() error {
 	u, err := m.prowClient.Namespace(m.prowNamespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: labels.SelectorFromSet(labels.Set{
@@ -196,9 +373,6 @@ func (m *jobManager) sync() error {
 	defer m.lock.Unlock()
 
 	now := time.Now()
-	if m.started.IsZero() {
-		m.started = now
-	}
 
 	for _, job := range list.Items {
 		previous := m.jobs[job.Name]
@@ -351,15 +525,21 @@ func (m *jobManager) sync() error {
 			delete(m.requests, req.User)
 		}
 	}
-
 	klog.Infof("Job sync complete, %d jobs and %d requests", len(m.jobs), len(m.requests))
+
 	return nil
 }
 
 func (m *jobManager) SetNotifier(fn JobCallbackFunc) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.notifierFn = fn
+	m.jobNotifierFn = fn
+}
+
+func (m *jobManager) SetRosaNotifier(fn RosaCallbackFunc) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.rosaNotifierFn = fn
 }
 
 func (m *jobManager) estimateCompletion(requestedAt time.Time) time.Duration {
@@ -383,7 +563,7 @@ func (m *jobManager) estimateCompletion(requestedAt time.Time) time.Duration {
 	return lastEstimate.Truncate(time.Second)
 }
 
-func (m *jobManager) ListJobs(users []string, filters ListFilters) string {
+func (m *jobManager) ListJobs(user string, filters ListFilters) string {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -399,7 +579,7 @@ func (m *jobManager) ListJobs(users []string, filters ListFilters) string {
 			clusters = append(clusters, job)
 		} else {
 			totalJobs++
-			if utils.Contains(users, job.RequestedBy) {
+			if user == job.RequestedBy {
 				jobs = append(jobs, job)
 			}
 		}
@@ -521,8 +701,40 @@ func (m *jobManager) ListJobs(users []string, filters ListFilters) string {
 		fmt.Fprintf(buf, "\nThere are %d test jobs being run by the bot right now", len(jobs))
 	}
 
+	m.rosaClusters.lock.RLock()
+	defer m.rosaClusters.lock.RUnlock()
+	for _, cluster := range m.rosaClusters.clusters {
+		if cluster.AWS().Tags() != nil && cluster.AWS().Tags()[utils.UserTag] == user {
+			switch cluster.State() {
+			case clustermgmtv1.ClusterStateReady:
+				expiryTime, err := base64.RawStdEncoding.DecodeString(cluster.AWS().Tags()[utils.ExpiryTimeTag])
+				if err != nil {
+					klog.Errorf("Failed to base64 decode expiry time tag: %v", err)
+					fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is ready\n", user, cluster.Name())
+				} else if parsedExpiryTime, err := time.Parse(time.RFC3339, string(expiryTime)); err != nil {
+					klog.Errorf("Failed to parse expiry time: %v", err)
+					fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is ready\n", user, cluster.Name())
+				} else {
+					fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is ready and will be torn down in %d minutes\n", user, cluster.Name(), int(parsedExpiryTime.Sub(now)/time.Minute))
+				}
+			case clustermgmtv1.ClusterStateInstalling:
+				fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is starting; %d minutes have elapsed\n", user, cluster.Name(), int(time.Since(cluster.CreationTimestamp())/time.Minute))
+			case clustermgmtv1.ClusterStateError:
+				fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` has experienced an error. Please run `done` to delete the cluster before starting a new one\n", user, cluster.Name())
+			case clustermgmtv1.ClusterStateUninstalling:
+				fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is uninstalling\n", user, cluster.Name())
+			default:
+				fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` requested; %d minutes have elapsed\n", user, cluster.Name(), int(time.Since(cluster.CreationTimestamp())/time.Minute))
+			}
+		}
+	}
+
 	fmt.Fprintf(buf, "\nbot uptime is %.1f minutes", now.Sub(m.started).Seconds()/60)
 	return buf.String()
+}
+
+func (m *jobManager) GetROSACluster(user string) (*clustermgmtv1.Cluster, string) {
+	return m.getROSAClusterForUser(user)
 }
 
 func (m *jobManager) GetLaunchJob(user string) (*Job, error) {
@@ -1226,6 +1438,10 @@ func (m *jobManager) CheckValidJobConfiguration(req *JobRequest) error {
 }
 
 func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
+	if cluster, _ := m.getROSAClusterForUser(req.User); cluster != nil {
+		return "", fmt.Errorf("you have already requested a cluster via the `rosa create` command; %d minutes have elapsed", int(time.Since(cluster.CreationTimestamp())/time.Minute))
+	}
+
 	job, err := m.resolveToJob(req)
 	if err != nil {
 		return "", err
@@ -1446,6 +1662,16 @@ func (m *jobManager) clusterDetailsForUser(user string) (string, string, error) 
 }
 
 func (m *jobManager) TerminateJobForUser(user string) (string, error) {
+	if cluster, _ := m.getROSAClusterForUser(user); cluster != nil {
+		if err := m.deleteCluster(cluster.ID()); err != nil {
+			return "", fmt.Errorf("failed to terminate ROSA cluster `%s`: %v", cluster.ID(), err)
+		} else {
+			// resync clusters to update cluster state
+			go m.rosaSync() //nolint:errcheck
+			return fmt.Sprintf("Cluster `%s` successfully marked for deletion", cluster.Name()), nil
+		}
+	}
+
 	name, cluster, err := m.clusterDetailsForUser(user)
 	if err != nil {
 		return "", err
@@ -1560,8 +1786,8 @@ func (m *jobManager) finishedJob(job Job) {
 
 	if len(job.RequestedChannel) > 0 && len(job.RequestedBy) > 0 {
 		klog.Infof("Job %q complete, notify %q", job.Name, job.RequestedBy)
-		if m.notifierFn != nil {
-			go m.notifierFn(job)
+		if m.jobNotifierFn != nil {
+			go m.jobNotifierFn(job)
 		}
 	}
 
@@ -1591,4 +1817,57 @@ func (m *jobManager) finishJob(name string) {
 
 func UseSpotInstances(job *Job) bool {
 	return job.Mode == JobTypeLaunch && len(job.JobParams) == 0 && (job.Platform == "aws" || job.Platform == "aws-2")
+}
+
+func (m *jobManager) CreateRosaCluster(user, channel, version string, duration time.Duration) (string, error) {
+	if duration > m.maxRosaAge {
+		return "", fmt.Errorf("Max duration for a ROSA cluster is %s", m.maxRosaAge.String())
+	}
+	cluster, _ := m.getROSAClusterForUser(user)
+	if cluster != nil {
+		return "", fmt.Errorf("you have already requested a cluster; %d minutes have elapsed", int(time.Since(cluster.CreationTimestamp())/time.Minute))
+	}
+	m.lock.Lock()
+	if existing, ok := m.requests[user]; ok {
+		klog.Infof("user %q already requested cluster", user)
+		m.lock.Unlock()
+		return "", fmt.Errorf("you have already requested a cluster via the `launch` commaned and it should be ready in ~ %d minutes", m.estimateCompletion(existing.RequestedAt)/time.Minute)
+	}
+	m.lock.Unlock()
+	m.rosaClusters.lock.Lock()
+	if m.rosaClusterLimit != 0 && len(m.rosaClusters.clusters)+m.rosaClusters.pendingClusters >= m.rosaClusterLimit {
+		m.rosaClusters.lock.Unlock()
+		return "", errors.New("The maximum number of ROSA clusters has been reached. Please try again later.")
+	}
+	m.rosaClusters.pendingClusters++
+	m.rosaClusters.lock.Unlock()
+	defer func() { m.rosaClusters.lock.Lock(); m.rosaClusters.pendingClusters--; m.rosaClusters.lock.Unlock() }()
+	cluster, version, err := m.createRosaCluster(version, user, channel, duration)
+	if err != nil {
+		return "", fmt.Errorf("Failed to create cluster: %w", err)
+	}
+	return fmt.Sprintf("Created cluster `%s` with version `%s`.", cluster.Name(), version), nil
+}
+
+func (m *jobManager) lookupRosaVersions(prefix string) []string {
+	m.rosaVersions.lock.RLock()
+	defer m.rosaVersions.lock.RUnlock()
+	var matchedVersions []string
+	for _, rosaVersion := range m.rosaVersions.versions {
+		if strings.HasPrefix(rosaVersion, prefix) {
+			matchedVersions = append(matchedVersions, rosaVersion)
+		}
+	}
+	return matchedVersions
+}
+
+func (m *jobManager) LookupRosaInputs(versionPrefix string) (string, error) {
+	matchedVersions := m.lookupRosaVersions(versionPrefix)
+	if len(matchedVersions) == 0 {
+		return "", fmt.Errorf("No version with prefix `%s` found", versionPrefix)
+	} else if versionPrefix == "" {
+		return fmt.Sprintf("The following versions are supported: %v", matchedVersions), nil
+	} else {
+		return fmt.Sprintf("Found the following version with a prefix of `%s`: %v", versionPrefix, matchedVersions), nil
+	}
 }
