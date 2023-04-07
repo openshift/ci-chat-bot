@@ -439,14 +439,18 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	if job.Mode == JobTypeWorkflowLaunch || job.Mode == JobTypeWorkflowUpgrade {
 		// use "launch" test name to identify proper cluster profile
 		var profile citools.ClusterProfile
-		for _, test := range sourceConfig.Tests {
-			if test.As == "launch" {
-				profile = test.MultiStageTestConfiguration.ClusterProfile
-			}
-		}
 		environment := citools.TestEnvironment{}
 		for name, value := range job.JobParams {
 			environment[name] = value
+		}
+		for _, test := range sourceConfig.Tests {
+			if test.As == "launch" {
+				if val, exists := environment["CLUSTER_PROFILE"]; exists {
+					profile = citools.ClusterProfile(val)
+				} else {
+					profile = test.MultiStageTestConfiguration.ClusterProfile
+				}
+			}
 		}
 		test := citools.TestStepConfiguration{
 			As: "launch",
