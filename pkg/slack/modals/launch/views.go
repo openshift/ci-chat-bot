@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
@@ -33,7 +34,7 @@ func FirstStepView() slackClient.ModalViewRequest {
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  launchPlatform,
+				BlockID:  LaunchPlatform,
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: fmt.Sprintf("Platform (Default - %s)", defaultPlatform)},
 				Element: &slackClient.SelectBlockElement{
@@ -44,7 +45,7 @@ func FirstStepView() slackClient.ModalViewRequest {
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  launchArchitecture,
+				BlockID:  LaunchArchitecture,
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: fmt.Sprintf("Architecture (Default - %s)", defaultArchitecture)},
 				Element: &slackClient.SelectBlockElement{
@@ -57,25 +58,25 @@ func FirstStepView() slackClient.ModalViewRequest {
 	}
 }
 
-func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, httpclient *http.Client, data callbackData) slackClient.ModalViewRequest {
+func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, httpclient *http.Client, data CallbackData) slackClient.ModalViewRequest {
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
-	platform := data.context["platform"]
-	architecture := data.context[launchArchitecture]
-	prs, ok := data.input[launchFromPR]
+	platform := data.Context["platform"]
+	architecture := data.Context[LaunchArchitecture]
+	prs, ok := data.Input[LaunchFromPR]
 	if !ok {
 		prs = "None"
 	}
-	version, ok := data.input[launchFromLatestBuild]
+	version, ok := data.Input[LaunchFromLatestBuild]
 	if !ok {
-		version, ok = data.input[launchFromMajorMinor]
+		version, ok = data.Input[LaunchFromMajorMinor]
 		if !ok {
-			version, ok = data.input[launchFromStream]
+			version, ok = data.Input[LaunchFromStream]
 			if !ok {
-				version, ok = data.input[launchFromReleaseController]
+				version, ok = data.Input[launchFromReleaseController]
 				if !ok {
-					version, ok = data.input[launchFromCustom]
+					version, ok = data.Input[LaunchFromCustom]
 					if !ok {
 						_, version, _, _ = jobmanager.ResolveImageOrVersion("nightly", "", architecture)
 					}
@@ -105,7 +106,7 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  launchParameters,
+				BlockID:  LaunchParameters,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select one or more parameters for your cluster:"},
 				Optional: true,
 				Element: &slackClient.SelectBlockElement{
@@ -167,20 +168,20 @@ func SubmissionView(msg string) slackClient.ModalViewRequest {
 	}
 }
 
-func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, data callbackData) slackClient.ModalViewRequest {
+func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, data CallbackData) slackClient.ModalViewRequest {
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
-	platform, ok := data.input[launchPlatform]
+	platform, ok := data.Input[LaunchPlatform]
 	if !ok {
 		platform = defaultPlatform
 	}
-	architecture, ok := data.input[launchArchitecture]
+	architecture, ok := data.Input[LaunchArchitecture]
 	if !ok {
 		architecture = defaultArchitecture
 	}
 	metadata := fmt.Sprintf("Architecture: %s; Platform: %s", architecture, platform)
-	options := modals.BuildOptions([]string{launchModePRKey, launchModeVersionKey}, nil)
+	options := modals.BuildOptions([]string{LaunchModePRKey, LaunchModeVersionKey}, nil)
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: string(IdentifierRegisterLaunchMode),
@@ -199,7 +200,7 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 			},
 			&slackClient.InputBlock{
 				Type:    slackClient.MBTInput,
-				BlockID: launchMode,
+				BlockID: LaunchMode,
 				Label:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch the Cluster using:"},
 				Element: &slackClient.CheckboxGroupsBlockElement{
 					Type:    slackClient.METCheckboxGroups,
@@ -226,12 +227,26 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 	}
 }
 
-func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, data callbackData, httpclient *http.Client, mode sets.String) slackClient.ModalViewRequest {
+func FetchReleases(client *http.Client, architecture string) (map[string][]string, error) {
+	url := fmt.Sprintf("https://%s.ocp.releases.ci.openshift.org/api/v1/releasestreams/accepted", architecture)
+	acceptedReleases := make(map[string][]string, 0)
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if err := json.NewDecoder(resp.Body).Decode(&acceptedReleases); err != nil {
+		return nil, err
+	}
+	return acceptedReleases, nil
+}
+
+func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, data CallbackData, httpclient *http.Client, mode sets.String) slackClient.ModalViewRequest {
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
-	platform := data.context[launchPlatform]
-	architecture := data.context[launchArchitecture]
+	platform := data.Context[LaunchPlatform]
+	architecture := data.Context[LaunchArchitecture]
 	//launchMode := data.multipleSelection[launchMode]
 	_, nightly, _, err := jobmanager.ResolveImageOrVersion("nightly", "", architecture)
 	if err != nil {
@@ -241,7 +256,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	if err != nil {
 		ci = fmt.Sprintf("unable to find a release matching \"ci\" for %s", architecture)
 	}
-	releases, err := fetchReleases(httpclient, architecture)
+	releases, err := FetchReleases(httpclient, architecture)
 	if err != nil {
 		// TODO - return an error view, with a try again
 		klog.Warningf("failed to fetch the data from release controller: %s", err)
@@ -282,7 +297,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	sort.Strings(majorMinorReleases)
 	streamsOptions := modals.BuildOptions(streams, nil)
 	majorMinorOptions := modals.BuildOptions(majorMinorReleases, nil)
-	metadata := fmt.Sprintf("Architecture: %s;Platform: %s;%s: %s", architecture, platform, launchModeContext, strings.Join(mode.List(), ","))
+	metadata := fmt.Sprintf("Architecture: %s;Platform: %s;%s: %s", architecture, platform, LaunchModeContext, strings.Join(mode.List(), ","))
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: string(IdentifierFilterVersionView),
@@ -308,7 +323,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  launchFromStream,
+				BlockID:  LaunchFromStream,
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Specify the Stream:"},
 				Element: &slackClient.SelectBlockElement{
@@ -319,7 +334,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  launchFromMajorMinor,
+				BlockID:  LaunchFromMajorMinor,
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Specify the Major.Minor:"},
 				Element: &slackClient.SelectBlockElement{
@@ -341,7 +356,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  launchFromLatestBuild,
+				BlockID:  LaunchFromLatestBuild,
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "The latest build (nightly) or CI build:"},
 				Element: &slackClient.SelectBlockElement{
@@ -366,7 +381,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  launchFromCustom,
+				BlockID:  LaunchFromCustom,
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Enter a Custom Pull Spec:"},
 				Element: &slackClient.PlainTextInputBlockElement{
@@ -394,28 +409,28 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	}
 }
 
-func PRInputView(callback *slackClient.InteractionCallback, data callbackData) slackClient.ModalViewRequest {
+func PRInputView(callback *slackClient.InteractionCallback, data CallbackData) slackClient.ModalViewRequest {
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
-	platform := data.context[launchPlatform]
-	architecture := data.context[launchArchitecture]
-	mode := data.context[launchMode]
+	platform := data.Context[LaunchPlatform]
+	architecture := data.Context[LaunchArchitecture]
+	mode := data.Context[LaunchMode]
 	launchModeSplit := strings.Split(mode, ",")
 	launchWithVersion := false
 	for _, key := range launchModeSplit {
-		if strings.TrimSpace(key) == launchVersion {
+		if strings.TrimSpace(key) == LaunchVersion {
 			launchWithVersion = true
 		}
 	}
-	metadata := fmt.Sprintf("Architecture: %s; Platform: %s;%s: %s", architecture, platform, launchModeContext, mode)
+	metadata := fmt.Sprintf("Architecture: %s; Platform: %s;%s: %s", architecture, platform, LaunchModeContext, mode)
 	if launchWithVersion {
-		version := data.input[launchVersion]
+		version := data.Input[LaunchVersion]
 		if version == "" {
-			version = data.input[launchFromLatestBuild]
+			version = data.Input[LaunchFromLatestBuild]
 		}
 		if version == "" {
-			version = data.input[launchFromCustom]
+			version = data.Input[LaunchFromCustom]
 		}
 		metadata = fmt.Sprintf("%s;Version: %s", metadata, version)
 	}
@@ -437,7 +452,7 @@ func PRInputView(callback *slackClient.InteractionCallback, data callbackData) s
 			},
 			&slackClient.InputBlock{
 				Type:    slackClient.MBTInput,
-				BlockID: launchFromPR,
+				BlockID: LaunchFromPR,
 				Label:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Enter one or more PRs, separated by coma:"},
 				Element: &slackClient.PlainTextInputBlockElement{
 					Type:        slackClient.METPlainTextInput,
@@ -464,18 +479,18 @@ func PRInputView(callback *slackClient.InteractionCallback, data callbackData) s
 	}
 }
 
-func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, httpclient *http.Client, data callbackData) slackClient.ModalViewRequest {
+func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, httpclient *http.Client, data CallbackData) slackClient.ModalViewRequest {
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
 
-	platform := data.context[launchPlatform]
-	architecture := data.context[launchArchitecture]
-	mode := data.context[launchMode]
-	selectedStream := data.input[launchFromStream]
-	selectedMajonMinor := data.input[launchFromMajorMinor]
-	metadata := fmt.Sprintf("Architecture: %s; Platform: %s; %s: %s", architecture, platform, launchModeContext, mode)
-	releases, err := fetchReleases(httpclient, architecture)
+	platform := data.Context[LaunchPlatform]
+	architecture := data.Context[LaunchArchitecture]
+	mode := data.Context[LaunchMode]
+	selectedStream := data.Input[LaunchFromStream]
+	selectedMajonMinor := data.Input[LaunchFromMajorMinor]
+	metadata := fmt.Sprintf("Architecture: %s; Platform: %s; %s: %s", architecture, platform, LaunchModeContext, mode)
+	releases, err := FetchReleases(httpclient, architecture)
 	if err != nil {
 		// TODO - return an error view, with a try again
 		klog.Warningf("failed to fetch the data from release controller: %s", err)
@@ -515,7 +530,7 @@ func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  launchVersion,
+				BlockID:  LaunchVersion,
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select a version:"},
 				Element: &slackClient.SelectBlockElement{

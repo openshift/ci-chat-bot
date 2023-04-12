@@ -5,7 +5,7 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/done"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/launch"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/launch/steps"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/list"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/refresh"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/stepsFromApp"
@@ -24,12 +24,12 @@ func ForModals(client *slack.Client, jobmanager manager.JobManager, httpclient *
 	}
 
 	toRegister := []*modals.FlowWithViewAndFollowUps{
-		launch.RegisterFirstStep(client, jobmanager, httpclient),
-		launch.RegisterLaunchModeStep(client, jobmanager, httpclient),
-		launch.RegisterThirdStep(client, jobmanager, httpclient),
-		launch.RegisterSelectVersion(client, jobmanager, httpclient),
-		launch.RegisterFilterVersion(client, jobmanager, httpclient),
-		launch.RegisterPRInput(client, jobmanager, httpclient),
+		steps.RegisterFirstStep(client, jobmanager, httpclient),
+		steps.RegisterLaunchModeStep(client, jobmanager, httpclient),
+		steps.RegisterLaunchOptionsStep(client, jobmanager, httpclient),
+		steps.RegisterSelectVersion(client, jobmanager, httpclient),
+		steps.RegisterFilterVersion(client, jobmanager, httpclient),
+		steps.RegisterPRInput(client, jobmanager, httpclient),
 		list.Register(client, jobmanager),
 		done.Register(client, jobmanager),
 		refresh.Register(client, jobmanager),
