@@ -258,12 +258,25 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			}
 
 		}
-		streams = append(streams, stream)
+		if platform == "hypershift-hosted" {
+			for _, v := range manager.HypershiftSupportedVersions.Versions.List() {
+				if strings.HasPrefix(stream, v) || strings.Split(stream, "-")[1] == "dev" || strings.Split(stream, "-")[1] == "stable" {
+					streams = append(streams, stream)
+					break
+				}
+			}
+		} else {
+			streams = append(streams, stream)
+		}
+
 	}
 
 	var majorMinorReleases []string
 	for key := range majorMinor {
-		majorMinorReleases = append(majorMinorReleases, key)
+		if manager.HypershiftSupportedVersions.Versions.Has(key) || platform != "hypershift-hosted" {
+			majorMinorReleases = append(majorMinorReleases, key)
+		}
+
 	}
 	sort.Strings(streams)
 	sort.Strings(majorMinorReleases)
