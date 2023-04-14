@@ -39,6 +39,10 @@ func processNextSelectVersion(updater modals.ViewUpdater, jobmanager manager.Job
 				response, err := updater.UpdateView(view, "", "", callback.View.ID)
 				if err != nil {
 					logger.WithError(err).Warn("Failed to update a modal View.")
+					_, err := updater.UpdateView(launch.ErrorView(err.Error()), "", "", callback.View.ID)
+					if err != nil {
+						logger.WithError(err).Warn("Failed to update a modal View.")
+					}
 				}
 				logger.WithField("response", response).Trace("Got a modal response.")
 			}

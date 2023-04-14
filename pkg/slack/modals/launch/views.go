@@ -151,6 +151,22 @@ func PrepareNextStepView() *slackClient.ModalViewRequest {
 	}
 }
 
+func ErrorView(error string) slackClient.ModalViewRequest {
+	return slackClient.ModalViewRequest{
+		Type:  slackClient.VTModal,
+		Title: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch a Cluster"},
+		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
+			&slackClient.SectionBlock{
+				Type: slackClient.MBTSection,
+				Text: &slackClient.TextBlockObject{
+					Type: slackClient.MarkdownType,
+					Text: fmt.Sprintf("An error occured while peparing the next step. Please try to restart the Workflow.\nIf the issue persist, please contact #forum-crt.\nError details: %s", error),
+				},
+			},
+		}},
+	}
+}
+
 func SubmissionView(msg string) slackClient.ModalViewRequest {
 	return slackClient.ModalViewRequest{
 		Type:  slackClient.VTModal,
@@ -247,7 +263,6 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	}
 	platform := data.Context[LaunchPlatform]
 	architecture := data.Context[LaunchArchitecture]
-	//launchMode := data.multipleSelection[launchMode]
 	_, nightly, _, err := jobmanager.ResolveImageOrVersion("nightly", "", architecture)
 	if err != nil {
 		nightly = fmt.Sprintf("unable to find a release matching `nightly` for %s", architecture)
@@ -258,8 +273,8 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	}
 	releases, err := FetchReleases(httpclient, architecture)
 	if err != nil {
-		// TODO - return an error view, with a try again
 		klog.Warningf("failed to fetch the data from release controller: %s", err)
+		return ErrorView(err.Error())
 	}
 	var streams []string
 	majorMinor := make(map[string]bool, 0)

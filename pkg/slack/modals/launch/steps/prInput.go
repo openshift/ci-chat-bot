@@ -57,40 +57,48 @@ func processNextPRInput(updater modals.ViewUpdater, jobmanager manager.JobManage
 }
 
 func validatePRInputView(submissionData launch.CallbackData, jobmanager manager.JobManager) []byte {
-	// TODO - there must be a better way to validate here. Slack will wait for 3 seconds before timing out the view
-	// in case of a 404, this might take longer (I assume due to some retries). Maybe check with a 404 before validating the PR
 	prs, ok := submissionData.Input[launch.LaunchFromPR]
-	var prErrors []string
-	errors := make(map[string]string, 0)
-	if ok {
-		var wg sync.WaitGroup
-		prSlice := strings.Split(prs, ",")
-		wg.Add(len(prSlice))
-		for _, pr := range prSlice {
-			tmpPr := pr
-			go func() {
-				err := checkPR(&wg, tmpPr, jobmanager)
-				if err != nil {
-					prErrors = append(prErrors, err.Error())
-				}
-			}()
-		}
-		wg.Wait()
-		if len(prErrors) == 0 {
-			return nil
-		}
+	if !ok {
+		return nil
 	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error)
+
+	prSlice := strings.Split(prs, ",")
+	for _, pr := range prSlice {
+		wg.Add(1)
+		go func(pr string) {
+			defer wg.Done()
+			_, err := jobmanager.ResolveAsPullRequest(pr)
+			if err != nil {
+				errCh <- err
+			}
+		}(pr)
+	}
+
+	go func() {
+		wg.Wait()
+		close(errCh)
+	}()
+
+	errors := make(map[string]string)
+	var prErrors []string
+
+	for err := range errCh {
+		prErrors = append(prErrors, err.Error())
+	}
+
+	if len(prErrors) == 0 {
+		return nil
+	}
+
 	errors[launch.LaunchFromPR] = strings.Join(prErrors, "; ")
 	response, err := modals.ValidationError(errors)
 	if err != nil {
 		klog.Warningf("failed to build validation error: %v", err)
 		return nil
 	}
-	return response
-}
 
-func checkPR(wg *sync.WaitGroup, pr string, jobmanager manager.JobManager) error {
-	defer wg.Done()
-	_, err := jobmanager.ResolveAsPullRequest(pr)
-	return err
+	return response
 }
