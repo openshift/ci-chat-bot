@@ -30,6 +30,7 @@ func ForModals(client *slack.Client, jobmanager manager.JobManager, httpclient *
 		steps.RegisterSelectVersion(client, jobmanager, httpclient),
 		steps.RegisterFilterVersion(client, jobmanager, httpclient),
 		steps.RegisterPRInput(client, jobmanager, httpclient),
+		steps.RegisterSelectMinorMajor(client, jobmanager, httpclient),
 		list.Register(client, jobmanager),
 		done.Register(client, jobmanager),
 		refresh.Register(client, jobmanager),

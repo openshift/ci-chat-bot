@@ -8,7 +8,8 @@ const (
 	IdentifierPRInputView        modals.Identifier = "pr_input_view"
 	IdentifierFilterVersionView  modals.Identifier = "filter_version_view"
 	IdentifierRegisterLaunchMode modals.Identifier = "launch_mode_view"
-	IdentifierSelectVersion                        = "select_version"
+	IdentifierSelectVersion      modals.Identifier = "select_version"
+	IdentifierSelectMinorMajor   modals.Identifier = "select_minor_major"
 )
 
 const (

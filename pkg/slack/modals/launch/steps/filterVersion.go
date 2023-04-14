@@ -2,7 +2,6 @@ package steps
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
@@ -20,18 +19,13 @@ func RegisterFilterVersion(client *slack.Client, jobmanager manager.JobManager, 
 }
 
 func processNextFilterVersion(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
-	// TODO - validate the combination. Check the version from the release controller, and if it is empty, retrun an
-	// error, like: this combination this and that does not seem right, no version found.
-
-	// TODO - if a stream that has multiple major.minor versions is selected, enforce the selection of major.minor
-	// if a major.minor is selected without a stream name, enforce the stream name selection.
 	return interactions.HandlerFunc("launch3", func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		submissionData := launch.CallbackData{
 			Input:             modals.CallBackInputAll(callback),
 			Context:           callbackContext(callback),
 			MultipleSelection: modals.CallbackMultipleSelect(callback),
 		}
-		errorResponse := validateFilterVersion(submissionData, httpclient)
+		errorResponse := validateFilterVersion(submissionData)
 		if errorResponse != nil {
 			return errorResponse, nil
 		}
@@ -79,40 +73,38 @@ func processNextFilterVersion(updater modals.ViewUpdater, jobmanager manager.Job
 	})
 }
 
-func validateFilterVersion(submissionData launch.CallbackData, httpclient *http.Client) []byte {
-	errors := make(map[string]string, 0)
+func checkVariables(vars ...string) bool {
+	count := 0
+	for _, v := range vars {
+		if v != "" {
+			count++
+		}
+	}
+	if count > 1 {
+		return false
+	}
+	return true
+}
+
+func validateFilterVersion(submissionData launch.CallbackData) []byte {
+	errs := make(map[string]string, 0)
 	nightlyOrCi := submissionData.Input[launch.LaunchFromLatestBuild]
+	if nightlyOrCi != "" {
+		errs[launch.LaunchFromLatestBuild] = "Select only one parameter!"
+	}
 	customBuild := submissionData.Input[launch.LaunchFromCustom]
-	if nightlyOrCi != "" && customBuild != "" {
-		errors[launch.LaunchFromCustom] = "Chose either one or the other parameter!"
-		errors[launch.LaunchFromLatestBuild] = "Chose either one or the other parameter!"
-		response, err := modals.ValidationError(errors)
+	if customBuild != "" {
+		errs[launch.LaunchFromCustom] = "Select only one parameter!"
+	}
+	selectedStream := submissionData.Input[launch.LaunchFromStream]
+	if selectedStream != "" {
+		errs[launch.LaunchFromStream] = "Select only one parameter!"
+	}
+	if !checkVariables(nightlyOrCi, customBuild, selectedStream) {
+		response, err := modals.ValidationError(errs)
 		if err == nil {
 			return response
 		}
-	}
-	if nightlyOrCi != "" || customBuild != "" {
-		return nil
-	}
-	architecture := submissionData.Context[launch.LaunchArchitecture]
-	selectedStream := submissionData.Input[launch.LaunchFromStream]
-	selectedMajorMinor := submissionData.Input[launch.LaunchFromMajorMinor]
-	releases, _ := launch.FetchReleases(httpclient, architecture)
-	for stream, tags := range releases {
-		if stream == selectedStream {
-			for _, tag := range tags {
-				if strings.HasPrefix(tag, selectedMajorMinor) {
-					return nil
-				}
-			}
-		}
-	}
-	message := fmt.Sprintf("Can't find any tags with this combination (Stream: %s, Major.Minor: %s)!", selectedStream, selectedMajorMinor)
-	errors[launch.LaunchFromMajorMinor] = message
-	errors[launch.LaunchFromStream] = message
-	response, err := modals.ValidationError(errors)
-	if err == nil {
-		return response
 	}
 	return nil
 }

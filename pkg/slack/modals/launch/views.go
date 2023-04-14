@@ -13,6 +13,20 @@ import (
 	"strings"
 )
 
+func FetchReleases(client *http.Client, architecture string) (map[string][]string, error) {
+	url := fmt.Sprintf("https://%s.ocp.releases.ci.openshift.org/api/v1/releasestreams/accepted", architecture)
+	acceptedReleases := make(map[string][]string, 0)
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if err := json.NewDecoder(resp.Body).Decode(&acceptedReleases); err != nil {
+		return nil, err
+	}
+	return acceptedReleases, nil
+}
+
 func FirstStepView() slackClient.ModalViewRequest {
 	platformOptions := modals.BuildOptions(manager.SupportedPlatforms, nil)
 	architectureOptions := modals.BuildOptions(manager.SupportedArchitectures, nil)
@@ -62,7 +76,7 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
-	platform := data.Context["platform"]
+	platform := data.Context[LaunchPlatform]
 	architecture := data.Context[LaunchArchitecture]
 	prs, ok := data.Input[LaunchFromPR]
 	if !ok {
@@ -243,20 +257,6 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 	}
 }
 
-func FetchReleases(client *http.Client, architecture string) (map[string][]string, error) {
-	url := fmt.Sprintf("https://%s.ocp.releases.ci.openshift.org/api/v1/releasestreams/accepted", architecture)
-	acceptedReleases := make(map[string][]string, 0)
-	resp, err := client.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if err := json.NewDecoder(resp.Body).Decode(&acceptedReleases); err != nil {
-		return nil, err
-	}
-	return acceptedReleases, nil
-}
-
 func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, data CallbackData, httpclient *http.Client, mode sets.String) slackClient.ModalViewRequest {
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
@@ -277,17 +277,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 		return ErrorView(err.Error())
 	}
 	var streams []string
-	majorMinor := make(map[string]bool, 0)
-	for stream, tags := range releases {
-		if strings.HasPrefix(stream, stableReleasesPrefix) {
-			for _, tag := range tags {
-				splitTag := strings.Split(tag, ".")
-				if len(splitTag) >= 2 {
-					majorMinor[fmt.Sprintf("%s.%s", splitTag[0], splitTag[1])] = true
-				}
-			}
-
-		}
+	for stream := range releases {
 		if platform == "hypershift-hosted" {
 			for _, v := range manager.HypershiftSupportedVersions.Versions.List() {
 				if strings.HasPrefix(stream, v) || strings.Split(stream, "-")[1] == "dev" || strings.Split(stream, "-")[1] == "stable" {
@@ -301,17 +291,8 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 
 	}
 
-	var majorMinorReleases []string
-	for key := range majorMinor {
-		if manager.HypershiftSupportedVersions.Versions.Has(key) || platform != "hypershift-hosted" {
-			majorMinorReleases = append(majorMinorReleases, key)
-		}
-
-	}
 	sort.Strings(streams)
-	sort.Strings(majorMinorReleases)
 	streamsOptions := modals.BuildOptions(streams, nil)
-	majorMinorOptions := modals.BuildOptions(majorMinorReleases, nil)
 	metadata := fmt.Sprintf("Architecture: %s;Platform: %s;%s: %s", architecture, platform, LaunchModeContext, strings.Join(mode.List(), ","))
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
@@ -333,7 +314,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 				Type: slackClient.MBTSection,
 				Text: &slackClient.TextBlockObject{
 					Type: slackClient.MarkdownType,
-					Text: "*To get a list of versions to select from, specify the _stream_ and/or _major.minor_*\nIf the *_stable_* stream is selected, please specify the *_major.minor_* as well.\nFor any other *_streams_*, you may omit the major.minor",
+					Text: "*Specify the _stream_ to get a list of versions to select from*",
 				},
 			},
 			&slackClient.InputBlock{
@@ -345,17 +326,6 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 					Type:        slackClient.OptTypeStatic,
 					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an entry..."},
 					Options:     streamsOptions,
-				},
-			},
-			&slackClient.InputBlock{
-				Type:     slackClient.MBTInput,
-				BlockID:  LaunchFromMajorMinor,
-				Optional: true,
-				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Specify the Major.Minor:"},
-				Element: &slackClient.SelectBlockElement{
-					Type:        slackClient.OptTypeStatic,
-					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an entry..."},
-					Options:     majorMinorOptions,
 				},
 			},
 			&slackClient.DividerBlock{
@@ -503,23 +473,29 @@ func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	architecture := data.Context[LaunchArchitecture]
 	mode := data.Context[LaunchMode]
 	selectedStream := data.Input[LaunchFromStream]
-	selectedMajonMinor := data.Input[LaunchFromMajorMinor]
+	if selectedStream == "" {
+		selectedStream = data.Context[LaunchFromStream]
+	}
+	selectedMajorMinor := data.Input[LaunchFromMajorMinor]
 	metadata := fmt.Sprintf("Architecture: %s; Platform: %s; %s: %s", architecture, platform, LaunchModeContext, mode)
 	releases, err := FetchReleases(httpclient, architecture)
 	if err != nil {
-		// TODO - return an error view, with a try again
 		klog.Warningf("failed to fetch the data from release controller: %s", err)
+		return ErrorView(err.Error())
 	}
 	var allTags []string
 	for stream, tags := range releases {
 		if stream == selectedStream {
 			for _, tag := range tags {
-				if strings.HasPrefix(tag, selectedMajonMinor) {
+				if strings.HasPrefix(tag, selectedMajorMinor) {
 					allTags = append(allTags, tag)
 				}
 			}
 
 		}
+	}
+	if len(allTags) > 99 {
+		return SelectMinorMajor(callback, httpclient, data)
 	}
 	//sort.Strings(allTags)
 	allTagsOptions := modals.BuildOptions(allTags, nil)
@@ -552,6 +528,105 @@ func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager man
 					Type:        slackClient.OptTypeStatic,
 					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an entry..."},
 					Options:     allTagsOptions,
+				},
+			},
+			&slackClient.DividerBlock{
+				Type:    slackClient.MBTDivider,
+				BlockID: "context_divider",
+			},
+			&slackClient.ContextBlock{
+				Type:    slackClient.MBTContext,
+				BlockID: launchStepContext,
+				ContextElements: slackClient.ContextElements{Elements: []slackClient.MixedElement{
+					&slackClient.TextBlockObject{
+						Type:     slackClient.PlainTextType,
+						Text:     metadata,
+						Emoji:    false,
+						Verbatim: false,
+					},
+				}},
+			},
+		}},
+	}
+}
+
+func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *http.Client, data CallbackData) slackClient.ModalViewRequest {
+	if callback == nil {
+		return slackClient.ModalViewRequest{}
+	}
+
+	platform := data.Context[LaunchPlatform]
+	architecture := data.Context[LaunchArchitecture]
+	mode := data.Context[LaunchMode]
+	selectedStream := data.Input[LaunchFromStream]
+	metadata := fmt.Sprintf("Architecture: %s; Platform: %s; %s: %s; %s: %s", architecture, platform, LaunchModeContext, mode, LaunchFromStream, selectedStream)
+	releases, err := FetchReleases(httpclient, architecture)
+	if err != nil {
+		klog.Warningf("failed to fetch the data from release controller: %s", err)
+		return ErrorView(err.Error())
+	}
+	var allTags []string
+	for stream, tags := range releases {
+		if stream == selectedStream {
+			for _, tag := range tags {
+				allTags = append(allTags, tag)
+			}
+		}
+	}
+
+	majorMinor := make(map[string]bool, 0)
+	for stream, tags := range releases {
+		if stream != selectedStream {
+			continue
+		}
+		if strings.HasPrefix(stream, stableReleasesPrefix) {
+			for _, tag := range tags {
+				splitTag := strings.Split(tag, ".")
+				if len(splitTag) >= 2 {
+					majorMinor[fmt.Sprintf("%s.%s", splitTag[0], splitTag[1])] = true
+				}
+			}
+
+		}
+	}
+	var majorMinorReleases []string
+	for key := range majorMinor {
+		if manager.HypershiftSupportedVersions.Versions.Has(key) || platform != "hypershift-hosted" {
+			majorMinorReleases = append(majorMinorReleases, key)
+		}
+
+	}
+	sort.Strings(majorMinorReleases)
+	majorMinorOptions := modals.BuildOptions(majorMinorReleases, nil)
+	return slackClient.ModalViewRequest{
+		Type:            slackClient.VTModal,
+		PrivateMetadata: string(IdentifierSelectMinorMajor),
+		Title:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch a Cluster"},
+		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
+		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Next"},
+		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
+			&slackClient.HeaderBlock{
+				Type: slackClient.MBTHeader,
+				Text: &slackClient.TextBlockObject{
+					Type:     slackClient.PlainTextType,
+					Text:     "There are to many results from the selected Stream. Select a Minor.Major as well",
+					Emoji:    false,
+					Verbatim: false,
+				},
+			},
+			&slackClient.DividerBlock{
+				Type:    slackClient.MBTDivider,
+				BlockID: "divider",
+			},
+			&slackClient.InputBlock{
+				Type:     slackClient.MBTInput,
+				BlockID:  LaunchFromMajorMinor,
+				Optional: true,
+				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Specify the Major.Minor:"},
+				Element: &slackClient.SelectBlockElement{
+					Type:        slackClient.OptTypeStatic,
+					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an entry..."},
+					Options:     majorMinorOptions,
 				},
 			},
 			&slackClient.DividerBlock{

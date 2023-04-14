@@ -35,6 +35,8 @@ func callbackContext(callback *slack.InteractionCallback) map[string]string {
 			contextMap[launch.LaunchFromPR] = value
 		case strings.ToLower(launch.LaunchModeContext):
 			contextMap[launch.LaunchMode] = value
+		case strings.ToLower(launch.LaunchFromStream):
+			contextMap[launch.LaunchFromStream] = value
 		}
 	}
 	return contextMap
