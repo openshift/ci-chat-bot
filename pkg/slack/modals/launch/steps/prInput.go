@@ -8,7 +8,7 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/launch"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
-	"k8s.io/klog/v2"
+	"k8s.io/klog"
 	"net/http"
 	"strings"
 	"sync"
