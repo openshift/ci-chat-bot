@@ -2,6 +2,7 @@ package steps
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
@@ -70,7 +71,10 @@ func validatePRInputView(submissionData launch.CallbackData, jobmanager manager.
 		wg.Add(1)
 		go func(pr string) {
 			defer wg.Done()
-			_, err := jobmanager.ResolveAsPullRequest(pr)
+			prParts, err := jobmanager.ResolveAsPullRequest(pr)
+			if prParts == nil {
+				errCh <- fmt.Errorf("invalid PR(s)")
+			}
 			if err != nil {
 				errCh <- err
 			}
