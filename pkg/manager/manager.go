@@ -248,7 +248,8 @@ func (m *jobManager) rosaSync() error {
 	m.rosaClusters.lock.RLock()
 	defer m.rosaClusters.lock.RUnlock()
 	clustersByID := map[string]*clustermgmtv1.Cluster{}
-	for _, cluster := range clusterList {
+	for idx := range clusterList {
+		cluster := clusterList[idx]
 		if cluster.AWS().Tags() == nil || cluster.AWS().Tags()[trimTagName(utils.LaunchLabel)] != "true" {
 			continue
 		}
@@ -278,6 +279,8 @@ func (m *jobManager) rosaSync() error {
 						m.rosaNotifierFn(cluster, string(activeRosaIDs.Data[cluster.ID()]))
 						// update cluster list
 						go m.rosaSync() // nolint:errcheck
+					} else {
+						klog.Infof("Cluster %s has existing auth; will not notify user", cluster.ID())
 					}
 				}()
 			}
