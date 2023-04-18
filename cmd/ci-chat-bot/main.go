@@ -108,7 +108,7 @@ func run() error {
 	pflag.StringVar(&opt.leaseServer, "lease-server", citools.URLForService(citools.ServiceBoskos), "Address of the server that manages leases. Used to identify accounts with more available leases.")
 	pflag.StringVar(&opt.leaseServerCredentialsFile, "lease-server-credentials-file", "", "The path to credentials file used to access the lease server. The content is of the form <username>:<password>.")
 	pflag.StringVar(&opt.overrideLaunchLabel, "override-launch-label", "", "Override the default launch label for jobs. Used for local debugging.")
-	pflag.StringVar(&opt.overrideRosaSecretName, "override-rosa-secret-name", "", "Override the default secert name for rosa cluster tracking. Used for local debugging.")
+	pflag.StringVar(&opt.overrideRosaSecretName, "override-rosa-secret-name", "", "Override the default secret name for rosa cluster tracking. Used for local debugging.")
 	pflag.IntVar(&opt.rosaClusterLimit, "rosa-cluster-limit", 15, "Maximum number of ROSA clusters that can exist at the same time. Set to 0 for no limit.")
 	pflag.StringVar(&opt.rosaSubnetListPath, "rosa-subnetlist-path", "", "Path to list of comma-separated subnets to use for ROSA hosted clusters.")
 
