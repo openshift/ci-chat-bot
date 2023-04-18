@@ -14,7 +14,6 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	botversion "github.com/openshift/ci-chat-bot/pkg/version"
-	"github.com/openshift/rosa/pkg/rosa"
 
 	"k8s.io/test-infra/pkg/flagutil"
 	"k8s.io/test-infra/prow/config/secret"
@@ -37,7 +36,6 @@ import (
 	"github.com/openshift/ci-tools/pkg/lease"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 	configflagutil "k8s.io/test-infra/prow/flagutil/config"
 )
@@ -57,10 +55,7 @@ type options struct {
 	leaseServerCredentialsFile string
 	leaseClient                manager.LeaseClient
 
-	rosaClusterLimit       int
-	rosaSubnetListPath     string
-	overrideLaunchLabel    string
-	overrideRosaSecretName string
+	overrideLaunchLabel string
 
 	jiraOptions prowflagutil.JiraOptions
 }
@@ -108,9 +103,6 @@ func run() error {
 	pflag.StringVar(&opt.leaseServer, "lease-server", citools.URLForService(citools.ServiceBoskos), "Address of the server that manages leases. Used to identify accounts with more available leases.")
 	pflag.StringVar(&opt.leaseServerCredentialsFile, "lease-server-credentials-file", "", "The path to credentials file used to access the lease server. The content is of the form <username>:<password>.")
 	pflag.StringVar(&opt.overrideLaunchLabel, "override-launch-label", "", "Override the default launch label for jobs. Used for local debugging.")
-	pflag.StringVar(&opt.overrideRosaSecretName, "override-rosa-secret-name", "", "Override the default secret name for rosa cluster tracking. Used for local debugging.")
-	pflag.IntVar(&opt.rosaClusterLimit, "rosa-cluster-limit", 15, "Maximum number of ROSA clusters that can exist at the same time. Set to 0 for no limit.")
-	pflag.StringVar(&opt.rosaSubnetListPath, "rosa-subnetlist-path", "", "Path to list of comma-separated subnets to use for ROSA hosted clusters.")
 
 	opt.prowconfig.AddFlags(emptyFlags)
 	opt.GitHubOptions.AddFlags(emptyFlags)
@@ -127,14 +119,12 @@ func run() error {
 	if opt.overrideLaunchLabel != "" {
 		utils.LaunchLabel = opt.overrideLaunchLabel
 	}
-	if opt.overrideRosaSecretName != "" {
-		manager.RosaClusterSecretName = opt.overrideRosaSecretName
-	}
 
-	if err := opt.KubernetesOptions.AddKubeconfigChangeCallback(func() {
+	err := opt.KubernetesOptions.AddKubeconfigChangeCallback(func() {
 		klog.Infof("received kubeconfig changed event, exiting to make the kubelet restart us so we can pick them up")
 		os.Exit(0)
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("failed to set up kubeconfig watches: %w", err)
 	}
 	kubeConfigs, err := opt.KubernetesOptions.LoadClusterConfigs()
@@ -181,11 +171,6 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("unable to create image client: %w", err)
 	}
-	releaseClient, err := corev1.NewForConfig(prowJobKubeconfig)
-	if err != nil {
-		return fmt.Errorf("unabel to create release client: %w", err)
-	}
-	rosaSecretClient := releaseClient.Secrets("ci")
 	// Config and Client to access hypershift configmaps
 	var hiveConfigMapClient corev1.ConfigMapInterface
 	if config, ok := kubeConfigs["hive"]; ok {
@@ -229,29 +214,7 @@ func run() error {
 		klog.Warningf("Failed to load lease client. Will not distribute jobs across secondary accounts. Error: %v", err)
 	}
 
-	// ROSA setup
-	rosaClient := rosa.NewRuntime().WithAWS().WithOCM()
-	defer rosaClient.Cleanup()
-
-	rosaSubnets := manager.RosaSubnets{}
-	go manageRosaSubnetList(opt.rosaSubnetListPath, &rosaSubnets)
-
-	jobManager := manager.NewJobManager(
-		configAgent,
-		resolver,
-		prowClient,
-		imageClient,
-		buildClusterClientConfigs,
-		ghClient,
-		opt.ForcePROwner,
-		&workflows,
-		opt.leaseClient,
-		hiveConfigMapClient,
-		rosaClient,
-		rosaSecretClient,
-		&rosaSubnets,
-		opt.rosaClusterLimit,
-	)
+	jobManager := manager.NewJobManager(configAgent, resolver, prowClient, imageClient, buildClusterClientConfigs, ghClient, opt.ForcePROwner, &workflows, opt.leaseClient, hiveConfigMapClient)
 	if err := jobManager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %w", err)
 	}
@@ -293,20 +256,6 @@ func processKubeConfigs(kubeConfigs map[string]rest.Config) (utils.BuildClusterC
 		}
 	}
 	return clusterMap, nil
-}
-
-func manageRosaSubnetList(path string, subnetList *manager.RosaSubnets) {
-	for {
-		subnetsRaw, err := os.ReadFile(path)
-		if err != nil {
-			klog.Errorf("Failed to read %s: %v", path, err)
-		}
-		newSubnets := sets.NewString(strings.Split(string(subnetsRaw), ",")...)
-		subnetList.Lock.Lock()
-		subnetList.Subnets = newSubnets
-		subnetList.Lock.Unlock()
-		time.Sleep(2 * time.Minute)
-	}
 }
 
 func manageWorkflowConfig(path string, workflows *manager.WorkflowConfig) {

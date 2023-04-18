@@ -3,7 +3,6 @@ package s3
 import (
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"net/url"
 	"strings"
 
@@ -156,9 +155,8 @@ func endpointHandler(req *request.Request) {
 		}
 	case arn.OutpostAccessPointARN:
 		// outposts does not support FIPS regions
-		if req.Config.UseFIPSEndpoint == endpoints.FIPSEndpointStateEnabled {
-			req.Error = s3shared.NewFIPSConfigurationError(resource, req.ClientInfo.PartitionID,
-				aws.StringValue(req.Config.Region), nil)
+		if resReq.ResourceConfiguredForFIPS() {
+			req.Error = s3shared.NewInvalidARNWithFIPSError(resource, nil)
 			return
 		}
 
@@ -203,7 +201,7 @@ func updateRequestAccessPointEndpoint(req *request.Request, accessPoint arn.Acce
 
 func updateRequestS3ObjectLambdaAccessPointEndpoint(req *request.Request, accessPoint arn.S3ObjectLambdaAccessPointARN) error {
 	// DualStack not supported
-	if isUseDualStackEndpoint(req) {
+	if aws.BoolValue(req.Config.UseDualStack) {
 		return s3shared.NewClientConfiguredForDualStackError(accessPoint,
 			req.ClientInfo.PartitionID, aws.StringValue(req.Config.Region), nil)
 	}
@@ -234,7 +232,7 @@ func updateRequestOutpostAccessPointEndpoint(req *request.Request, accessPoint a
 	}
 
 	// Dualstack not supported
-	if isUseDualStackEndpoint(req) {
+	if aws.BoolValue(req.Config.UseDualStack) {
 		return s3shared.NewClientConfiguredForDualStackError(accessPoint,
 			req.ClientInfo.PartitionID, aws.StringValue(req.Config.Region), nil)
 	}
@@ -259,7 +257,7 @@ func removeBucketFromPath(u *url.URL) {
 
 func buildWriteGetObjectResponseEndpoint(req *request.Request) {
 	// DualStack not supported
-	if isUseDualStackEndpoint(req) {
+	if aws.BoolValue(req.Config.UseDualStack) {
 		req.Error = awserr.New("ConfigurationError", "client configured for dualstack but not supported for operation", nil)
 		return
 	}
@@ -274,7 +272,7 @@ func buildWriteGetObjectResponseEndpoint(req *request.Request) {
 	signingRegion := req.ClientInfo.SigningRegion
 
 	if !hasCustomEndpoint(req) {
-		endpoint, err := resolveRegionalEndpoint(req, aws.StringValue(req.Config.Region), req.ClientInfo.ResolvedRegion, EndpointsID)
+		endpoint, err := resolveRegionalEndpoint(req, aws.StringValue(req.Config.Region), EndpointsID)
 		if err != nil {
 			req.Error = awserr.New(request.ErrCodeSerialization, "failed to resolve endpoint", err)
 			return
@@ -289,11 +287,4 @@ func buildWriteGetObjectResponseEndpoint(req *request.Request) {
 	}
 
 	redirectSigner(req, signingName, signingRegion)
-}
-
-func isUseDualStackEndpoint(req *request.Request) bool {
-	if req.Config.UseDualStackEndpoint != endpoints.DualStackEndpointStateUnset {
-		return req.Config.UseDualStackEndpoint == endpoints.DualStackEndpointStateEnabled
-	}
-	return aws.BoolValue(req.Config.UseDualStack)
 }

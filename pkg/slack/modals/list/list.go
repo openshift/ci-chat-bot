@@ -2,7 +2,6 @@ package list
 
 import (
 	"encoding/json"
-
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
@@ -38,7 +37,7 @@ func processNextForFirstStep(updater *slack.Client, jobmanager manager.JobManage
 					filters.Requestor = input
 				}
 			}
-			runningJobs := jobmanager.ListJobs(callback.User.ID, filters)
+			runningJobs := jobmanager.ListJobs([]string{callback.User.ID}, filters)
 			overwriteView := func(view slack.ModalViewRequest) {
 				// don't pass a hash, so we overwrite the View always
 				response, err := updater.UpdateView(view, "", "", callback.View.ID)
