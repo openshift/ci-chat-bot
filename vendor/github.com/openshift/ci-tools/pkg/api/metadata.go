@@ -130,15 +130,17 @@ func LogFieldsFor(metadata Metadata) logrus.Fields {
 	}
 }
 
-func BuildCacheFor(metadata Metadata) ImageStreamTagReference {
+func BuildCacheFor(metadata Metadata) MultiArchImageStreamTagReference {
 	tag := metadata.Branch
 	if metadata.Variant != "" {
 		tag = fmt.Sprintf("%s-%s", tag, metadata.Variant)
 	}
-	return ImageStreamTagReference{
-		Namespace: "build-cache",
-		Name:      fmt.Sprintf("%s-%s", metadata.Org, metadata.Repo),
-		Tag:       tag,
+	return MultiArchImageStreamTagReference{
+		ImageStreamTagReference: ImageStreamTagReference{
+			Namespace: "build-cache",
+			Name:      fmt.Sprintf("%s-%s", metadata.Org, metadata.Repo),
+			Tag:       tag,
+		},
 	}
 }
 

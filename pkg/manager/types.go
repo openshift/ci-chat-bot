@@ -7,15 +7,12 @@ import (
 
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
-	"github.com/openshift/rosa/pkg/rosa"
 
 	citools "github.com/openshift/ci-tools/pkg/api"
 	"github.com/openshift/ci-tools/pkg/lease"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/dynamic"
-
-	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 	"k8s.io/test-infra/prow/github"
@@ -35,11 +32,6 @@ type ConfigResolver interface {
 
 type URLConfigResolver struct {
 	URL *url.URL
-}
-
-type RosaSubnets struct {
-	Subnets sets.String
-	Lock    sync.RWMutex
 }
 
 type WorkflowConfig struct {
@@ -71,14 +63,14 @@ type jobManager struct {
 	maxClusters   int
 	maxAge        time.Duration
 
-	prowConfigLoader    prow.ProwConfigLoader
-	prowClient          dynamic.NamespaceableResourceInterface
-	imageClient         imageclientset.Interface
-	hiveConfigMapClient corev1.ConfigMapInterface
-	clusterClients      utils.BuildClusterClientConfigMap
-	prowNamespace       string
-	githubClient        github.Client
-	forcePROwner        string
+	prowConfigLoader prow.ProwConfigLoader
+	prowClient       dynamic.NamespaceableResourceInterface
+	imageClient      imageclientset.Interface
+	configMapClient  corev1.ConfigMapInterface
+	clusterClients   utils.BuildClusterClientConfigMap
+	prowNamespace    string
+	githubClient     github.Client
+	forcePROwner     string
 
 	configResolver ConfigResolver
 
@@ -87,30 +79,10 @@ type jobManager struct {
 		running map[string]struct{}
 	}
 
-	jobNotifierFn  JobCallbackFunc
+	notifierFn     JobCallbackFunc
 	workflowConfig *WorkflowConfig
 
 	lClient LeaseClient
-
-	// ROSA fields
-	rClient      *rosa.Runtime
-	rosaClusters struct {
-		lock             sync.RWMutex
-		pendingClusters  int
-		clusters         map[string]*clustermgmtv1.Cluster
-		clusterPasswords map[string]string
-	}
-	rosaVersions struct {
-		lock     sync.RWMutex
-		versions []string
-	}
-	rosaClusterLimit int
-	rosaSubnets      *RosaSubnets
-
-	maxRosaAge       time.Duration
-	defaultRosaAge   time.Duration
-	rosaSecretClient corev1.SecretInterface
-	rosaNotifierFn   RosaCallbackFunc
 }
 
 // JobRequest keeps information about the request a user made to create
@@ -151,18 +123,14 @@ type JobType string
 // clusters.
 type JobManager interface {
 	SetNotifier(JobCallbackFunc)
-	SetRosaNotifier(RosaCallbackFunc)
 
 	LaunchJobForUser(req *JobRequest) (string, error)
-	CreateRosaCluster(user, channel, version string, duration time.Duration) (string, error)
 	CheckValidJobConfiguration(req *JobRequest) error
 	SyncJobForUser(user string) (string, error)
 	TerminateJobForUser(user string) (string, error)
 	GetLaunchJob(user string) (*Job, error)
-	GetROSACluster(user string) (*clustermgmtv1.Cluster, string)
 	LookupInputs(inputs []string, architecture string) (string, error)
-	LookupRosaInputs(versionPrefix string) (string, error)
-	ListJobs(users string, filters ListFilters) string
+	ListJobs(users []string, filters ListFilters) string
 	GetWorkflowConfig() *WorkflowConfig
 	ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion, architecture string) (string, string, string, error)
 	ResolveAsPullRequest(spec string) (*prowapiv1.Refs, error)
@@ -171,10 +139,6 @@ type JobManager interface {
 // JobCallbackFunc is invoked when the job changes state in a significant
 // way.
 type JobCallbackFunc func(Job)
-
-// RosaCallbackFunc is invoked when the rosa cluster changes state in a significant
-// way. Takes the cluster object and admin password.
-type RosaCallbackFunc func(*clustermgmtv1.Cluster, string)
 
 // JobInput defines the input to a job. Different modes need different inputs.
 type JobInput struct {
