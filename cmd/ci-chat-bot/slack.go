@@ -2,6 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"strconv"
+	"time"
+
 	jiraClient "github.com/andygrunwald/go-jira"
 	"github.com/openshift/ci-chat-bot/pkg/jira"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
@@ -21,9 +25,6 @@ import (
 	"k8s.io/test-infra/prow/pjutil"
 	"k8s.io/test-infra/prow/pjutil/pprof"
 	"k8s.io/test-infra/prow/simplifypath"
-	"net/http"
-	"strconv"
-	"time"
 )
 
 const (
@@ -44,6 +45,7 @@ func l(fragment string, children ...simplifypath.Node) simplifypath.Node {
 func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.JobManager, httpclient *http.Client) {
 	slackclient := slackClient.New(bot.BotToken)
 	jobManager.SetNotifier(bot.JobResponder(slackclient))
+	jobManager.SetRosaNotifier(bot.RosaResponder(slackclient))
 	var issueFiler jira.IssueFiler
 	if jiraclient != nil {
 		var err error
