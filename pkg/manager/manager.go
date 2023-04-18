@@ -698,13 +698,14 @@ func (m *jobManager) ListJobs(user string, filters ListFilters) string {
 			fmt.Fprintln(buf, details)
 		}
 	} else if totalJobs > 0 {
-		fmt.Fprintf(buf, "\nThere are %d test jobs being run by the bot right now", len(jobs))
+		fmt.Fprintf(buf, "\nThere are %d test jobs being run by the bot right now\n", len(jobs))
 	}
 
 	m.rosaClusters.lock.RLock()
 	defer m.rosaClusters.lock.RUnlock()
+	fmt.Fprintf(buf, "%d/%d ROSA Clusters up:", len(m.rosaClusters.clusters), m.rosaClusterLimit)
 	for _, cluster := range m.rosaClusters.clusters {
-		if cluster.AWS().Tags() != nil && cluster.AWS().Tags()[utils.UserTag] == user {
+		if cluster.AWS().Tags() != nil {
 			switch cluster.State() {
 			case clustermgmtv1.ClusterStateReady:
 				expiryTime, err := base64.RawStdEncoding.DecodeString(cluster.AWS().Tags()[utils.ExpiryTimeTag])
