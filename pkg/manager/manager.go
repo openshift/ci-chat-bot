@@ -706,26 +706,27 @@ func (m *jobManager) ListJobs(user string, filters ListFilters) string {
 	fmt.Fprintf(buf, "%d/%d ROSA Clusters up:", len(m.rosaClusters.clusters), m.rosaClusterLimit)
 	for _, cluster := range m.rosaClusters.clusters {
 		if cluster.AWS().Tags() != nil {
+			clusterUser := cluster.AWS().Tags()[utils.UserTag]
 			switch cluster.State() {
 			case clustermgmtv1.ClusterStateReady:
 				expiryTime, err := base64.RawStdEncoding.DecodeString(cluster.AWS().Tags()[utils.ExpiryTimeTag])
 				if err != nil {
 					klog.Errorf("Failed to base64 decode expiry time tag: %v", err)
-					fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is ready\n", user, cluster.Name())
+					fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is ready\n", clusterUser, cluster.Name())
 				} else if parsedExpiryTime, err := time.Parse(time.RFC3339, string(expiryTime)); err != nil {
 					klog.Errorf("Failed to parse expiry time: %v", err)
-					fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is ready\n", user, cluster.Name())
+					fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is ready\n", clusterUser, cluster.Name())
 				} else {
-					fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is ready and will be torn down in %d minutes\n", user, cluster.Name(), int(parsedExpiryTime.Sub(now)/time.Minute))
+					fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is ready and will be torn down in %d minutes\n", clusterUser, cluster.Name(), int(parsedExpiryTime.Sub(now)/time.Minute))
 				}
 			case clustermgmtv1.ClusterStateInstalling:
-				fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is starting; %d minutes have elapsed\n", user, cluster.Name(), int(time.Since(cluster.CreationTimestamp())/time.Minute))
+				fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is starting; %d minutes have elapsed\n", clusterUser, cluster.Name(), int(time.Since(cluster.CreationTimestamp())/time.Minute))
 			case clustermgmtv1.ClusterStateError:
-				fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` has experienced an error. Please run `done` to delete the cluster before starting a new one\n", user, cluster.Name())
+				fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` has experienced an error. Please run `done` to delete the cluster before starting a new one\n", clusterUser, cluster.Name())
 			case clustermgmtv1.ClusterStateUninstalling:
-				fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is uninstalling\n", user, cluster.Name())
+				fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` is uninstalling\n", clusterUser, cluster.Name())
 			default:
-				fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` requested; %d minutes have elapsed\n", user, cluster.Name(), int(time.Since(cluster.CreationTimestamp())/time.Minute))
+				fmt.Fprintf(buf, "\n<@%s> - ROSA Cluster `%s` requested; %d minutes have elapsed\n", clusterUser, cluster.Name(), int(time.Since(cluster.CreationTimestamp())/time.Minute))
 			}
 		}
 	}
