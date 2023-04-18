@@ -3,6 +3,7 @@ package slack
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
@@ -75,7 +76,7 @@ func Lookup(client *slack.Client, jobManager manager.JobManager, event *slackeve
 }
 
 func List(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
-	return jobManager.ListJobs([]string{event.User}, manager.ListFilters{})
+	return jobManager.ListJobs(event.User, manager.ListFilters{})
 }
 
 func Done(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
@@ -95,6 +96,11 @@ func Refresh(client *slack.Client, jobManager manager.JobManager, event *slackev
 }
 
 func Auth(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	cluster, password := jobManager.GetROSACluster(event.User)
+	if cluster != nil {
+		NotifyRosa(client, cluster, password)
+		return ""
+	}
 	job, err := jobManager.GetLaunchJob(event.User)
 	if err != nil {
 		return err.Error()
@@ -321,6 +327,57 @@ func WorkflowUpgrade(client *slack.Client, jobManager manager.JobManager, event 
 		Architecture:    architecture,
 		WorkflowName:    name,
 	})
+	if err != nil {
+		return err.Error()
+	}
+	return msg
+}
+
+func RosaCreate(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	from, err := ParseImageInput(properties.StringParam("version", ""))
+	if err != nil {
+		return err.Error()
+	}
+	providedVersion := ""
+	if len(from) > 1 {
+		return "rosa create only takes one version"
+	}
+	if len(from) == 1 {
+		providedVersion = from[0]
+	}
+	rawDuration, err := ParseImageInput(properties.StringParam("duration", ""))
+	if err != nil {
+		return err.Error()
+	}
+	var duration time.Duration
+	if len(rawDuration) != 0 {
+		duration, err = time.ParseDuration(rawDuration[0])
+		if err != nil {
+			return fmt.Sprintf("Failed to parse provided duration: %v", err)
+		}
+	}
+
+	msg, err := jobManager.CreateRosaCluster(event.User, event.Channel, providedVersion, duration)
+	if err != nil {
+		return err.Error()
+	}
+	return msg
+}
+
+func RosaLookup(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	from, err := ParseImageInput(properties.StringParam("version", ""))
+	if err != nil {
+		return err.Error()
+	}
+
+	providedVersion := ""
+	if len(from) > 1 {
+		return "rosa create only takes one version"
+	}
+	if len(from) == 1 {
+		providedVersion = from[0]
+	}
+	msg, err := jobManager.LookupRosaInputs(providedVersion)
 	if err != nil {
 		return err.Error()
 	}

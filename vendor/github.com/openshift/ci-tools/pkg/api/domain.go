@@ -16,6 +16,7 @@ const (
 	// routed for the current service cluster.
 	ServiceDomainCI    = "ci.openshift.org"
 	ServiceDomainAPPCI = "apps.ci.l2s4.p1.openshiftapps.com"
+	ServiceDomainGCS   = "googleapis.com"
 
 	ServiceDomainAPPCIRegistry   = "registry.ci.openshift.org"
 	ServiceDomainVSphereRegistry = "registry.apps.build01-us-west-2.vmc.ci.openshift.org"
@@ -25,12 +26,13 @@ const (
 type Service string
 
 const (
-	ServiceBoskos   Service = "boskos-ci"
-	ServiceRegistry Service = "registry"
-	ServiceRPMs     Service = "artifacts-rpms-openshift-origin-ci-rpms"
-	ServiceProw     Service = "prow"
-	ServiceConfig   Service = "config"
-	ServiceGCSWeb   Service = "gcsweb-ci"
+	ServiceBoskos     Service = "boskos-ci"
+	ServiceRegistry   Service = "registry"
+	ServiceRPMs       Service = "artifacts-rpms-openshift-origin-ci-rpms"
+	ServiceProw       Service = "prow"
+	ServiceConfig     Service = "config"
+	ServiceGCSWeb     Service = "gcsweb-ci"
+	ServiceGCSStorage Service = "storage"
 )
 
 // URLForService returns the URL for the service including scheme
@@ -46,6 +48,8 @@ func DomainForService(service Service) string {
 		serviceDomain = ServiceDomainAPPCI
 	case ServiceRPMs:
 		serviceDomain = ServiceDomainAPPCI
+	case ServiceGCSStorage:
+		serviceDomain = ServiceDomainGCS
 	default:
 		serviceDomain = ServiceDomainCI
 	}

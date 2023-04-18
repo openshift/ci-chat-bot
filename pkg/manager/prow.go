@@ -578,10 +578,12 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		sourceConfig.Releases["arm64-latest"] = citools.UnresolvedRelease{
 			// as this just gets overridden by the env var, the actual details here don't matter
 			Candidate: &citools.Candidate{
-				Architecture: "arm64",
-				Product:      "ocp",
-				Stream:       "nightly",
-				Version:      "4.13",
+				ReleaseDescriptor: citools.ReleaseDescriptor{
+					Architecture: "arm64",
+					Product:      "ocp",
+				},
+				Stream:  "nightly",
+				Version: "4.13",
 			},
 		}
 	}
