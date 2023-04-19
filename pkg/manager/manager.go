@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"math"
 	"net/url"
 	"regexp"
@@ -310,6 +311,16 @@ func (m *jobManager) rosaSync() error {
 	klog.Infof("Found %d chat-bot owned rosa clusters", len(clustersByID))
 
 	activeRosaIDs, err := m.rosaSecretClient.Get(context.TODO(), RosaClusterSecretName, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		activeRosaIDs, err = m.rosaSecretClient.Create(context.TODO(), &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      RosaClusterSecretName,
+				Namespace: "ci",
+			},
+			Data: map[string][]byte{},
+			Type: corev1.SecretTypeOpaque,
+		}, metav1.CreateOptions{})
+	}
 	if err != nil {
 		return err
 	}
