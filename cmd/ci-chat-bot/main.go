@@ -20,6 +20,7 @@ import (
 	"k8s.io/test-infra/prow/config/secret"
 	prowflagutil "k8s.io/test-infra/prow/flagutil"
 	"k8s.io/test-infra/prow/github"
+	"k8s.io/test-infra/prow/pjutil"
 
 	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
@@ -46,6 +47,7 @@ type options struct {
 	prowconfig               configflagutil.ConfigOptions
 	GitHubOptions            prowflagutil.GitHubOptions
 	KubernetesOptions        prowflagutil.KubernetesOptions
+	InstrumentationOptions   prowflagutil.InstrumentationOptions
 	ForcePROwner             string
 	ReleaseClusterKubeconfig string
 	ConfigResolver           string
@@ -71,7 +73,7 @@ func (o *options) Validate() error {
 			return fmt.Errorf("error accessing --release-cluster-kubeconfig: %w", err)
 		}
 	}
-	for _, group := range []flagutil.OptionGroup{&o.GitHubOptions, &o.KubernetesOptions} {
+	for _, group := range []flagutil.OptionGroup{&o.GitHubOptions, &o.KubernetesOptions, &o.InstrumentationOptions} {
 		if err := group.Validate(false); err != nil {
 			return err
 		}
@@ -115,10 +117,13 @@ func run() error {
 	opt.prowconfig.AddFlags(emptyFlags)
 	opt.GitHubOptions.AddFlags(emptyFlags)
 	opt.KubernetesOptions.AddFlags(emptyFlags)
+	opt.InstrumentationOptions.AddFlags(emptyFlags)
 	opt.jiraOptions.AddFlags(emptyFlags)
 	pflag.CommandLine.AddGoFlagSet(emptyFlags)
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
+	// let k8s know that we're alive
+	health := pjutil.NewHealthOnPort(opt.InstrumentationOptions.HealthPort)
 
 	if err := opt.Validate(); err != nil {
 		return fmt.Errorf("unable to validate program arguments: %w", err)
@@ -261,9 +266,9 @@ func run() error {
 	httpClient := &http.Client{Timeout: 60 * time.Second}
 	if err != nil {
 		klog.Errorf("Failed to load the Jira Client: %s", err)
-		Start(bot, nil, jobManager, nil)
+		Start(bot, nil, jobManager, nil, health, opt.InstrumentationOptions)
 	} else {
-		Start(bot, jiraclient.JiraClient(), jobManager, httpClient)
+		Start(bot, jiraclient.JiraClient(), jobManager, httpClient, health, opt.InstrumentationOptions)
 	}
 
 	return err

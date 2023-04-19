@@ -27,13 +27,6 @@ import (
 	"k8s.io/test-infra/prow/simplifypath"
 )
 
-const (
-	MetricsPort           = 9090
-	PProfPort             = 6060
-	HealthPort            = 8081
-	MemoryProfileInterval = 30 * time.Second
-)
-
 var (
 	promMetrics = metrics.NewMetrics("cluster_bot")
 )
@@ -42,7 +35,7 @@ func l(fragment string, children ...simplifypath.Node) simplifypath.Node {
 	return simplifypath.L(fragment, children...)
 }
 
-func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.JobManager, httpclient *http.Client) {
+func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.JobManager, httpclient *http.Client, health *pjutil.Health, iOpts prowflagutil.InstrumentationOptions) {
 	slackclient := slackClient.New(bot.BotToken)
 	jobManager.SetNotifier(bot.JobResponder(slackclient))
 	jobManager.SetRosaNotifier(bot.RosaResponder(slackclient))
@@ -57,30 +50,30 @@ func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.Job
 		issueFiler = nil
 	}
 
-	metrics.ExposeMetrics("ci-chat-bot", config.PushGateway{}, MetricsPort)
+	metrics.ExposeMetrics("ci-chat-bot", config.PushGateway{}, iOpts.MetricsPort)
 	simplifier := simplifypath.NewSimplifier(l("", // shadow element mimicking the root
-		l(""), // for black-box health checks
+		l(""),       // for black-box health checks
+		l("readyz"), // for readyness probe check
 		l("slack",
 			l("events-endpoint"),
 		),
 	))
 	handler := metrics.TraceHandler(simplifier, promMetrics.HTTPRequestDuration, promMetrics.HTTPResponseSize)
-	pprof.Instrument(prowflagutil.InstrumentationOptions{
-		MetricsPort:           MetricsPort,
-		PProfPort:             PProfPort,
-		HealthPort:            HealthPort,
-		MemoryProfileInterval: MemoryProfileInterval,
-	})
-	health := pjutil.NewHealth()
-
+	pprof.Instrument(iOpts)
 	mux := http.NewServeMux()
 	// handle the root to allow for a simple uptime probe
 	mux.Handle("/", handler(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) { writer.WriteHeader(http.StatusOK) })))
+	mux.Handle("/readyz", handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))) // report ready once the server is up and responding
 	mux.Handle("/slack/events-endpoint", handler(handleEvent(bot.BotSigningSecret, eventrouter.ForEvents(slackclient, jobManager, bot.SupportedCommands(), issueFiler))))
 	mux.Handle("/slack/interactive-endpoint", handler(handleInteraction(bot.BotSigningSecret, interactionrouter.ForModals(slackclient, jobManager, httpclient))))
 	server := &http.Server{Addr: ":" + strconv.Itoa(bot.Port), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-
-	health.ServeReady()
+	health.ServeReady(func() bool {
+		resp, err := http.DefaultClient.Get("http://127.0.0.1:" + strconv.Itoa(bot.Port) + "/readyz")
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return err == nil && resp.StatusCode == 200
+	})
 
 	interrupts.ListenAndServe(server, bot.GracePeriod)
 	interrupts.WaitForGracefulShutdown()
