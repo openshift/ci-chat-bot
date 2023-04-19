@@ -165,10 +165,15 @@ func (m *jobManager) updateHypershiftSupportedVersions() error {
 }
 
 func (m *jobManager) updateRosaVersions() error {
-	vs, err := m.rClient.OCMClient.GetVersions(ocm.DefaultChannelGroup)
+	stable, err := m.rClient.OCMClient.GetVersions(ocm.DefaultChannelGroup)
 	if err != nil {
-		return fmt.Errorf("Failed to retrieve versions: %s", err)
+		return fmt.Errorf("Failed to retrieve stable versions: %s", err)
 	}
+	nightly, err := m.rClient.OCMClient.GetVersions(ocm.NightlyChannelGroup)
+	if err != nil {
+		return fmt.Errorf("Failed to retrieve nightly versions: %s", err)
+	}
+	vs := append(stable, nightly...)
 
 	var versionList []string
 	for _, v := range vs {
