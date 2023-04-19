@@ -160,6 +160,7 @@ type JobManager interface {
 	TerminateJobForUser(user string) (string, error)
 	GetLaunchJob(user string) (*Job, error)
 	GetROSACluster(user string) (*clustermgmtv1.Cluster, string)
+	DescribeROSACluster(cluster string) (string, error)
 	LookupInputs(inputs []string, architecture string) (string, error)
 	LookupRosaInputs(versionPrefix string) (string, error)
 	ListJobs(users string, filters ListFilters) string

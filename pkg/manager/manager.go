@@ -742,6 +742,10 @@ func (m *jobManager) GetROSACluster(user string) (*clustermgmtv1.Cluster, string
 	return m.getROSAClusterForUser(user)
 }
 
+func (m *jobManager) DescribeROSACluster(name string) (string, error) {
+	return m.describeROSACluster(name)
+}
+
 func (m *jobManager) GetLaunchJob(user string) (*Job, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()

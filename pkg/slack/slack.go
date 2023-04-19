@@ -97,6 +97,11 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Example:     "rosa lookup 4.12",
 			Handler:     RosaLookup,
 		}),
+		parser.NewBotCommand("rosa describe <cluster>", &parser.CommandDefinition{
+			Description: "Display the details of the specified ROSA cluster.",
+			Example:     "rosa describe s9h9g-9b6nj-x94",
+			Handler:     RosaDescribe,
+		}),
 		parser.NewBotCommand("list", &parser.CommandDefinition{
 			Description: "See who is hogging all the clusters.",
 			Handler:     List,

@@ -383,3 +383,22 @@ func RosaLookup(client *slack.Client, jobManager manager.JobManager, event *slac
 	}
 	return msg
 }
+
+func RosaDescribe(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	from, err := ParseImageInput(properties.StringParam("cluster", ""))
+	if err != nil {
+		return err.Error()
+	}
+	cluster := ""
+	if len(from) > 1 {
+		return "rosa describe only takes one cluster"
+	}
+	if len(from) == 1 {
+		cluster = from[0]
+	}
+	msg, err := jobManager.DescribeROSACluster(cluster)
+	if err != nil {
+		return err.Error()
+	}
+	return msg
+}
