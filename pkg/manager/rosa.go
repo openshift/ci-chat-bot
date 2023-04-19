@@ -434,6 +434,31 @@ func (m *jobManager) getROSAClusterForUser(username string) (*clustermgmtv1.Clus
 	return nil, ""
 }
 
+func (m *jobManager) getROSAClusterByName(name string) *clustermgmtv1.Cluster {
+	m.rosaClusters.lock.RLock()
+	defer m.rosaClusters.lock.RUnlock()
+	for _, cluster := range m.rosaClusters.clusters {
+		if cluster.State() != clustermgmtv1.ClusterStateUninstalling && cluster.Name() == name {
+			return cluster
+		}
+	}
+	return nil
+}
+
+func (m *jobManager) describeROSACluster(name string) (string, error) {
+	if cluster := m.getROSAClusterByName(name); cluster != nil {
+		describeCMD := fmt.Sprintf("rosa describe cluster --cluster=%s", cluster.Name())
+		cmd := exec.Command(strings.Split(describeCMD, " ")[0], strings.Split(describeCMD, " ")[1:]...)
+		klog.Infof("Running %s\n", cmd.String())
+		out, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("Failed to run command: %v", err)
+		}
+		return fmt.Sprintf("`%s` returned:\n```%s```", cmd.String(), string(out)), nil
+	}
+	return "", fmt.Errorf("Unable to locate cluster named: %s", name)
+}
+
 // based on github.com/openshift/rosa/cmd/create/admin/cmd.go
 func generateRandomString(length int, onlyLower bool) (string, error) {
 	const (
