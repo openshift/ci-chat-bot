@@ -472,7 +472,7 @@ func NotifyRosa(client *slack.Client, cluster *clustermgmtv1.Cluster, password s
 			klog.Errorf("Failed to parse time: %v", err)
 			message += "."
 		} else {
-			message += fmt.Sprintf(",it will be shut down automatically in ~%d minutes.", time.Until(parsedExpiryTime)/time.Minute)
+			message += fmt.Sprintf(", it will be shut down automatically in ~%d minutes.", time.Until(parsedExpiryTime)/time.Minute)
 		}
 		if console, ok := cluster.GetConsole(); ok {
 			message += "\n" + console.URL()
