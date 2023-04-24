@@ -1104,7 +1104,7 @@ k8s.io/kube-openapi/pkg/schemamutation
 k8s.io/kube-openapi/pkg/spec3
 k8s.io/kube-openapi/pkg/util/proto
 k8s.io/kube-openapi/pkg/validation/spec
-# k8s.io/test-infra v0.0.0-20230413140039-e08825112061
+# k8s.io/test-infra v0.0.0-20230424142502-4981841b2f74
 ## explicit; go 1.18
 k8s.io/test-infra/ghproxy/ghcache
 k8s.io/test-infra/ghproxy/ghmetrics

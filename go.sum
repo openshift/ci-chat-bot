@@ -2569,8 +2569,8 @@ k8s.io/test-infra v0.0.0-20200514184223-ba32c8aae783/go.mod h1:bW6thaPZfL2hW7ecj
 k8s.io/test-infra v0.0.0-20200617221206-ea73eaeab7ff/go.mod h1:L3+cRvwftUq8IW1TrHji5m3msnc4uck/7LsE/GR/aZk=
 k8s.io/test-infra v0.0.0-20200630233406-1dca6122872e/go.mod h1:L3+cRvwftUq8IW1TrHji5m3msnc4uck/7LsE/GR/aZk=
 k8s.io/test-infra v0.0.0-20210730160938-8ad9b8c53bd8/go.mod h1:RXgSaKbQA0upN4GGyH38yRkotDJr3myiKWkvdfB5yP4=
-k8s.io/test-infra v0.0.0-20230413140039-e08825112061 h1:tLeuTyuUUZQVt4MKI24S0VGfPyQxksnriK/g+bgEM7E=
-k8s.io/test-infra v0.0.0-20230413140039-e08825112061/go.mod h1:ABzH7x8s/0PtdiYEmXnNXGXLLSfr5P/LlTkDbj7/n0E=
+k8s.io/test-infra v0.0.0-20230424142502-4981841b2f74 h1:BvBLD7VjSrwYSR9WyZjrrFxlMrVgRhojqBw11SkHl8U=
+k8s.io/test-infra v0.0.0-20230424142502-4981841b2f74/go.mod h1:ABzH7x8s/0PtdiYEmXnNXGXLLSfr5P/LlTkDbj7/n0E=
 k8s.io/utils v0.0.0-20181019225348-5e321f9a457c/go.mod h1:8k8uAuAQ0rXslZKaEWd0c3oVhZz7sSzSiPnVZayjIX0=
 k8s.io/utils v0.0.0-20190221042446-c2654d5206da/go.mod h1:8k8uAuAQ0rXslZKaEWd0c3oVhZz7sSzSiPnVZayjIX0=
 k8s.io/utils v0.0.0-20190506122338-8fab8cb257d5/go.mod h1:sZAwmy6armz5eXlNoLmJcl4F1QuKu7sr+mFQ0byX7Ew=
