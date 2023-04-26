@@ -27,15 +27,11 @@ import (
 	"k8s.io/test-infra/prow/simplifypath"
 )
 
-var (
-	promMetrics = metrics.NewMetrics("cluster_bot")
-)
-
 func l(fragment string, children ...simplifypath.Node) simplifypath.Node {
 	return simplifypath.L(fragment, children...)
 }
 
-func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.JobManager, httpclient *http.Client, health *pjutil.Health, iOpts prowflagutil.InstrumentationOptions) {
+func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.JobManager, httpclient *http.Client, health *pjutil.Health, iOpts prowflagutil.InstrumentationOptions, clusterBotMetrics *metrics.Metrics) {
 	slackclient := slackClient.New(bot.BotToken)
 	jobManager.SetNotifier(bot.JobResponder(slackclient))
 	jobManager.SetRosaNotifier(bot.RosaResponder(slackclient))
@@ -58,7 +54,7 @@ func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.Job
 			l("events-endpoint"),
 		),
 	))
-	handler := metrics.TraceHandler(simplifier, promMetrics.HTTPRequestDuration, promMetrics.HTTPResponseSize)
+	handler := metrics.TraceHandler(simplifier, clusterBotMetrics.HTTPRequestDuration, clusterBotMetrics.HTTPResponseSize)
 	pprof.Instrument(iOpts)
 	mux := http.NewServeMux()
 	// handle the root to allow for a simple uptime probe

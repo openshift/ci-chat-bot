@@ -14,12 +14,14 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	botversion "github.com/openshift/ci-chat-bot/pkg/version"
+
 	"github.com/openshift/rosa/pkg/rosa"
 
 	"k8s.io/test-infra/pkg/flagutil"
 	"k8s.io/test-infra/prow/config/secret"
 	prowflagutil "k8s.io/test-infra/prow/flagutil"
 	"k8s.io/test-infra/prow/github"
+	"k8s.io/test-infra/prow/metrics"
 	"k8s.io/test-infra/prow/pjutil"
 
 	"k8s.io/client-go/dynamic"
@@ -41,6 +43,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 	configflagutil "k8s.io/test-infra/prow/flagutil/config"
+)
+
+var (
+	clusterBotMetrics = metrics.NewMetrics("cluster_bot")
 )
 
 type options struct {
@@ -256,6 +262,7 @@ func run() error {
 		rosaSecretClient,
 		&rosaSubnets,
 		opt.rosaClusterLimit,
+		clusterBotMetrics.ErrorRate,
 	)
 	if err := jobManager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %w", err)
@@ -266,9 +273,9 @@ func run() error {
 	httpClient := &http.Client{Timeout: 60 * time.Second}
 	if err != nil {
 		klog.Errorf("Failed to load the Jira Client: %s", err)
-		Start(bot, nil, jobManager, nil, health, opt.InstrumentationOptions)
+		Start(bot, nil, jobManager, nil, health, opt.InstrumentationOptions, clusterBotMetrics)
 	} else {
-		Start(bot, jiraclient.JiraClient(), jobManager, httpClient, health, opt.InstrumentationOptions)
+		Start(bot, jiraclient.JiraClient(), jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics)
 	}
 
 	return err
