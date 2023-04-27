@@ -3,10 +3,12 @@ package manager
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -22,7 +24,7 @@ import (
 	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	"github.com/openshift/oc/pkg/helpers/tokencmd"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog"
@@ -345,7 +347,7 @@ func (m *jobManager) addClusterAuthAndWait(cluster *clustermgmtv1.Cluster) (bool
 	authReady := false
 	for i := 0; i < 10; i++ {
 		if _, err := tokencmd.RequestToken(&clientConfig, nil, adminUsername, password); err != nil {
-			if errors.IsUnauthorized(err) || (err == io.EOF) {
+			if k8serrors.IsUnauthorized(err) || errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) {
 				klog.Infof("Cluster auth for %s not ready yet", cluster.ID())
 				time.Sleep(time.Minute)
 			} else {
