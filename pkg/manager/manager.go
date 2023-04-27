@@ -1688,6 +1688,8 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		msg = fmt.Sprintf("%s For more information on Spot instances, see this blog post: https://cloud.redhat.com/blog/a-guide-to-red-hat-openshift-and-aws-spot-instances.\n\n", msg)
 	}
 	if job.Platform == "hypershift-hosted" {
+		msg = fmt.Sprintf("%s\nI noticed that you've created a `hypershift-hosted` cluster.  Next time, you might want to give ROSA's hypershift a try.", msg)
+		msg = fmt.Sprintf("%s  You can launch a cluster with: `rosa create <version> [duration]`.  See the `help` message for more information.\n", msg)
 		msg = fmt.Sprintf("%s\nThis cluster is being launched with a <https://hypershift-docs.netlify.app/|hosted control plane (hypershift)>.", msg)
 		msg = fmt.Sprintf("%s This means that the control plane will run as pods (not virtual machines) on another cluster managed by DPTP; also by default there is 1 worker node.", msg)
 		msg = fmt.Sprintf("%s This has the advantage of much faster startup times and lower costs.", msg)
