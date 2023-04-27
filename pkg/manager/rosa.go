@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"os/exec"
@@ -344,7 +345,7 @@ func (m *jobManager) addClusterAuthAndWait(cluster *clustermgmtv1.Cluster) (bool
 	authReady := false
 	for i := 0; i < 10; i++ {
 		if _, err := tokencmd.RequestToken(&clientConfig, nil, adminUsername, password); err != nil {
-			if errors.IsUnauthorized(err) {
+			if errors.IsUnauthorized(err) || (err == io.EOF) {
 				klog.Infof("Cluster auth for %s not ready yet", cluster.ID())
 				time.Sleep(time.Minute)
 			} else {
