@@ -565,14 +565,6 @@ func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *htt
 		klog.Warningf("failed to fetch the data from release controller: %s", err)
 		return ErrorView(err.Error())
 	}
-	var allTags []string
-	for stream, tags := range releases {
-		if stream == selectedStream {
-			for _, tag := range tags {
-				allTags = append(allTags, tag)
-			}
-		}
-	}
 
 	majorMinor := make(map[string]bool, 0)
 	for stream, tags := range releases {
