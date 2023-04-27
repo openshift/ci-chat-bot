@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog"
+	"k8s.io/test-infra/prow/metrics"
 )
 
 var RosaClusterSecretName = "ci-chat-bot-rosa-clusters"
@@ -58,6 +59,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	// Find all installer roles in the current account using AWS resource tags
 	foundRoleARNs, err := m.rClient.AWSClient.FindRoleARNs(aws.InstallerAccountRole, minor)
 	if err != nil {
+		metrics.RecordError(errorRosaAWS, m.errorMetric)
 		return nil, "", fmt.Errorf("Failed to find %s role: %s", role.Name, err)
 	}
 	// TODO: this can be hardcoded when we have a permanent account set up
@@ -71,6 +73,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	// Get role prefix
 	roleName, err := aws.GetResourceIdFromARN(roleARN)
 	if err != nil {
+		metrics.RecordError(errorRosaAWS, m.errorMetric)
 		return nil, "", fmt.Errorf("Failed to find prefix from %s account role", role.Name)
 	}
 	rolePrefix := aws.TrimRoleSuffix(roleName, fmt.Sprintf("-%s-Role", role.Name))
@@ -89,6 +92,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 		}
 		roleARNs, err := m.rClient.AWSClient.FindRoleARNs(roleType, minor)
 		if err != nil {
+			metrics.RecordError(errorRosaAWS, m.errorMetric)
 			return nil, "", fmt.Errorf("Failed to find %s role: %s", role.Name, err)
 		}
 		selectedARN := ""
@@ -96,6 +100,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 		for _, rARN := range roleARNs {
 			resourceId, err := aws.GetResourceIdFromARN(rARN)
 			if err != nil {
+				metrics.RecordError(errorRosaAWS, m.errorMetric)
 				return nil, "", fmt.Errorf("Failed to get resource ID from arn. %s", err)
 			}
 			lowerCaseResourceIdToCheck := strings.ToLower(resourceId)
@@ -105,6 +110,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 			}
 		}
 		if selectedARN == "" {
+			metrics.RecordError(errorRosaAWS, m.errorMetric)
 			return nil, "", fmt.Errorf("No %s account roles found.", role.Name)
 		}
 		switch roleType {
@@ -128,6 +134,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	}
 
 	if err := roles.ValidateUnmanagedAccountRoles(roleARNs, m.rClient.AWSClient, version); err != nil {
+		metrics.RecordError(errorRosaAWS, m.errorMetric)
 		return nil, "", fmt.Errorf("Failed while validating account roles: %s", err)
 	}
 
@@ -135,6 +142,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	operatorIAMRoleList := []ocm.OperatorIAMRole{}
 	credRequests, err := m.rClient.OCMClient.GetCredRequests(true)
 	if err != nil {
+		metrics.RecordError(errorRosaAWS, m.errorMetric)
 		return nil, "", fmt.Errorf("Error getting operator credential request from OCM %s", err)
 	}
 	for _, operator := range credRequests {
@@ -142,6 +150,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 		if operator.MinVersion() != "" {
 			isSupported, err := ocm.CheckSupportedVersion(ocm.GetVersionMinor(version), operator.MinVersion())
 			if err != nil {
+				metrics.RecordError(errorRosaOCM, m.errorMetric)
 				return nil, "", fmt.Errorf("Error validating operator role '%s' version %s", operator.Name(), err)
 			}
 			if !isSupported {
@@ -160,6 +169,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	// Get AWS region
 	region, err := aws.GetRegion(arguments.GetRegion())
 	if err != nil {
+		metrics.RecordError(errorRosaAWS, m.errorMetric)
 		return nil, "", fmt.Errorf("Error getting region: %v", err)
 	}
 	dMachineCIDR, dPodCIDR, dServiceCIDR, hostPrefix, computeMachineType := m.rClient.OCMClient.GetDefaultClusterFlavors("")
@@ -180,6 +190,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	// set subnets and identify correct availability zone for private subnet(s)
 	subnets, err := m.rClient.AWSClient.GetSubnetIDs()
 	if err != nil {
+		metrics.RecordError(errorRosaAWS, m.errorMetric)
 		return nil, "", fmt.Errorf("Failed to get the list of subnets: %s", err)
 	}
 	availabilityZones := sets.NewString()
@@ -191,6 +202,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 		}
 	}
 	if foundSubnets != len(m.rosaSubnets.Subnets) {
+		metrics.RecordError(errorRosaMissingSubnets, m.errorMetric)
 		return nil, "", fmt.Errorf("Only found %d subnets out of %d provided subnet IDs", foundSubnets, len(m.rosaSubnets.Subnets))
 	}
 
@@ -243,6 +255,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	klog.Infof("Creating rosa cluster %s", clusterName)
 	cluster, err := m.rClient.OCMClient.CreateCluster(clusterConfig)
 	if err != nil {
+		metrics.RecordError(errorRosaCreate, m.errorMetric)
 		return nil, "", fmt.Errorf("Failed to create cluster: %s", err)
 	}
 
@@ -261,6 +274,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 		secret.Data[cluster.ID()] = []byte("")
 	}); err != nil {
 		m.rosaClusters.lock.Unlock()
+		metrics.RecordError(errorRosaUpdateSecret, m.errorMetric)
 		return cluster, "", fmt.Errorf("Failed to update `%s` secret to add cluster %s to list after 10 retries", RosaClusterSecretName, cluster.ID())
 	}
 	m.rosaClusters.lock.Unlock()
@@ -269,12 +283,14 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	oidcCMD := fmt.Sprintf("rosa create oidc-provider --cluster %s --yes --mode auto", cluster.ID())
 	rolesOutput := exec.Command(strings.Split(rolesCMD, " ")[0], strings.Split(rolesCMD, " ")[1:]...)
 	klog.Infof("Running %s\n", rolesOutput.String())
+	metrics.RecordError(errorRosaRoles, m.errorMetric)
 	if err := rolesOutput.Run(); err != nil {
 		return nil, "", fmt.Errorf("Failed to run command: %v", err)
 	}
 	oidcOutput := exec.Command(strings.Split(oidcCMD, " ")[0], strings.Split(oidcCMD, " ")[1:]...)
 	klog.Infof("Running %s\n", oidcOutput.String())
 	if err := oidcOutput.Run(); err != nil {
+		metrics.RecordError(errorRosaRoles, m.errorMetric)
 		return nil, "", fmt.Errorf("Failed to run command: %v", err)
 	}
 	klog.Infof("Created rosa roles and oidc for %s", cluster.ID())
@@ -287,6 +303,7 @@ func (m *jobManager) deleteCluster(clusterID string) error {
 	klog.Infof("Deleting cluster '%s'", clusterID)
 	_, err := m.rClient.OCMClient.DeleteCluster(clusterID, m.rClient.Creator)
 	if err != nil {
+		metrics.RecordError(errorRosaDelete, m.errorMetric)
 		return fmt.Errorf("%s", err)
 	}
 	klog.Infof("Cluster '%s' will start uninstalling now", clusterID)
@@ -299,11 +316,13 @@ func (m *jobManager) removeAssociatedAWSResources(clusterID string) error {
 	rolesOutput := exec.Command(strings.Split(rolesCMD, " ")[0], strings.Split(rolesCMD, " ")[1:]...)
 	klog.Infof("Running %s\n", rolesOutput.String())
 	if err := rolesOutput.Run(); err != nil {
+		metrics.RecordError(errorRosaCleanup, m.errorMetric)
 		return fmt.Errorf("Failed to run command: %v", err)
 	}
 	oidcOutput := exec.Command(strings.Split(oidcCMD, " ")[0], strings.Split(oidcCMD, " ")[1:]...)
 	klog.Infof("Running %s\n", oidcOutput.String())
 	if err := oidcOutput.Run(); err != nil {
+		metrics.RecordError(errorRosaCleanup, m.errorMetric)
 		return fmt.Errorf("Failed to run command: %v", err)
 	}
 	klog.Infof("Deleted rosa roles and oidc for %s", clusterID)
@@ -312,6 +331,7 @@ func (m *jobManager) removeAssociatedAWSResources(clusterID string) error {
 
 // addClusterAuthAndWait is a wrapper for addClusterAuth that sleeps until the new auth is active
 func (m *jobManager) addClusterAuthAndWait(cluster *clustermgmtv1.Cluster) (bool, error) {
+	readyTime := time.Now()
 	password, alreadyExists, err := m.addClusterAuth(cluster.ID())
 	if err != nil || alreadyExists {
 		return alreadyExists, err
@@ -336,8 +356,11 @@ func (m *jobManager) addClusterAuthAndWait(cluster *clustermgmtv1.Cluster) (bool
 		}
 	}
 	if !authReady {
+		metrics.RecordError(errorRosaAuth, m.errorMetric)
 		return false, fmt.Errorf("Cluster auth never became ready")
 	}
+	rosaAuthTimeMetric.Observe(time.Since(cluster.CreationTimestamp()).Minutes())
+	rosaReadyToAuthTimeMetric.Observe(time.Since(readyTime).Minutes())
 	klog.Infof("Cluster auth for %s became ready", cluster.ID())
 	// hosted clusters become ready and accept the new auth before the workers are done
 	// and a console URL exists. We should wait for the console to be ready.
@@ -347,12 +370,15 @@ func (m *jobManager) addClusterAuthAndWait(cluster *clustermgmtv1.Cluster) (bool
 			return false, err
 		}
 		if _, ok := updatedCluster.GetConsole(); ok {
+			rosaConsoleTimeMetric.Observe(time.Since(cluster.CreationTimestamp()).Minutes())
+			rosaReadyToConsoleTimeMetric.Observe(time.Since(readyTime).Minutes())
 			klog.Infof("Console for %s became ready", cluster.ID())
 			return false, nil
 		}
 		klog.Infof("Console for %s not ready yet", cluster.ID())
 		time.Sleep(time.Minute)
 	}
+	metrics.RecordError(errorRosaConsole, m.errorMetric)
 	return false, fmt.Errorf("Console URL never became available")
 }
 
@@ -378,11 +404,13 @@ func (m *jobManager) addClusterAuth(clusterID string) (string, bool, error) {
 	klog.Infof("Adding '%s' user to cluster '%s'", adminUsername, clusterID)
 	user, err := clustermgmtv1.NewUser().ID(adminUsername).Build()
 	if err != nil {
+		metrics.RecordError(errorRosaGetIDP, m.errorMetric)
 		return "", false, fmt.Errorf("Failed to create user '%s' for cluster '%s'", adminUsername, clusterID)
 	}
 
 	_, err = m.rClient.OCMClient.CreateUser(clusterID, "cluster-admins", user)
 	if err != nil {
+		metrics.RecordError(errorRosaCreateUser, m.errorMetric)
 		return "", false, fmt.Errorf("Failed to add user '%s' to cluster '%s': %s", adminUsername, clusterID, err)
 	}
 
@@ -396,13 +424,14 @@ func (m *jobManager) addClusterAuth(clusterID string) (string, bool, error) {
 		Htpasswd(htpasswdIDP).
 		Build()
 	if err != nil {
-		return "", false, fmt.Errorf("Failed to create 'htpasswd' identity provider for cluster '%s'", clusterID)
+		metrics.RecordError(errorRosaBuildIDP, m.errorMetric)
+		return "", false, fmt.Errorf("Failed to build 'htpasswd' identity provider for cluster '%s'", clusterID)
 	}
 
 	// Add HTPasswd IDP to cluster:
 	_, err = m.rClient.OCMClient.CreateIdentityProvider(clusterID, newIDP)
 	if err != nil {
-		//since we could not add the HTPasswd IDP to the cluster, roll back and remove the cluster admin
+		metrics.RecordError(errorRosaCreateIDP, m.errorMetric)
 		return "", false, fmt.Errorf("Failed to add 'htpasswd' identity provider to cluster '%s': %v", clusterID, err)
 	}
 
@@ -411,6 +440,7 @@ func (m *jobManager) addClusterAuth(clusterID string) (string, bool, error) {
 	if err := utils.UpdateSecret(RosaClusterSecretName, m.rosaSecretClient, func(secret *corev1.Secret) {
 		secret.Data[clusterID] = []byte(password)
 	}); err != nil {
+		metrics.RecordError(errorRosaUpdateSecret, m.errorMetric)
 		return "", false, fmt.Errorf("Failed to update `%s` secret to add cluster %s to list after 10 retries", RosaClusterSecretName, clusterID)
 	}
 	klog.Infof("Updated rosa clusters secret with password for %s", clusterID)
@@ -452,6 +482,7 @@ func (m *jobManager) describeROSACluster(name string) (string, error) {
 		klog.Infof("Running %s\n", cmd.String())
 		out, err := cmd.Output()
 		if err != nil {
+			metrics.RecordError(errorRosaDescribe, m.errorMetric)
 			return "", fmt.Errorf("Failed to run command: %v", err)
 		}
 		return fmt.Sprintf("`%s` returned:\n```%s```", cmd.String(), string(out)), nil

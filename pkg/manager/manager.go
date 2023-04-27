@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/utils/strings/slices"
 	"math"
 	"net/url"
 	"regexp"
@@ -19,30 +17,47 @@ import (
 
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
-	"github.com/openshift/rosa/pkg/ocm"
-	"github.com/openshift/rosa/pkg/rosa"
 
+	"github.com/prometheus/client_golang/prometheus"
+
+	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 	"k8s.io/test-infra/prow/github"
+	"k8s.io/test-infra/prow/metrics"
 
-	"gopkg.in/yaml.v2"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog"
-
-	"github.com/blang/semver"
+	"k8s.io/utils/strings/slices"
 
 	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	imagev1 "github.com/openshift/api/image/v1"
 	citools "github.com/openshift/ci-tools/pkg/api"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+
+	"github.com/openshift/rosa/pkg/ocm"
+	"github.com/openshift/rosa/pkg/rosa"
+
 	"k8s.io/client-go/dynamic"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/klog"
+
+	"github.com/blang/semver"
+	"gopkg.in/yaml.v2"
 )
+
+func init() {
+	prometheus.MustRegister(rosaReadyTimeMetric)
+	prometheus.MustRegister(rosaAuthTimeMetric)
+	prometheus.MustRegister(rosaReadyToAuthTimeMetric)
+	prometheus.MustRegister(rosaConsoleTimeMetric)
+	prometheus.MustRegister(rosaReadyToConsoleTimeMetric)
+	prometheus.MustRegister(rosaSyncTimeMetric)
+}
 
 const (
 	// maxJobsPerUser limits the number of simultaneous jobs a user can launch to prevent
@@ -79,6 +94,14 @@ func (j Job) IsComplete() bool {
 	return j.Complete || len(j.Credentials) > 0 || (len(j.State) > 0 && j.State != prowapiv1.PendingState)
 }
 
+// initializeErrorMetrics initializes all labels used by the error metrics to 0. This allows
+// prometheus to output a non-zero rate when an error occurs (unset values becoming set is a `0` rate)
+func initializeErrorMetrics(vec *prometheus.CounterVec) {
+	for label := range errorMetricList {
+		vec.WithLabelValues(label).Add(0)
+	}
+}
+
 // NewJobManager creates a manager that will track the requests made by a user to create clusters
 // and reflect that state into ProwJobs that launch clusters. It attempts to recreate state on startup
 // by querying prow, but does not guarantee that some notifications to users may not be sent or may be
@@ -98,6 +121,7 @@ func NewJobManager(
 	rosaSecretClient typedcorev1.SecretInterface,
 	rosaSubnetList *RosaSubnets,
 	rosaClusterLimit int,
+	errorRate *prometheus.CounterVec,
 ) *jobManager {
 	m := &jobManager{
 		requests:         make(map[string]*JobRequest),
@@ -125,8 +149,10 @@ func NewJobManager(
 		defaultRosaAge:      6 * time.Hour,
 		rosaSubnets:         rosaSubnetList,
 		rosaClusterLimit:    rosaClusterLimit,
+		errorMetric:         errorRate,
 	}
 	m.muJob.running = make(map[string]struct{})
+	initializeErrorMetrics(m.errorMetric)
 	return m
 }
 
@@ -211,7 +237,7 @@ func (m *jobManager) Start() error {
 			klog.Infof("error during rosa sync: %v", err)
 			return
 		}
-	}, time.Minute*5)
+	}, time.Minute)
 	go wait.Forever(func() {
 		if err := m.updateHypershiftSupportedVersions(); err != nil {
 			klog.Warningf("error during updateSupportedVersions: %v", err)
@@ -242,9 +268,13 @@ func paramsToString(params map[string]string) string {
 }
 
 func (m *jobManager) rosaSync() error {
+	start := time.Now()
+	// wrap Observe function into inline function so that time.Since doesn't get immediately evauluated
+	defer func() { rosaSyncTimeMetric.Observe(time.Since(start).Seconds()) }()
 	klog.Infof("Getting ROSA clusters")
 	clusterList, err := m.rClient.OCMClient.GetAllClusters(m.rClient.Creator)
 	if err != nil {
+		metrics.RecordError(errorRosaGetAll, m.errorMetric)
 		klog.Warningf("Failed to get clusters: %v", err)
 	}
 	klog.Infof("Found %d rosa clusters", len(clusterList))
@@ -262,20 +292,28 @@ func (m *jobManager) rosaSync() error {
 		switch cluster.State() {
 		case clustermgmtv1.ClusterStateReady:
 			if previous == nil || previous.State() != cluster.State() {
+				// this prevents extra/incorrect metrics updates, but may miss an event if the cluster bot happens to restart right
+				// before this event occurs
+				if previous != nil {
+					rosaReadyTimeMetric.Observe(time.Since(cluster.CreationTimestamp()).Minutes())
+				}
 				go func() {
 					alreadyExists, err := m.addClusterAuthAndWait(cluster)
 					if err != nil {
+						// addClusterAuthAndWait records metrics itself
 						klog.Errorf("Failed to add cluster auth: %v", err)
 					}
 					// don't renottify users on chat-bot restart
 					if !alreadyExists {
 						activeRosaIDs, err := m.rosaSecretClient.Get(context.TODO(), RosaClusterSecretName, metav1.GetOptions{})
 						if err != nil {
+							metrics.RecordError(errorRosaGetSecret, m.errorMetric)
 							klog.Errorf("Failed to get `%s` secret: %v", RosaClusterSecretName, err)
 						}
 						// update cluster info to get console URL
 						updatedCluster, err := m.rClient.OCMClient.GetCluster(cluster.ID(), m.rClient.Creator)
 						if err != nil {
+							metrics.RecordError(errorRosaGetSingle, m.errorMetric)
 							klog.Errorf("Failed to get updated cluster info after deletion call: %v", err)
 						} else {
 							cluster = updatedCluster
@@ -290,9 +328,13 @@ func (m *jobManager) rosaSync() error {
 			}
 		case clustermgmtv1.ClusterStateError:
 			if previous == nil || previous.State() != cluster.State() {
+				// this prevents extra/incorrect metrics updates, but may miss an event if the cluster bot happens to restart right
+				// before this event occurs
+				if previous != nil {
+					metrics.RecordError(errorRosaFailure, m.errorMetric)
+				}
 				klog.Infof("Reporting failure for cluster %s", cluster.ID())
 				m.rosaNotifierFn(cluster, "")
-				// TODO: should we immediately trigger a deletion?
 			}
 		}
 		expiryTime, err := base64.RawStdEncoding.DecodeString(cluster.AWS().Tags()[utils.ExpiryTimeTag])
@@ -300,10 +342,12 @@ func (m *jobManager) rosaSync() error {
 			klog.Errorf("Failed to base64 decode expiry time tag: %v", err)
 		} else if parsedExpiryTime, err := time.Parse(time.RFC3339, string(expiryTime)); err == nil && parsedExpiryTime.Before(time.Now()) {
 			if err := m.deleteCluster(cluster.ID()); err != nil {
+				// deleteCluster function records metrics errors itself
 				klog.Errorf("Failed to delete cluster %s due to expiry: %v", cluster.ID(), err)
 			}
 			updatedCluster, err := m.rClient.OCMClient.GetCluster(cluster.ID(), m.rClient.Creator)
 			if err != nil {
+				metrics.RecordError(errorRosaGetSingle, m.errorMetric)
 				klog.Errorf("Failed to get updated cluster info after deletion call: %v", err)
 			} else {
 				cluster = updatedCluster
@@ -325,6 +369,7 @@ func (m *jobManager) rosaSync() error {
 		}, metav1.CreateOptions{})
 	}
 	if err != nil {
+		metrics.RecordError(errorRosaGetSecret, m.errorMetric)
 		return err
 	}
 	klog.Infof("Found %d entries in ROSA ID secret", len(activeRosaIDs.Data))
@@ -351,6 +396,7 @@ func (m *jobManager) rosaSync() error {
 	var awsCleanupErrors []error
 	for _, id := range toDelete {
 		if err := m.removeAssociatedAWSResources(id); err != nil {
+			// removeAssociatedAWSResources records error metrics itself
 			awsCleanupErrors = append(awsCleanupErrors, err)
 		} else {
 			deletedEntries = append(deletedEntries, id)
@@ -365,6 +411,7 @@ func (m *jobManager) rosaSync() error {
 				delete(secret.Data, id)
 			}
 		}); err != nil {
+			metrics.RecordError(errorRosaUpdateSecret, m.errorMetric)
 			return fmt.Errorf("Failed to update `%s` secret to remove stale clusters from list: %w", RosaClusterSecretName, err)
 		}
 	}

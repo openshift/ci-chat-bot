@@ -8,6 +8,7 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	"github.com/openshift/rosa/pkg/rosa"
+	"github.com/prometheus/client_golang/prometheus"
 
 	citools "github.com/openshift/ci-tools/pkg/api"
 	"github.com/openshift/ci-tools/pkg/lease"
@@ -19,6 +20,94 @@ import (
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 	"k8s.io/test-infra/prow/github"
+)
+
+const (
+	errorRosaGetAll       = "rosa_get_clusters"
+	errorRosaGetSingle    = "rosa_get_cluster"
+	errorRosaCreate       = "rosa_create_cluster"
+	errorRosaRoles        = "rosa_add_roles"
+	errorRosaAuth         = "rosa_add_auth"
+	errorRosaGetIDP       = "rosa_get_idp"
+	errorRosaCreateUser   = "rosa_create_user"
+	errorRosaBuildIDP     = "rosa_build_idp"
+	errorRosaCreateIDP    = "rosa_create_idp"
+	errorRosaConsole      = "rosa_console_ready"
+	errorRosaGetSecret    = "rosa_get_secret"
+	errorRosaUpdateSecret = "rosa_update_secret"
+	errorRosaFailure      = "rosa_cluster_error"
+	errorRosaDelete       = "rosa_delete_cluster"
+	errorRosaCleanup      = "rosa_cleanup"
+	errorRosaDescribe     = "rosa_describe"
+	//there are a lot of AWS calls when configuring a cluster; just use one error for them and check the logs for specifics
+	errorRosaAWS            = "rosa_aws"
+	errorRosaOCM            = "rosa_ocm"
+	errorRosaMissingSubnets = "rosa_missing_subnets"
+)
+
+var errorMetricList = sets.NewString(
+	errorRosaGetAll,
+	errorRosaGetSingle,
+	errorRosaCreate,
+	errorRosaRoles,
+	errorRosaAuth,
+	errorRosaGetIDP,
+	errorRosaCreateUser,
+	errorRosaBuildIDP,
+	errorRosaCreateIDP,
+	errorRosaConsole,
+	errorRosaGetSecret,
+	errorRosaUpdateSecret,
+	errorRosaFailure,
+	errorRosaDelete,
+	errorRosaCleanup,
+	errorRosaDescribe,
+	errorRosaAWS,
+	errorRosaOCM,
+	errorRosaMissingSubnets,
+)
+
+var rosaReadyTimeMetric = prometheus.NewHistogram(
+	prometheus.HistogramOpts{
+		Name:    "ci_chat_bot_rosa_ready_duration_seconds",
+		Help:    "cluster bot time until rosa cluster is ready duration in minutes",
+		Buckets: prometheus.LinearBuckets(1, 1, 30),
+	},
+)
+var rosaReadyToAuthTimeMetric = prometheus.NewHistogram(
+	prometheus.HistogramOpts{
+		Name:    "ci_chat_bot_rosa_ready_to_auth_duration_seconds",
+		Help:    "cluster bot time for rosa auth to be ready after cluster marked ready duration in minutes",
+		Buckets: prometheus.LinearBuckets(1, 1, 30),
+	},
+)
+var rosaAuthTimeMetric = prometheus.NewHistogram(
+	prometheus.HistogramOpts{
+		Name:    "ci_chat_bot_rosa_auth_duration_seconds",
+		Help:    "cluster bot time until rosa cluster has auth duration in minutes",
+		Buckets: prometheus.LinearBuckets(1, 1, 30),
+	},
+)
+var rosaReadyToConsoleTimeMetric = prometheus.NewHistogram(
+	prometheus.HistogramOpts{
+		Name:    "ci_chat_bot_rosa_ready_to_console_duration_seconds",
+		Help:    "cluster bot time until rosa cluster has console after cluster marked ready and auth succeeds duration in minutes",
+		Buckets: prometheus.LinearBuckets(1, 1, 30),
+	},
+)
+var rosaConsoleTimeMetric = prometheus.NewHistogram(
+	prometheus.HistogramOpts{
+		Name:    "ci_chat_bot_rosa_console_duration_seconds",
+		Help:    "cluster bot time until rosa cluster has console duration in minutes",
+		Buckets: prometheus.LinearBuckets(1, 1, 30),
+	},
+)
+var rosaSyncTimeMetric = prometheus.NewHistogram(
+	prometheus.HistogramOpts{
+		Name:    "ci_chat_bot_rosa_sync_duration_seconds",
+		Help:    "cluster bot rosa sync time in seconds",
+		Buckets: prometheus.LinearBuckets(0.05, 0.05, 20),
+	},
 )
 
 type EnvVar struct {
@@ -111,6 +200,8 @@ type jobManager struct {
 	defaultRosaAge   time.Duration
 	rosaSecretClient corev1.SecretInterface
 	rosaNotifierFn   RosaCallbackFunc
+
+	errorMetric *prometheus.CounterVec
 }
 
 // JobRequest keeps information about the request a user made to create
