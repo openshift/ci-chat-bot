@@ -181,7 +181,7 @@ require (
 	k8s.io/component-base v0.26.1 // indirect
 	k8s.io/klog/v2 v2.80.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20221012153701-172d655c2280 // indirect
-	k8s.io/utils v0.0.0-20221107191617-1a15be271d1d // indirect
+	k8s.io/utils v0.0.0-20221107191617-1a15be271d1d
 	knative.dev/pkg v0.0.0-20220329144915-0a1ec2e0d46c // indirect
 	sigs.k8s.io/boskos v0.0.0-20210730172138-093b54882439 // indirect
 	sigs.k8s.io/json v0.0.0-20220713155537-f223a00ba0e2 // indirect
