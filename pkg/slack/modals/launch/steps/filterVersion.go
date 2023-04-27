@@ -80,10 +80,7 @@ func checkVariables(vars ...string) bool {
 			count++
 		}
 	}
-	if count > 1 {
-		return false
-	}
-	return true
+	return count <= 1
 }
 
 func validateFilterVersion(submissionData launch.CallbackData) []byte {
