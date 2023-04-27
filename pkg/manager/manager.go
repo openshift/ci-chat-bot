@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/utils/strings/slices"
 	"math"
 	"net/url"
 	"regexp"
@@ -182,7 +183,9 @@ func (m *jobManager) updateRosaVersions() error {
 		if !valid {
 			continue
 		}
-		versionList = append(versionList, v.RawID())
+		if !slices.Contains(versionList, v.RawID()) {
+			versionList = append(versionList, v.RawID())
+		}
 	}
 
 	if len(versionList) == 0 {
