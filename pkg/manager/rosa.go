@@ -284,8 +284,8 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	oidcCMD := fmt.Sprintf("rosa create oidc-provider --cluster %s --yes --mode auto", cluster.ID())
 	rolesOutput := exec.Command(strings.Split(rolesCMD, " ")[0], strings.Split(rolesCMD, " ")[1:]...)
 	klog.Infof("Running %s\n", rolesOutput.String())
-	metrics.RecordError(errorRosaRoles, m.errorMetric)
 	if err := rolesOutput.Run(); err != nil {
+		metrics.RecordError(errorRosaRoles, m.errorMetric)
 		return nil, "", fmt.Errorf("Failed to run command: %v", err)
 	}
 	oidcOutput := exec.Command(strings.Split(oidcCMD, " ")[0], strings.Split(oidcCMD, " ")[1:]...)
@@ -349,6 +349,7 @@ func (m *jobManager) addClusterAuthAndWait(cluster *clustermgmtv1.Cluster) (bool
 				klog.Infof("Cluster auth for %s not ready yet", cluster.ID())
 				time.Sleep(time.Minute)
 			} else {
+				metrics.RecordError(errorRosaAuth, m.errorMetric)
 				return false, err
 			}
 		} else {
