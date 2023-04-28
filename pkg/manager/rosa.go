@@ -332,9 +332,28 @@ func (m *jobManager) removeAssociatedAWSResources(clusterID string) error {
 	return nil
 }
 
+func (m *jobManager) waitForConsole(cluster *clustermgmtv1.Cluster, readyTime time.Time) error {
+	for i := 0; i < 20; i++ {
+		updatedCluster, err := m.rClient.OCMClient.GetCluster(cluster.ID(), m.rClient.Creator)
+		if err != nil {
+			metrics.RecordError(errorRosaGetSingle, m.errorMetric)
+			return err
+		}
+		if _, ok := updatedCluster.GetConsole(); ok {
+			rosaConsoleTimeMetric.Observe(time.Since(cluster.CreationTimestamp()).Minutes())
+			rosaReadyToConsoleTimeMetric.Observe(time.Since(readyTime).Minutes())
+			klog.Infof("Console for %s became ready", cluster.ID())
+			return nil
+		}
+		klog.Infof("Console for %s not ready yet", cluster.ID())
+		time.Sleep(time.Minute)
+	}
+	metrics.RecordError(errorRosaConsole, m.errorMetric)
+	return fmt.Errorf("Console URL never became available")
+}
+
 // addClusterAuthAndWait is a wrapper for addClusterAuth that sleeps until the new auth is active
-func (m *jobManager) addClusterAuthAndWait(cluster *clustermgmtv1.Cluster) (bool, error) {
-	readyTime := time.Now()
+func (m *jobManager) addClusterAuthAndWait(cluster *clustermgmtv1.Cluster, readyTime time.Time) (bool, error) {
 	password, alreadyExists, err := m.addClusterAuth(cluster.ID())
 	if err != nil || alreadyExists {
 		return alreadyExists, err
@@ -368,22 +387,7 @@ func (m *jobManager) addClusterAuthAndWait(cluster *clustermgmtv1.Cluster) (bool
 	klog.Infof("Cluster auth for %s became ready", cluster.ID())
 	// hosted clusters become ready and accept the new auth before the workers are done
 	// and a console URL exists. We should wait for the console to be ready.
-	for i := 0; i < 10; i++ {
-		updatedCluster, err := m.rClient.OCMClient.GetCluster(cluster.ID(), m.rClient.Creator)
-		if err != nil {
-			return false, err
-		}
-		if _, ok := updatedCluster.GetConsole(); ok {
-			rosaConsoleTimeMetric.Observe(time.Since(cluster.CreationTimestamp()).Minutes())
-			rosaReadyToConsoleTimeMetric.Observe(time.Since(readyTime).Minutes())
-			klog.Infof("Console for %s became ready", cluster.ID())
-			return false, nil
-		}
-		klog.Infof("Console for %s not ready yet", cluster.ID())
-		time.Sleep(time.Minute)
-	}
-	metrics.RecordError(errorRosaConsole, m.errorMetric)
-	return false, fmt.Errorf("Console URL never became available")
+	return false, nil
 }
 
 func (m *jobManager) addClusterAuth(clusterID string) (string, bool, error) {
