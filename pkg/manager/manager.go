@@ -298,17 +298,23 @@ func (m *jobManager) rosaSync() error {
 					rosaReadyTimeMetric.Observe(time.Since(cluster.CreationTimestamp()).Minutes())
 				}
 				go func() {
-					alreadyExists, err := m.addClusterAuthAndWait(cluster)
+					readyTime := time.Now()
+					alreadyExists, err := m.addClusterAuthAndWait(cluster, readyTime)
 					if err != nil {
 						// addClusterAuthAndWait records metrics itself
 						klog.Errorf("Failed to add cluster auth: %v", err)
 					}
-					// don't renottify users on chat-bot restart
+					// don't renotify users on chat-bot restart
 					if !alreadyExists {
 						activeRosaIDs, err := m.rosaSecretClient.Get(context.TODO(), RosaClusterSecretName, metav1.GetOptions{})
 						if err != nil {
 							metrics.RecordError(errorRosaGetSecret, m.errorMetric)
 							klog.Errorf("Failed to get `%s` secret: %v", RosaClusterSecretName, err)
+						}
+						// notify that the cluster has auth
+						m.rosaNotifierFn(cluster, string(activeRosaIDs.Data[cluster.ID()]))
+						if err := m.waitForConsole(cluster, readyTime); err != nil {
+							klog.Errorf("Failed to wait for console: %v", err)
 						}
 						// update cluster info to get console URL
 						updatedCluster, err := m.rClient.OCMClient.GetCluster(cluster.ID(), m.rClient.Creator)
@@ -319,7 +325,7 @@ func (m *jobManager) rosaSync() error {
 							cluster = updatedCluster
 						}
 						m.rosaNotifierFn(cluster, string(activeRosaIDs.Data[cluster.ID()]))
-						// update cluster list
+						// update cluster list to include console
 						go m.rosaSync() // nolint:errcheck
 					} else {
 						klog.Infof("Cluster %s has existing auth; will not notify user", cluster.ID())

@@ -482,7 +482,7 @@ func NotifyRosa(client *slack.Client, cluster *clustermgmtv1.Cluster, password s
 		if console, ok := cluster.GetConsole(); ok {
 			message += "\n" + console.URL()
 		} else {
-			message += "\nYour cluster's console is not currently available. If you need access to the cluster's web console, please wait 5 minutes and then comment `auth`."
+			message += "\nYour cluster's console is not currently available. We will send you another message when the console becomes ready. To manually check if the console is ready, use the `auth` command."
 		}
 		ocLoginCommand := fmt.Sprintf("oc login %s --username cluster-admin --password %s", cluster.API().URL(), password)
 		message += "\n\nLog in to the console with user `cluster-admin` and password `" + password + "`.\nTo use the `oc` command, log in by running `" + ocLoginCommand + "`."
