@@ -69,35 +69,35 @@ var errorMetricList = sets.NewString(
 
 var rosaReadyTimeMetric = prometheus.NewHistogram(
 	prometheus.HistogramOpts{
-		Name:    "ci_chat_bot_rosa_ready_duration_seconds",
+		Name:    "ci_chat_bot_rosa_ready_duration_minutes",
 		Help:    "cluster bot time until rosa cluster is ready duration in minutes",
 		Buckets: prometheus.LinearBuckets(1, 1, 30),
 	},
 )
 var rosaReadyToAuthTimeMetric = prometheus.NewHistogram(
 	prometheus.HistogramOpts{
-		Name:    "ci_chat_bot_rosa_ready_to_auth_duration_seconds",
+		Name:    "ci_chat_bot_rosa_ready_to_auth_duration_minutes",
 		Help:    "cluster bot time for rosa auth to be ready after cluster marked ready duration in minutes",
 		Buckets: prometheus.LinearBuckets(1, 1, 30),
 	},
 )
 var rosaAuthTimeMetric = prometheus.NewHistogram(
 	prometheus.HistogramOpts{
-		Name:    "ci_chat_bot_rosa_auth_duration_seconds",
+		Name:    "ci_chat_bot_rosa_auth_duration_minutes",
 		Help:    "cluster bot time until rosa cluster has auth duration in minutes",
 		Buckets: prometheus.LinearBuckets(1, 1, 30),
 	},
 )
 var rosaReadyToConsoleTimeMetric = prometheus.NewHistogram(
 	prometheus.HistogramOpts{
-		Name:    "ci_chat_bot_rosa_ready_to_console_duration_seconds",
+		Name:    "ci_chat_bot_rosa_ready_to_console_duration_minutes",
 		Help:    "cluster bot time until rosa cluster has console after cluster marked ready and auth succeeds duration in minutes",
 		Buckets: prometheus.LinearBuckets(1, 1, 30),
 	},
 )
 var rosaConsoleTimeMetric = prometheus.NewHistogram(
 	prometheus.HistogramOpts{
-		Name:    "ci_chat_bot_rosa_console_duration_seconds",
+		Name:    "ci_chat_bot_rosa_console_duration_minutes",
 		Help:    "cluster bot time until rosa cluster has console duration in minutes",
 		Buckets: prometheus.LinearBuckets(1, 1, 30),
 	},
