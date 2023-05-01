@@ -193,8 +193,9 @@ type jobManager struct {
 		lock     sync.RWMutex
 		versions []string
 	}
-	rosaClusterLimit int
-	rosaSubnets      *RosaSubnets
+	rosaClusterLimit  int
+	rosaSubnets       *RosaSubnets
+	rosaErrorReported sets.String
 
 	maxRosaAge       time.Duration
 	defaultRosaAge   time.Duration
