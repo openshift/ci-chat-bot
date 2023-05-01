@@ -339,8 +339,14 @@ func (m *jobManager) rosaSync() error {
 				if previous != nil {
 					metrics.RecordError(errorRosaFailure, m.errorMetric)
 				}
-				klog.Infof("Reporting failure for cluster %s", cluster.ID())
-				m.rosaNotifierFn(cluster, "")
+				if m.rosaErrorReported == nil {
+					m.rosaErrorReported = sets.NewString()
+				}
+				if !m.rosaErrorReported.Has(cluster.ID()) {
+					klog.Infof("Reporting failure for cluster %s", cluster.ID())
+					m.rosaNotifierFn(cluster, "")
+					m.rosaErrorReported.Insert(cluster.ID())
+				}
 			}
 		}
 		expiryTime, err := base64.RawStdEncoding.DecodeString(cluster.AWS().Tags()[utils.ExpiryTimeTag])
