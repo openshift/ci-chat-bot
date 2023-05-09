@@ -93,13 +93,15 @@ func help(client *slack.Client, event *slackevents.MessageEvent, botCommands []p
 			}
 		}
 		if len(command.Definition().Description) > 0 {
-			helpMessage += "-" + " " + fmt.Sprintf("_%s_", command.Definition().Description)
+			helpMessage += "\n\t" + fmt.Sprintf("_%s_", command.Definition().Description)
 		}
 		helpMessage += "\n"
 		if len(command.Definition().Example) > 0 {
 			helpMessage += fmt.Sprintf(">_*Example:* %s_", command.Definition().Example) + "\n"
 		}
 	}
+	// Adding pointer to our FAQ...
+	helpMessage += "Please check out our <https://github.com/openshift/ci-chat-bot/blob/master/docs/FAQ.md|Frequently Asked Questions> for more information.\n"
 	_, _, err := client.PostMessage(event.Channel, slack.MsgOptionText(helpMessage, false))
 	if err != nil {
 		klog.Warningf("Failed to post the help message")

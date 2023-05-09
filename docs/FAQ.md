@@ -33,7 +33,7 @@
 
    The definition of the command is as follows:
 
-   `workflow-launch {workflow_name} {image_or_version_or_pr} {parameters}`
+   `workflow-launch {workflow_name} {image_or_version_or_prs} {parameters}`
 
    The parameters option in the slack command is a list of double-quoted environment variable settings separated by commas. For instance, if I want to launch a 4.9 cluster using the openshift-e2e-azure workflow with a compact cluster size and preserved bootstrap resources, I would run this command:
 

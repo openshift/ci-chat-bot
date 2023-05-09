@@ -80,11 +80,12 @@ func NewBot(botToken, botSigningSecret string, graceperiod time.Duration, port i
 
 func (b *Bot) SupportedCommands() []parser.BotCommand {
 	return []parser.BotCommand{
-		parser.NewBotCommand("launch <image_or_version_or_pr> <options>", &parser.CommandDefinition{
-			Description: fmt.Sprintf("Launch an OpenShift cluster using a known image, version, or PR. You may omit both arguments. Use `nightly` for the latest OCP build, `ci` for the the latest CI build, provide a version directly from any listed on https://amd64.ocp.releases.ci.openshift.org, a stream name (4.1.0-0.ci, 4.1.0-0.nightly, etc), a major/minor `X.Y` to load the \"next stable\" version, from nightly, for that version (`4.1`), `<org>/<repo>#<pr>` to launch from a PR, or an image for the first argument. Options is a comma-delimited list of variations including platform (%s) and variant (%s).",
+		parser.NewBotCommand("launch <image_or_version_or_prs> <options>", &parser.CommandDefinition{
+			Description: fmt.Sprintf("Launch an OpenShift cluster using a known image, version, or PR(s). You may omit both arguments. Arguments can be specified as any number of comma-delimited values. Use `nightly` for the latest OCP build, `ci` for the the latest CI build, provide a version directly from any listed on https://amd64.ocp.releases.ci.openshift.org, a stream name (4.14.0-0.ci, 4.14.0-0.nightly, etc), a major/minor `X.Y` to load the \"next stable\" version, from nightly, for that version (`4.14`), `<org>/<repo>#<pr>` to launch from any combination of PRs, or an image for the first argument. Options is a comma-delimited list of variations including platform (%s), architecture (%s), and variant (%s).",
 				strings.Join(CodeSlice(manager.SupportedPlatforms), ", "),
+				strings.Join(CodeSlice(manager.SupportedArchitectures), ", "),
 				strings.Join(CodeSlice(manager.SupportedParameters), ", ")),
-			Example: "launch openshift/origin#49563 gcp",
+			Example: "launch 4.14,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
 			Handler: LaunchCluster,
 		}),
 		parser.NewBotCommand("rosa create <version> <duration>", &parser.CommandDefinition{
@@ -120,30 +121,36 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		}),
 		parser.NewBotCommand("test upgrade <from> <to> <options>", &parser.CommandDefinition{
 			Description: fmt.Sprintf("Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org. You may change the upgrade test by passing `test=NAME` in options with one of %s", strings.Join(CodeSlice(manager.SupportedUpgradeTests), ", ")),
+			Example:     "test upgrade 4.12 4.14 aws",
 			Handler:     TestUpgrade,
 		}),
-		parser.NewBotCommand("test <name> <image_or_version_or_pr> <options>", &parser.CommandDefinition{
+		parser.NewBotCommand("test <name> <image_or_version_or_prs> <options>", &parser.CommandDefinition{
 			Description: fmt.Sprintf("Run the requested test suite from an image or release or built PRs. Supported test suites are %s. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org. ", strings.Join(CodeSlice(manager.SupportedTests), ", ")),
+			Example:     "test e2e 4.14 vsphere",
 			Handler:     Test,
 		}),
 		parser.NewBotCommand("build <pullrequest>", &parser.CommandDefinition{
-			Description: "Create a new release image from one or more pull requests. The successful build location will be sent to you when it completes and then preserved for 12 hours.  Example: `build openshift/operator-framework-olm#68,operator-framework/operator-marketplace#396`. To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
+			Description: "Create a new release image from one or more pull requests. The successful build location will be sent to you when it completes and then preserved for 12 hours.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
+			Example:     "build openshift/operator-framework-olm#68,operator-framework/operator-marketplace#396",
 			Handler:     Build,
 		}),
-		parser.NewBotCommand("workflow-launch <name> <image_or_version_or_pr> <parameters>", &parser.CommandDefinition{
+		parser.NewBotCommand("workflow-launch <name> <image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
 			Description: "Launch a cluster using the requested workflow from an image or release or built PRs. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org.",
+			Example:     "workflow-launch openshift-e2e-gcp-windows-node 4.14 gcp",
 			Handler:     WorkflowLaunch,
 		}),
-		parser.NewBotCommand("workflow-upgrade <name> <from_image_or_version_or_pr> <to_image_or_version_or_pr> <parameters>", &parser.CommandDefinition{
+		parser.NewBotCommand("workflow-upgrade <name> <from_image_or_version_or_prs> <to_image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
 			Description: "Run a custom upgrade using the requested workflow from an image or release or built PRs to a specified version/image/pr from https://amd64.ocp.releases.ci.openshift.org. ",
+			Example:     "workflow-upgrade openshift-upgrade-azure-ovn 4.12 4.14 azure",
 			Handler:     WorkflowUpgrade,
 		}),
 		parser.NewBotCommand("version", &parser.CommandDefinition{
 			Description: "Report the version of the bot",
 			Handler:     Version,
 		}),
-		parser.NewBotCommand("lookup <image_or_version_or_pr> <architecture>", &parser.CommandDefinition{
+		parser.NewBotCommand("lookup <image_or_version_or_prs> <architecture>", &parser.CommandDefinition{
 			Description: "Get info about a version.",
+			Example:     "lookup 4.14 arm64",
 			Handler:     Lookup,
 		}),
 	}
@@ -418,7 +425,7 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 	if len(platform) == 0 {
 		switch architecture {
 		case "amd64":
-			// for hypershift, only support normal launchs
+			// for hypershift, only support normal launches
 			if jobType == manager.JobTypeInstall || jobType == manager.JobTypeLaunch {
 				// only use hypershift for supported versions
 				manager.HypershiftSupportedVersions.Mu.RLock()
