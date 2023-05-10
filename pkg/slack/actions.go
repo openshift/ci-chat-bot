@@ -16,7 +16,7 @@ import (
 
 func LaunchCluster(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	userName := GetUserName(client, event.User)
-	from, err := ParseImageInput(properties.StringParam("image_or_version_or_pr", ""))
+	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
 	if err != nil {
 		return err.Error()
 	}
@@ -51,7 +51,7 @@ func LaunchCluster(client *slack.Client, jobManager manager.JobManager, event *s
 }
 
 func Lookup(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
-	from, err := ParseImageInput(properties.StringParam("image_or_version_or_pr", ""))
+	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
 	if err != nil {
 		return err.Error()
 	}
@@ -156,7 +156,7 @@ func TestUpgrade(client *slack.Client, jobManager manager.JobManager, event *sla
 
 func Test(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	userName := GetUserName(client, event.User)
-	from, err := ParseImageInput(properties.StringParam("image_or_version_or_pr", ""))
+	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
 	if err != nil {
 		return err.Error()
 	}
@@ -240,7 +240,7 @@ func Version(client *slack.Client, jobManager manager.JobManager, event *slackev
 func WorkflowLaunch(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	workflowConfig := jobManager.GetWorkflowConfig()
 	userName := GetUserName(client, event.User)
-	from, err := ParseImageInput(properties.StringParam("image_or_version_or_pr", ""))
+	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
 	if err != nil {
 		return err.Error()
 	}
@@ -284,7 +284,7 @@ func WorkflowLaunch(client *slack.Client, jobManager manager.JobManager, event *
 func WorkflowUpgrade(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	workflowConfig := jobManager.GetWorkflowConfig()
 	userName := GetUserName(client, event.User)
-	from, err := ParseImageInput(properties.StringParam("from_image_or_version_or_pr", ""))
+	from, err := ParseImageInput(properties.StringParam("from_image_or_version_or_prs", ""))
 	if err != nil {
 		return err.Error()
 	}
@@ -292,7 +292,7 @@ func WorkflowUpgrade(client *slack.Client, jobManager manager.JobManager, event 
 		return "you must specify initial release"
 	}
 
-	to, err := ParseImageInput(properties.StringParam("to_image_or_version_or_pr", ""))
+	to, err := ParseImageInput(properties.StringParam("to_image_or_version_or_prs", ""))
 	if err != nil {
 		return err.Error()
 	}
