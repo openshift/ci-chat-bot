@@ -68,6 +68,7 @@ var pathTreeData = `{
         "pull_secrets": {
           "-": null
         },
+        "quota_authorizations": null,
         "registries": {
           "-": null
         },
@@ -201,6 +202,7 @@ var pathTreeData = `{
               }
             },
             "credentials": null,
+            "delete_protection": null,
             "external_configuration": {
               "labels": {
                 "-": null
@@ -231,6 +233,9 @@ var pathTreeData = `{
                   "import": null
                 }
               }
+            },
+            "inflight_checks": {
+              "-": null
             },
             "ingresses": {
               "-": null
@@ -265,6 +270,9 @@ var pathTreeData = `{
             "sts_operator_roles": {
               "-": null
             },
+            "tuning_configs": {
+              "-": null
+            },
             "upgrade_policies": {
               "-": {
                 "state": null
@@ -290,6 +298,9 @@ var pathTreeData = `{
           "-": null
         },
         "oidc_configs": {
+          "-": null
+        },
+        "pending_delete_clusters": {
           "-": null
         },
         "products": {
@@ -347,7 +358,8 @@ var pathTreeData = `{
     "service_mgmt": {
       "v1": {
         "services": {
-          "-": null
+          "-": null,
+          "version_inquiry": null
         }
       }
     },

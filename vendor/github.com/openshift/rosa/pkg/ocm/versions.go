@@ -23,6 +23,7 @@ import (
 
 	ver "github.com/hashicorp/go-version"
 	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
+	msv1 "github.com/openshift-online/ocm-sdk-go/servicemgmt/v1"
 )
 
 const (
@@ -32,6 +33,23 @@ const (
 	LowestSTSMinor        = "4.7"
 	LowestHostedCPSupport = "4.12.0-0.a" //TODO: Remove the 0.a once stable 4.12 builds are available
 )
+
+func (c *Client) ManagedServiceVersionInquiry(serviceType string) (string, error) {
+	versionInquiryRequest, err := msv1.NewVersionInquiryRequest().ServiceType(serviceType).Build()
+	if err != nil {
+		return "", fmt.Errorf("failed to build version inquiry request: %v", err)
+	}
+	versionInquiryResponse, err := c.ocm.ServiceMgmt().V1().Services().VersionInquiry().Post().Body(
+		versionInquiryRequest,
+	).Send()
+	if err != nil {
+		return "", fmt.Errorf("version inquiry call failed: %v", err)
+	}
+	if versionInquiryResponse == nil || versionInquiryResponse.Body() == nil {
+		return "", fmt.Errorf("version inquiry call failed to save response")
+	}
+	return versionInquiryResponse.Body().Version(), nil
+}
 
 func (c *Client) GetVersions(channelGroup string) (versions []*cmv1.Version, err error) {
 	collection := c.ocm.ClustersMgmt().V1().Versions()
@@ -337,6 +355,7 @@ func (c *Client) ValidateVersion(version string, versionList []string, channelGr
 		err := fmt.Errorf("Version '%s' is not supported for STS clusters", version)
 		return version, err
 	}
+
 	if isHostedCP {
 		collection := c.ocm.ClustersMgmt().V1().Versions()
 		filter := fmt.Sprintf("raw_id='%s'", version)
@@ -348,9 +367,15 @@ func (c *Client) ValidateVersion(version string, versionList []string, channelGr
 		if err != nil {
 			return "", handleErr(response.Error(), err)
 		}
+		if response.Total() == 0 {
+			return "", fmt.Errorf("version '%s' was not found", version)
+		}
 		valid, err := HasHostedCPSupport(response.Items().Get(0))
-		if err != nil || !valid {
-			return "", err
+		if err != nil {
+			return "", fmt.Errorf("version '%s' is not supported for hosted clusters: %v", version, err)
+		}
+		if !valid {
+			return "", fmt.Errorf("version '%s' is not supported for hosted clusters", version)
 		}
 	}
 
