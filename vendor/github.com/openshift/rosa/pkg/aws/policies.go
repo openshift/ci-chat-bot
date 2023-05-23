@@ -18,6 +18,7 @@ package aws
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -197,7 +198,10 @@ func (c *awsClient) ValidateRoleNameAvailable(name string) (err error) {
 	if err == nil {
 		// If we found an existing role with this name we want to error
 		return fmt.Errorf("A role named '%s' already exists. "+
-			"Please delete the existing role, or provide a different prefix", name)
+			"Please delete the existing role, or provide a different prefix.\n"+
+			"If you'd like to reuse the operator roles, please provide a "+
+			"OIDC Configuration ID which has Issuer URL linked as the trusted relationship "+
+			"of the chosen operator roles prefix.", name)
 	}
 
 	if aerr, ok := err.(awserr.Error); ok {
@@ -475,52 +479,69 @@ func (c *awsClient) FindRoleARNs(roleType string, version string) ([]string, err
 		if !strings.Contains(aws.StringValue(role.RoleName), AccountRoles[roleType].Name) {
 			continue
 		}
-		listRoleTagsOutput, err := c.iamClient.ListRoleTags(&iam.ListRoleTagsInput{
-			RoleName: role.RoleName,
-		})
+		isValid, err := c.ValidateAccountRoleVersionCompatibility(*role.RoleName, roleType, version)
 		if err != nil {
 			return roleARNs, err
 		}
-		skip := false
-		isTagged := false
-		for _, tag := range listRoleTagsOutput.Tags {
-			tagValue := aws.StringValue(tag.Value)
-			switch aws.StringValue(tag.Key) {
-			case tags.RoleType:
-				isTagged = true
-				if tagValue != roleType {
-					skip = true
-					break
-				}
-			case tags.OpenShiftVersion:
-				isTagged = true
-
-				if roleHasTag(listRoleTagsOutput.Tags, tags.ManagedPolicies, tags.True) {
-					// Managed policies will be up-to-date no need to check version tags
-					break
-				}
-
-				clusterVersion, err := semver.NewVersion(version)
-				if err != nil {
-					skip = true
-					break
-				}
-				policyVersion, err := semver.NewVersion(tagValue)
-				if err != nil {
-					skip = true
-					break
-				}
-				if policyVersion.LessThan(clusterVersion) {
-					skip = true
-					break
-				}
-			}
+		if !isValid {
+			continue
 		}
-		if isTagged && !skip {
-			roleARNs = append(roleARNs, aws.StringValue(role.Arn))
-		}
+		roleARNs = append(roleARNs, aws.StringValue(role.Arn))
 	}
 	return roleARNs, nil
+}
+
+// FIXME: refactor similar calls to use this instead
+func (c *awsClient) ValidateAccountRoleVersionCompatibility(
+	roleName string, roleType string, minVersion string) (bool, error) {
+	listRoleTagsOutput, err := c.iamClient.ListRoleTags(&iam.ListRoleTagsInput{
+		RoleName: aws.String(roleName),
+	})
+	if err != nil {
+		return false, err
+	}
+	skip := false
+	isTagged := false
+	for _, tag := range listRoleTagsOutput.Tags {
+		tagValue := aws.StringValue(tag.Value)
+		switch aws.StringValue(tag.Key) {
+		case tags.RoleType:
+			isTagged = true
+			if tagValue != roleType {
+				skip = true
+				break
+			}
+		case tags.OpenShiftVersion:
+			isTagged = true
+
+			if roleHasTag(listRoleTagsOutput.Tags, tags.ManagedPolicies, tags.True) {
+				// Managed policies will be up-to-date no need to check version tags
+				break
+			}
+
+			if minVersion == "" {
+				break
+			}
+			minExpectedVersion, err := semver.NewVersion(minVersion)
+			if err != nil {
+				skip = true
+				break
+			}
+			policyVersion, err := semver.NewVersion(tagValue)
+			if err != nil {
+				skip = true
+				break
+			}
+			if policyVersion.LessThan(minExpectedVersion) {
+				skip = true
+				break
+			}
+		}
+	}
+	if !isTagged || skip {
+		return false, nil
+	}
+	return true, nil
 }
 
 func (c *awsClient) ListRoles() ([]*iam.Role, error) {
@@ -766,6 +787,91 @@ func (c *awsClient) ListAccountRoles(version string) ([]Role, error) {
 		}
 	}
 	return accountRoles, nil
+}
+
+func (c *awsClient) ListOperatorRoles(version string) (map[string][]Role, error) {
+	operatorMap := map[string][]Role{}
+	roles, err := c.ListRoles()
+	if err != nil {
+		return operatorMap, err
+	}
+	prefixOperatorRoleRE := regexp.MustCompile(`(?i)(?P<Prefix>[\w+=,.@-]+)-(openshift|kube-system)`)
+	for _, role := range roles {
+		operatorRole := Role{}
+		matches := prefixOperatorRoleRE.FindStringSubmatch(*role.RoleName)
+		if len(matches) == 0 {
+			continue
+		}
+		prefixIndex := prefixOperatorRoleRE.SubexpIndex("Prefix")
+		foundPrefix := strings.ToLower(matches[prefixIndex])
+		if _, mapOk := operatorMap[foundPrefix]; !mapOk {
+			operatorMap[foundPrefix] = []Role{}
+		}
+		listRoleTagsOutput, err := c.iamClient.ListRoleTags(&iam.ListRoleTagsInput{
+			RoleName: role.RoleName,
+		})
+		if err != nil {
+			return operatorMap, err
+		}
+		for _, tag := range listRoleTagsOutput.Tags {
+			switch aws.StringValue(tag.Key) {
+			case tags.ManagedPolicies:
+				if aws.StringValue(tag.Value) == tags.True {
+					operatorRole.ManagedPolicy = true
+				}
+			}
+		}
+		if operatorRole.ManagedPolicy {
+			operatorRole.RoleName = aws.StringValue(role.RoleName)
+			operatorRole.RoleARN = aws.StringValue(role.Arn)
+			operatorMap[foundPrefix] = append(operatorMap[foundPrefix], operatorRole)
+			continue
+		}
+
+		attachedPoliciesOutput, err := c.iamClient.ListAttachedRolePolicies(&iam.ListAttachedRolePoliciesInput{
+			RoleName: role.RoleName,
+		})
+		if err != nil {
+			return operatorMap, err
+		}
+		for _, policy := range attachedPoliciesOutput.AttachedPolicies {
+			listPolicyTagsOutput, err := c.iamClient.ListPolicyTags(&iam.ListPolicyTagsInput{
+				PolicyArn: policy.PolicyArn,
+			})
+			if err != nil {
+				return operatorMap, err
+			}
+			isTagged := false
+			skip := false
+			for _, tag := range listPolicyTagsOutput.Tags {
+				switch aws.StringValue(tag.Key) {
+				case tags.OpenShiftVersion:
+					tagValue := aws.StringValue(tag.Value)
+					if version != "" && tagValue != version {
+						skip = true
+						break
+					}
+					isTagged = true
+					operatorRole.Version = tagValue
+				}
+			}
+			if isTagged && !skip {
+				operatorRole.RoleName = aws.StringValue(role.RoleName)
+				operatorRole.RoleARN = aws.StringValue(role.Arn)
+				operatorMap[foundPrefix] = append(operatorMap[foundPrefix], operatorRole)
+			}
+		}
+	}
+	emptyListKeys := []string{}
+	for key, list := range operatorMap {
+		if len(list) == 0 {
+			emptyListKeys = append(emptyListKeys, key)
+		}
+	}
+	for _, key := range emptyListKeys {
+		delete(operatorMap, key)
+	}
+	return operatorMap, nil
 }
 
 // Check if it is one of the ROSA account roles
@@ -1114,14 +1220,12 @@ func (c *awsClient) GetOperatorRolesFromAccountByPrefix(prefix string,
 	if err != nil {
 		return roleList, err
 	}
-	// An extra '-' is needed to end the prefix where the suffixes for openshift/kube starts
-	// This ensures other similar prefixes will not be deleted
-	prefix = prefix + "-"
+	prefixOperatorRoleRE := regexp.MustCompile(("(?i)" + fmt.Sprintf("(%s)-(openshift|kube-system)", prefix)))
 	for _, role := range roles {
 		if !checkIfROSAOperatorRole(role.RoleName, credRequest) {
 			continue
 		}
-		if strings.HasPrefix(*role.RoleName, prefix) {
+		if prefixOperatorRoleRE.MatchString(*role.RoleName) {
 			roleList = append(roleList, aws.StringValue(role.RoleName))
 		}
 	}
@@ -1383,7 +1487,8 @@ func (c *awsClient) GetOpenIDConnectProviderByOidcEndpointUrl(oidcEndpointUrl st
 		if err != nil {
 			return "", err
 		}
-		if strings.Contains(providerName, oidcEndpointUrl) {
+		if strings.Contains(providerName, oidcEndpointUrl) ||
+			strings.Contains(oidcEndpointUrl, providerName) {
 			return providerValue, nil
 		}
 	}
@@ -1612,7 +1717,7 @@ func (c *awsClient) checkPolicyExistsAndUpToDate(policyARN string, policyVersion
 func (c *awsClient) isRolePolicyUpToDate(policyARN string, policyVersion string) (bool, error) {
 	isCompatible, err := c.isRolePoliciesCompatibleForUpgrade(policyARN, policyVersion)
 	if err != nil {
-		return false, errors.Errorf("Failed to validate role polices : %v", err)
+		return false, errors.Errorf("Failed to validate role policies : %v", err)
 	}
 	if !isCompatible {
 		return false, nil

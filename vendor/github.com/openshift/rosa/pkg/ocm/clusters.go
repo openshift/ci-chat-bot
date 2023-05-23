@@ -110,7 +110,8 @@ type Spec struct {
 	AdditionalTrustBundle     *string
 
 	// HyperShift options:
-	Hypershift Hypershift
+	Hypershift     Hypershift
+	BillingAccount string
 }
 
 type OperatorIAMRole struct {
@@ -118,6 +119,19 @@ type OperatorIAMRole struct {
 	Namespace string
 	RoleARN   string
 	Path      string
+}
+
+func NewOperatorIamRoleFromCmv1(operatorIAMRole *cmv1.OperatorIAMRole) (*OperatorIAMRole, error) {
+	path, err := aws.GetPathFromARN(operatorIAMRole.RoleARN())
+	if err != nil {
+		return nil, err
+	}
+	return &OperatorIAMRole{
+		Name:      operatorIAMRole.Name(),
+		Namespace: operatorIAMRole.Namespace(),
+		RoleARN:   operatorIAMRole.RoleARN(),
+		Path:      path,
+	}, nil
 }
 
 type Hypershift struct {
@@ -379,9 +393,9 @@ func (c *Client) GetPendingClusterForARN(creator *aws.Creator) (cluster *cmv1.Cl
 	return response.Items().Get(0), nil
 }
 
-func (c *Client) HasAClusterUsingOidcConfig(issuerUrl string) (bool, error) {
+func (c *Client) HasAClusterUsingOperatorRolesPrefix(prefix string) (bool, error) {
 	query := fmt.Sprintf(
-		"aws.sts.oidc_endpoint_url = '%s'", issuerUrl,
+		"aws.sts.operator_iam_roles.role_arn like '%%/%s-%%'", prefix,
 	)
 	request := c.ocm.ClustersMgmt().V1().Clusters().List().Search(query)
 	page := 1
@@ -395,9 +409,9 @@ func (c *Client) HasAClusterUsingOidcConfig(issuerUrl string) (bool, error) {
 	return false, nil
 }
 
-func (c *Client) HasAClusterUsingOidcProvider(oidcEndpointURL string) (bool, error) {
+func (c *Client) HasAClusterUsingOidcEndpointUrl(issuerUrl string) (bool, error) {
 	query := fmt.Sprintf(
-		"aws.sts.oidc_endpoint_url = '%s'", oidcEndpointURL,
+		"aws.sts.oidc_endpoint_url = '%s'", issuerUrl,
 	)
 	request := c.ocm.ClustersMgmt().V1().Clusters().List().Search(query)
 	page := 1
@@ -772,6 +786,10 @@ func (c *Client) createClusterSpec(config Spec, awsClient aws.Client) (*cmv1.Clu
 		}
 	}
 
+	if config.BillingAccount != "" {
+		awsBuilder = awsBuilder.BillingAccountID(config.BillingAccount)
+	}
+
 	if config.RoleARN != "" {
 		stsBuilder := cmv1.NewSTS().RoleARN(config.RoleARN)
 		if config.ExternalID != "" {
@@ -910,4 +928,17 @@ func (c *Client) ResumeCluster(clusterID string) error {
 
 func IsConsoleAvailable(cluster *cmv1.Cluster) bool {
 	return cluster.Console() != nil && cluster.Console().URL() != ""
+}
+
+func IsHyperShiftCluster(cluster *cmv1.Cluster) bool {
+	return cluster != nil && cluster.Hypershift() != nil && cluster.Hypershift().Enabled()
+}
+
+func IsOidcConfigReusable(cluster *cmv1.Cluster) bool {
+	return cluster != nil &&
+		cluster.AWS().STS().OidcConfig() != nil && cluster.AWS().STS().OidcConfig().Reusable()
+}
+
+func IsSts(cluster *cmv1.Cluster) bool {
+	return cluster != nil && cluster.AWS().STS().RoleARN() != ""
 }

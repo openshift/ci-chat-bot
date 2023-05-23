@@ -71,7 +71,6 @@ const (
 	DefaultRegion = "us-east-1"
 	Inline        = "inline"
 	Attached      = "attached"
-	AclPublicRead = "public-read"
 )
 
 // addROSAVersionToUserAgent is a named handler that will add ROSA CLI
@@ -122,6 +121,7 @@ type Client interface {
 	ListUserRoles() ([]Role, error)
 	ListOCMRoles() ([]Role, error)
 	ListAccountRoles(version string) ([]Role, error)
+	ListOperatorRoles(version string) (map[string][]Role, error)
 	GetRoleByARN(roleARN string) (*iam.Role, error)
 	HasCompatibleVersionTags(iamTags []*iam.Tag, version string) (bool, error)
 	DeleteOperatorRole(roles string, managedPolicies bool) error
@@ -182,6 +182,8 @@ type Client interface {
 	PutPublicReadObjectInS3Bucket(bucketName string, body io.ReadSeeker, key string) error
 	CreateSecretInSecretsManager(name string, secret string) (string, error)
 	DeleteSecretInSecretsManager(secretArn string) error
+	ValidateAccountRoleVersionCompatibility(
+		roleName string, roleType string, minVersion string) (bool, error)
 }
 
 // ClientBuilder contains the information and logic needed to build a new AWS client.
@@ -950,6 +952,23 @@ func (c *awsClient) detachRolePolicy(policyArn string, roleName string) error {
 	return nil
 }
 
+const ReadOnlyAnonUserPolicyTemplate = `{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Sid": "AllowReadPublicAccess",
+			"Principal": "*",
+			"Effect": "Allow",
+			"Action": [
+				"s3:GetObject"
+			],
+			"Resource": [
+				"arn:aws:s3:::%s/*"
+			]
+		}
+	]
+}`
+
 func (c *awsClient) CreateS3Bucket(bucketName string, region string) error {
 	_, err := c.s3Client.HeadBucket(&s3.HeadBucketInput{
 		Bucket: aws.String(bucketName),
@@ -969,6 +988,28 @@ func (c *awsClient) CreateS3Bucket(bucketName string, region string) error {
 	if err != nil {
 		return err
 	}
+
+	_, err = c.s3Client.PutPublicAccessBlock(&s3.PutPublicAccessBlockInput{
+		Bucket: aws.String(bucketName),
+		PublicAccessBlockConfiguration: &s3.PublicAccessBlockConfiguration{
+			BlockPublicAcls:       aws.Bool(true),
+			IgnorePublicAcls:      aws.Bool(true),
+			BlockPublicPolicy:     aws.Bool(false),
+			RestrictPublicBuckets: aws.Bool(false),
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	_, err = c.s3Client.PutBucketPolicy(&s3.PutBucketPolicyInput{
+		Bucket: aws.String(bucketName),
+		Policy: aws.String(fmt.Sprintf(ReadOnlyAnonUserPolicyTemplate, bucketName)),
+	})
+	if err != nil {
+		return err
+	}
+
 	_, err = c.s3Client.PutBucketTagging(&s3.PutBucketTaggingInput{
 		Bucket: aws.String(bucketName),
 		Tagging: &s3.Tagging{
@@ -992,7 +1033,7 @@ func (c *awsClient) DeleteS3Bucket(bucketName string) error {
 	})
 	if err != nil {
 		if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "NotFound" {
-			return weberr.Errorf("Bucket '%s' does not exist.", bucketName)
+			return nil
 		}
 		return err
 	}
@@ -1029,9 +1070,7 @@ func (c *awsClient) emptyS3Bucket(bucketName string) error {
 }
 
 func (c *awsClient) PutPublicReadObjectInS3Bucket(bucketName string, body io.ReadSeeker, key string) error {
-	acl := AclPublicRead
 	_, err := c.s3Client.PutObject(&s3.PutObjectInput{
-		ACL:     aws.String(acl),
 		Body:    body,
 		Bucket:  aws.String(bucketName),
 		Key:     aws.String(key),
@@ -1065,7 +1104,9 @@ func (c *awsClient) DeleteSecretInSecretsManager(secretArn string) error {
 		SecretId: aws.String(secretArn),
 	})
 	if err != nil {
-		return err
+		if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == secretsmanager.ErrCodeResourceNotFoundException {
+			return nil
+		}
 	}
 	_, err = c.smClient.DeleteSecret(
 		&secretsmanager.DeleteSecretInput{

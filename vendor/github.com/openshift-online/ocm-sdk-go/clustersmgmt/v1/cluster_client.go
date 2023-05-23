@@ -189,6 +189,14 @@ func (c *ClusterClient) Credentials() *CredentialsClient {
 	)
 }
 
+// DeleteProtection returns the target 'delete_protection' resource.
+func (c *ClusterClient) DeleteProtection() *DeleteProtectionClient {
+	return NewDeleteProtectionClient(
+		c.transport,
+		path.Join(c.path, "delete_protection"),
+	)
+}
+
 // ExternalConfiguration returns the target 'external_configuration' resource.
 //
 // Reference to the resource that manages the external configuration.
@@ -234,6 +242,16 @@ func (c *ClusterClient) IdentityProviders() *IdentityProvidersClient {
 	return NewIdentityProvidersClient(
 		c.transport,
 		path.Join(c.path, "identity_providers"),
+	)
+}
+
+// InflightChecks returns the target 'inflight_checks' resource.
+//
+// Reference to the resource that manages the collection of inflight checks.
+func (c *ClusterClient) InflightChecks() *InflightChecksClient {
+	return NewInflightChecksClient(
+		c.transport,
+		path.Join(c.path, "inflight_checks"),
 	)
 }
 
@@ -334,6 +352,16 @@ func (c *ClusterClient) Status() *ClusterStatusClient {
 	return NewClusterStatusClient(
 		c.transport,
 		path.Join(c.path, "status"),
+	)
+}
+
+// TuningConfigs returns the target 'tuning_configs' resource.
+//
+// Reference to the resource that manages the collection of tuning configs for this cluster.
+func (c *ClusterClient) TuningConfigs() *TuningConfigsClient {
+	return NewTuningConfigsClient(
+		c.transport,
+		path.Join(c.path, "tuning_configs"),
 	)
 }
 
