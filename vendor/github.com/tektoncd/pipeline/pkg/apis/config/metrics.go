@@ -50,7 +50,7 @@ const (
 	// when it isn't specified in configmap
 	DefaultPipelinerunLevel = PipelinerunLevelAtPipeline
 	// PipelinerunLevelAtPipelinerun specify that aggregation will be done at
-	// pipelienrun level
+	// pipelinerun level
 	PipelinerunLevelAtPipelinerun = "pipelinerun"
 	// PipelinerunLevelAtPipeline specify that aggregation will be done at
 	// pipeline level
@@ -81,6 +81,9 @@ const (
 	// gauge type metrics need to be use for Duration of Pipelinerun
 	DurationPipelinerunTypeLastValue = "lastvalue"
 )
+
+// DefaultMetrics holds all the default configurations for the metrics.
+var DefaultMetrics, _ = newMetricsFromMap(map[string]string{})
 
 // Metrics holds the configurations for the metrics
 // +k8s:deepcopy-gen=true
@@ -132,8 +135,8 @@ func newMetricsFromMap(cfgMap map[string]string) (*Metrics, error) {
 	if durationTaskrun, ok := cfgMap[metricsDurationTaskrunType]; ok {
 		tc.DurationTaskrunType = durationTaskrun
 	}
-	if durationPipelienrun, ok := cfgMap[metricsDurationPipelinerunType]; ok {
-		tc.DurationPipelinerunType = durationPipelienrun
+	if durationPipelinerun, ok := cfgMap[metricsDurationPipelinerunType]; ok {
+		tc.DurationPipelinerunType = durationPipelinerun
 	}
 	return &tc, nil
 }

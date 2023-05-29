@@ -1838,6 +1838,11 @@ func (in *TestStepConfiguration) DeepCopyInto(out *TestStepConfiguration) {
 			}
 		}
 	}
+	if in.RemoteApi != nil {
+		in, out := &in.RemoteApi, &out.RemoteApi
+		*out = new(bool)
+		**out = **in
+	}
 	if in.Cron != nil {
 		in, out := &in.Cron, &out.Cron
 		*out = new(string)

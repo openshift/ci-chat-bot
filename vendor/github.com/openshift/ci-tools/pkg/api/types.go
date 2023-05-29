@@ -612,6 +612,7 @@ const (
 	ClusterVSphere Cluster = "vsphere"
 	ClusterARM01   Cluster = "arm01"
 	ClusterHive    Cluster = "hive"
+	ClusterMulti01 Cluster = "multi01"
 )
 
 // TestStepConfiguration describes a step that runs a
@@ -638,6 +639,10 @@ type TestStepConfiguration struct {
 	// You cannot set the Secret and Secrets attributes
 	// at the same time.
 	Secrets []*Secret `json:"secrets,omitempty"`
+
+	// Api allows access to the test via REST interface,
+	// currently only applicable for periodic jobs.
+	RemoteApi *bool `json:"remote_api,omitempty"`
 
 	// Cron is how often the test is expected to run outside
 	// of pull request workflows. Setting this field will
@@ -1129,6 +1134,7 @@ const (
 	ClusterProfileAWSSC2SQE             ClusterProfile = "aws-sc2s-qe"
 	ClusterProfileAWS1QE                ClusterProfile = "aws-1-qe"
 	ClusterProfileAWSSdQE               ClusterProfile = "aws-sd-qe"
+	ClusterProfileAWSPerfQE             ClusterProfile = "aws-perf-qe"
 	ClusterProfileAWSGluster            ClusterProfile = "aws-gluster"
 	ClusterProfileAWSManagedCSPIQE      ClusterProfile = "aws-managed-cspi-qe"
 	ClusterProfileAWSOSDMSP             ClusterProfile = "aws-osd-msp"
@@ -1218,6 +1224,7 @@ func ClusterProfiles() []ClusterProfile {
 		ClusterProfileAWSCentos,
 		ClusterProfileAWSCentos40,
 		ClusterProfileAWSCSPIQE,
+		ClusterProfileAWSPerfQE,
 		ClusterProfileAWSChinaQE,
 		ClusterProfileAWSGluster,
 		ClusterProfileAWSManagedCSPIQE,
@@ -1318,7 +1325,8 @@ func (p ClusterProfile) ClusterType() string {
 		ClusterProfileAWSSdQE,
 		ClusterProfileAWSVirtualization,
 		ClusterProfileFleetManagerQE,
-		ClusterProfileAWSLocalZones:
+		ClusterProfileAWSLocalZones,
+		ClusterProfileAWSPerfQE:
 		return string(CloudAWS)
 	case
 		ClusterProfileAlibabaCloud,
@@ -1468,6 +1476,8 @@ func (p ClusterProfile) LeaseType() string {
 		return "aws-china-qe-quota-slice"
 	case ClusterProfileAWSCSPIQE:
 		return "aws-cspi-qe-quota-slice"
+	case ClusterProfileAWSPerfQE:
+		return "aws-perf-qe-quota-slice"
 	case ClusterProfileAWSManagedCSPIQE:
 		return "aws-managed-cspi-qe-quota-slice"
 	case ClusterProfileAWSGovCloudQE:
@@ -1793,6 +1803,14 @@ const (
 	PipelineImageStreamTagReferenceBinaries     PipelineImageStreamTagReference = "bin"
 	PipelineImageStreamTagReferenceTestBinaries PipelineImageStreamTagReference = "test-bin"
 	PipelineImageStreamTagReferenceRPMs         PipelineImageStreamTagReference = "rpms"
+)
+
+// The fields in ReleaseBuildConfiguration which originate each pipeline image
+const (
+	PipelineImageStreamTagSourceRoot         = "build_root"
+	PipelineImageStreamTagSourceBinaries     = "binary_build_commands"
+	PipelineImageStreamTagSourceTestBinaries = "test_binary_build_commands"
+	PipelineImageStreamTagSourceRPMs         = "rpm_build_commands"
 )
 
 // SourceStepConfiguration describes a step that
