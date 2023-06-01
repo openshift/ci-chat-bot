@@ -82,7 +82,7 @@ const (
 
 var CurrentRelease = semver.Version{
 	Major: 4,
-	Minor: 13,
+	Minor: 14,
 }
 
 var HypershiftSupportedVersions = HypershiftSupportedVersionsType{}
@@ -184,8 +184,6 @@ func (m *jobManager) updateHypershiftSupportedVersions() error {
 	HypershiftSupportedVersions.Mu.Lock()
 	defer HypershiftSupportedVersions.Mu.Unlock()
 	HypershiftSupportedVersions.Versions = sets.NewString(convertedVersions.Versions...)
-	// 4.11 is currently broken in hypershift 4.13 with no plans to fix at the moment
-	HypershiftSupportedVersions.Versions.Delete("4.11")
 	klog.Infof("Hypershift Supported Versions: %+v", HypershiftSupportedVersions.Versions.List())
 	return nil
 }
@@ -893,8 +891,8 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-arm64", Imagestream: "4-dev-preview-arm64", ArchSuffix: "-arm64"})
 	case "multi":
 		// the release-controller cannot assemble multi-arch release, so we must use the `art-latest` streams instead of `release-multi`
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.14-art-latest-multi", ArchSuffix: "-multi"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.13-art-latest-multi", ArchSuffix: "-multi"})
-		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.12-art-latest-multi", ArchSuffix: "-multi"})
 	default:
 		return "", "", "", fmt.Errorf("Unsupported architecture: %s", architecture)
 	}
@@ -1707,7 +1705,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		msg = fmt.Sprintf("%s This has the advantage of much faster startup times and lower costs.", msg)
 		msg = fmt.Sprintf("%s However, if you are testing specific functionality relating to the control plane in the release version you provided or you require", msg)
 		msg = fmt.Sprintf("%s multiple worker nodes, please end abort this launch with `done` and launch a cluster using another platform such as `aws` or `gcp`", msg)
-		msg = fmt.Sprintf("%s (e.g. `launch 4.13 aws`).\n\n", msg)
+		msg = fmt.Sprintf("%s (e.g. `launch 4.14 aws`).\n\n", msg)
 	}
 
 	if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
