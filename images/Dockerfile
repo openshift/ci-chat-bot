@@ -1,5 +1,5 @@
 FROM registry.ci.openshift.org/openshift/centos:stream9
 LABEL maintainer="apavel@redhat.com"
 ADD ci-chat-bot /usr/bin/ci-chat-bot
-RUN curl -s -L https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/rosa/1.2.15/rosa-linux.tar.gz | tar -xvz -C /usr/bin
+RUN curl -s -L https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/rosa/1.2.22/rosa-linux.tar.gz | tar -xvz -C /usr/bin
 ENTRYPOINT ["/usr/bin/ci-chat-bot"]
