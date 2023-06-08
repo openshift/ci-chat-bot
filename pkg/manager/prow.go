@@ -691,94 +691,12 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 					klog.Infof("Found target job config:\n%s", string(data))
 				}
 
-				if targetConfig.Operator != nil && len(targetConfig.Operator.Bundles) > 0 {
-					if job.IsOperator {
-						if operatorRepo != fmt.Sprintf("%s/%s", ref.Org, ref.Repo) {
-							return "", fmt.Errorf("multiple operator sources were configured; this is not currently supported")
-						}
-					} else {
-						operatorRepo = fmt.Sprintf("%s/%s", ref.Org, ref.Repo)
-						job.IsOperator = true
-						pj.Annotations["ci-chat-bot.openshift.io/IsOperator"] = "true"
-						sourceConfig.Operator = targetConfig.Operator
-						// find test definition referencing the bundle for dependencies and environment
-						var environment []citools.StepParameter
-						var indexName string
-						if bundleName, ok := job.JobParams["bundle"]; ok {
-							indexName = fmt.Sprintf("ci-index-%s", bundleName)
-							job.OperatorBundleName = bundleName
-						} else {
-							// if no bundle name is provided, default to first bundle in list
-							indexName = "ci-index"
-							if targetConfig.Operator.Bundles[0].As != "" {
-								indexName = fmt.Sprintf("ci-index-%s", targetConfig.Operator.Bundles[0].As)
-								job.OperatorBundleName = targetConfig.Operator.Bundles[0].As
-								pj.Annotations["ci-chat-bot.openshift.io/OperatorBundleName"] = job.OperatorBundleName
-							}
-						}
-						var foundTest bool
-					TestLoop:
-						for _, test := range targetConfig.Tests {
-							// since we retrieved the config from the resolver, the tests are fully resolved "literal" configurations
-							if test.MultiStageTestConfigurationLiteral != nil {
-								// fully resolved configs more all dependency and environment declarations to the step instead of global setting
-								for _, step := range test.MultiStageTestConfigurationLiteral.Pre {
-									// dependency naming is deterministic, so we can use that to search for the correct test
-									for _, env := range step.Dependencies {
-										if env.Env == "OO_INDEX" && env.Name == indexName {
-											environment = step.Environment
-											foundTest = true
-											break TestLoop
-										}
-									}
-								}
-							}
-						}
-						if !foundTest {
-							bundleName := job.OperatorBundleName
-							if bundleName == "" {
-								bundleName = "unnamed"
-							}
-							return "", fmt.Errorf("Unable to locate test using %s bundle", bundleName)
-						}
-						for index, test := range sourceConfig.Tests {
-							if test.As == "launch" {
-								for _, env := range environment {
-									if !strings.HasPrefix(env.Name, "OO") {
-										continue
-									}
-									sourceConfig.Tests[index].MultiStageTestConfiguration.Environment[env.Name] = *env.Default
-								}
-								if sourceConfig.Tests[index].MultiStageTestConfiguration.Dependencies == nil {
-									sourceConfig.Tests[index].MultiStageTestConfiguration.Dependencies = make(citools.TestDependencies)
-								}
-								sourceConfig.Tests[index].MultiStageTestConfiguration.Dependencies["OO_INDEX"] = indexName
-								if len(test.MultiStageTestConfiguration.Test) == 0 {
-									testStep := testStepForPlatform(job.Platform)
-									test.MultiStageTestConfiguration.Test = []citools.TestStep{{Reference: &testStep}}
-								}
-								subscribe := "optional-operators-subscribe"
-								test.MultiStageTestConfiguration.Test = append([]citools.TestStep{{Reference: &subscribe}}, test.MultiStageTestConfiguration.Test...)
-							}
-						}
-						// specify root
-						sourceConfig.BuildRootImage = targetConfig.BuildRootImage
-						// specify base_images
-						if len(targetConfig.BaseImages) > 0 && sourceConfig.BaseImages == nil {
-							sourceConfig.BaseImages = make(map[string]citools.ImageStreamTagReference)
-						}
-						for name, ref := range targetConfig.BaseImages {
-							sourceConfig.BaseImages[name] = ref
-						}
-						// the `operator` stanza needs the built images to be in `pipeline`. This is a hacky way to acheieve that
-						for _, image := range targetConfig.Images {
-							sourceConfig.BaseImages[string(image.To)] = citools.ImageStreamTagReference{
-								Name:      "stable",
-								Tag:       string(image.To),
-								Namespace: "$(NAMESPACE)",
-							}
-						}
-					}
+				newOperatorRepo, err := processOperatorPR(operatorRepo, sourceConfig, targetConfig, job, &ref, pj)
+				if err != nil {
+					return "", err
+				}
+				if newOperatorRepo != "" {
+					operatorRepo = newOperatorRepo
 				}
 
 				// delete sections we don't need
@@ -871,7 +789,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	}
 
 	// error if bundle name is provided but no operator repo PR was provided
-	if bundleName, ok := job.JobParams["bundle"]; ok && !job.IsOperator {
+	if bundleName, ok := job.JobParams["bundle"]; ok && !job.Operator.Is {
 		return "", fmt.Errorf("Bundle name %s provided, but no PR for an operator repo provided", bundleName)
 	}
 
@@ -921,6 +839,125 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	}
 
 	return prowJobURL, nil
+}
+
+func processOperatorPR(oldOperatorRepo string, sourceConfig, targetConfig *citools.ReleaseBuildConfiguration, job *Job, ref *prowapiv1.Refs, pj *prowapiv1.ProwJob) (string, error) {
+	newOperatorRepo := ""
+	if targetConfig.Operator != nil && len(targetConfig.Operator.Bundles) > 0 {
+		if job.Operator.Is {
+			if oldOperatorRepo != fmt.Sprintf("%s/%s", ref.Org, ref.Repo) {
+				return "", fmt.Errorf("multiple operator sources were configured; this is not currently supported")
+			}
+		} else {
+			newOperatorRepo = fmt.Sprintf("%s/%s", ref.Org, ref.Repo)
+			job.Operator.Is = true
+			pj.Annotations["ci-chat-bot.openshift.io/IsOperator"] = "true"
+			sourceConfig.Operator = targetConfig.Operator
+			// find test definition referencing the bundle for dependencies and environment
+			var environment []citools.StepParameter
+			var indexName string
+			if bundleName, ok := job.JobParams["bundle"]; ok {
+				indexName = fmt.Sprintf("ci-index-%s", bundleName)
+				job.Operator.BundleName = bundleName
+			} else {
+				// if no bundle name is provided, default to first bundle in list; unnamed bundles only support the index method
+				indexName = "ci-index"
+				if targetConfig.Operator.Bundles[0].As != "" {
+					indexName = fmt.Sprintf("ci-index-%s", targetConfig.Operator.Bundles[0].As)
+					job.Operator.BundleName = targetConfig.Operator.Bundles[0].As
+					pj.Annotations["ci-chat-bot.openshift.io/OperatorBundleName"] = job.Operator.BundleName
+				}
+			}
+			var foundTest, hasIndex bool
+			var bundleStep citools.LiteralTestStep
+		TestLoop:
+			for _, test := range targetConfig.Tests {
+				// since we retrieved the config from the resolver, the tests are fully resolved "literal" configurations
+				if test.MultiStageTestConfigurationLiteral != nil {
+					// fully resolved configs more all dependency and environment declarations to the step instead of global setting
+					for _, step := range test.MultiStageTestConfigurationLiteral.Pre {
+						// dependency naming for index based operator tests is deterministic,
+						// so we can use that to search for the correct test
+						for _, env := range step.Dependencies {
+							if env.Env == "OO_INDEX" && env.Name == indexName {
+								environment = step.Environment
+								foundTest = true
+								hasIndex = true
+								break TestLoop
+							}
+						}
+					}
+					for _, step := range test.MultiStageTestConfigurationLiteral.Test {
+						// non-index based operator tests must have a step called "install" in the test section
+						// with an OO_BUNDLE dependency to be identified by ci-chat-bot
+						if step.As != "install" {
+							continue
+						}
+						for _, env := range step.Dependencies {
+							if env.Env == "OO_BUNDLE" {
+								foundTest = true
+								bundleStep = step
+								break TestLoop
+							}
+						}
+					}
+				}
+			}
+			if !foundTest {
+				bundleName := job.Operator.BundleName
+				if bundleName == "" {
+					bundleName = "unnamed"
+				}
+				return "", fmt.Errorf("Unable to locate test using %s bundle", bundleName)
+			}
+			for index, test := range sourceConfig.Tests {
+				if test.As == "launch" {
+					if sourceConfig.Tests[index].MultiStageTestConfiguration.Environment == nil {
+						sourceConfig.Tests[index].MultiStageTestConfiguration.Environment = make(citools.TestEnvironment)
+					}
+					for _, env := range environment {
+						sourceConfig.Tests[index].MultiStageTestConfiguration.Environment[env.Name] = *env.Default
+					}
+					if sourceConfig.Tests[index].MultiStageTestConfiguration.Dependencies == nil {
+						sourceConfig.Tests[index].MultiStageTestConfiguration.Dependencies = make(citools.TestDependencies)
+					}
+					if hasIndex {
+						sourceConfig.Tests[index].MultiStageTestConfiguration.Dependencies["OO_INDEX"] = indexName
+						if len(test.MultiStageTestConfiguration.Test) == 0 {
+							testStep := testStepForPlatform(job.Platform)
+							test.MultiStageTestConfiguration.Test = []citools.TestStep{{Reference: &testStep}}
+						}
+						subscribe := "optional-operators-subscribe"
+						test.MultiStageTestConfiguration.Test = append([]citools.TestStep{{Reference: &subscribe}}, test.MultiStageTestConfiguration.Test...)
+						job.Operator.HasIndex = true
+						pj.Annotations["ci-chat-bot.openshift.io/OperatorHasIndex"] = "true"
+					} else {
+						// if foundTest && !hasIndex, then bundleStep must be set
+						test.MultiStageTestConfiguration.Test = append([]citools.TestStep{{LiteralTestStep: &bundleStep}, {LiteralTestStep: &operatorInstallCompleteStep}}, test.MultiStageTestConfiguration.Test...)
+					}
+				}
+			}
+			// specify root
+			sourceConfig.BuildRootImage = targetConfig.BuildRootImage
+			// specify base_images
+			if len(targetConfig.BaseImages) > 0 && sourceConfig.BaseImages == nil {
+				sourceConfig.BaseImages = make(map[string]citools.ImageStreamTagReference)
+			}
+			for name, ref := range targetConfig.BaseImages {
+				sourceConfig.BaseImages[name] = ref
+			}
+			// the `operator` stanza needs the built images to be in `pipeline`. This is a hacky way to acheieve that
+			for _, image := range targetConfig.Images {
+				sourceConfig.BaseImages[string(image.To)] = citools.ImageStreamTagReference{
+					Name:      "stable",
+					Tag:       string(image.To),
+					Namespace: "$(NAMESPACE)",
+				}
+			}
+			sourceConfig.Metadata = targetConfig.Metadata
+		}
+	}
+	return newOperatorRepo, nil
 }
 
 func getClusterClient(m *jobManager, job *Job) (*utils.BuildClusterClientConfig, error) {
@@ -1038,7 +1075,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 	setupContainerTimeout := 60 * time.Minute
 	if job.Platform == "metal" {
 		setupContainerTimeout = 90 * time.Minute
-	} else if job.IsOperator {
+	} else if job.Operator.Is {
 		setupContainerTimeout = 105 * time.Minute
 	}
 
@@ -1152,9 +1189,15 @@ func (m *jobManager) waitForJob(job *Job) error {
 		}
 		if _, ok := secretDir.Data["console.url"]; ok {
 			// If the console.url is established, the cluster was setup.
-			if job.IsOperator {
-				if _, ok := secretDir.Data["oo_deployment_details.yaml"]; ok {
-					return true, nil
+			if job.Operator.Is {
+				if job.Operator.HasIndex {
+					if _, ok := secretDir.Data["oo_deployment_details.yaml"]; ok {
+						return true, nil
+					}
+				} else {
+					if _, ok := secretDir.Data["operator_complete.txt"]; ok {
+						return true, nil
+					}
 				}
 			} else {
 				return true, nil
@@ -1304,6 +1347,19 @@ func namespaceSafeHash(values ...string) string {
 	// but we can tolerate it as our input space is
 	// tiny.
 	return oneWayNameEncoding.EncodeToString(hash.Sum(nil)[:4])
+}
+
+// this step runs after non-index operators to indicate completion of operator install before the clusterbot-wait step
+var operatorInstallCompleteStep = citools.LiteralTestStep{
+	As:       "chat-bot-operator-complete",
+	From:     "pipeline:src",
+	Commands: "echo 'complete' > ${SHARED_DIR}/operator_complete.txt",
+	Resources: citools.ResourceRequirements{
+		Requests: citools.ResourceList{
+			"cpu":    "100m",
+			"memory": "200Mi",
+		},
+	},
 }
 
 const configInitial = `
