@@ -474,22 +474,29 @@ func (m *jobManager) sync() error {
 		if job.Annotations["ci-chat-bot.openshift.io/IsOperator"] == "true" {
 			isOperator = true
 		}
+		var hasIndex bool
+		if job.Annotations["ci-chat-bot.openshift.io/HasIndex"] == "true" {
+			hasIndex = true
+		}
 		j := &Job{
-			Name:               job.Name,
-			State:              job.Status.State,
-			URL:                job.Status.URL,
-			OriginalMessage:    job.Annotations["ci-chat-bot.openshift.io/originalMessage"],
-			Mode:               job.Annotations["ci-chat-bot.openshift.io/mode"],
-			JobName:            job.Spec.Job,
-			Platform:           job.Annotations["ci-chat-bot.openshift.io/platform"],
-			Inputs:             inputs,
-			RequestedBy:        job.Annotations["ci-chat-bot.openshift.io/user"],
-			RequestedChannel:   job.Annotations["ci-chat-bot.openshift.io/channel"],
-			RequestedAt:        job.CreationTimestamp.Time,
-			Architecture:       architecture,
-			BuildCluster:       buildCluster,
-			IsOperator:         isOperator,
-			OperatorBundleName: job.Annotations["ci-chat-bot.openshift.io/OperatorBundleName"],
+			Name:             job.Name,
+			State:            job.Status.State,
+			URL:              job.Status.URL,
+			OriginalMessage:  job.Annotations["ci-chat-bot.openshift.io/originalMessage"],
+			Mode:             job.Annotations["ci-chat-bot.openshift.io/mode"],
+			JobName:          job.Spec.Job,
+			Platform:         job.Annotations["ci-chat-bot.openshift.io/platform"],
+			Inputs:           inputs,
+			RequestedBy:      job.Annotations["ci-chat-bot.openshift.io/user"],
+			RequestedChannel: job.Annotations["ci-chat-bot.openshift.io/channel"],
+			RequestedAt:      job.CreationTimestamp.Time,
+			Architecture:     architecture,
+			BuildCluster:     buildCluster,
+			Operator: OperatorInfo{
+				Is:         isOperator,
+				HasIndex:   hasIndex,
+				BundleName: job.Annotations["ci-chat-bot.openshift.io/OperatorBundleName"],
+			},
 		}
 
 		var err error
@@ -1710,10 +1717,10 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 
 	if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
 		msg = fmt.Sprintf("%sa <%s|cluster is being created>", msg, prowJobUrl)
-		if job.IsOperator {
+		if job.Operator.Is {
 			msg = fmt.Sprintf("%s - On completion of the creation of the cluster, your optional operator will begin installation", msg)
-			if job.OperatorBundleName != "" {
-				msg = fmt.Sprintf("%s using the configuration for the `%s` bundle", msg, job.OperatorBundleName)
+			if job.Operator.BundleName != "" {
+				msg = fmt.Sprintf("%s using the configuration for the `%s` bundle", msg, job.Operator.BundleName)
 			}
 			msg = fmt.Sprintf("%s. I'll send you the credentials once both the cluster and the operator are ready", msg)
 		} else {

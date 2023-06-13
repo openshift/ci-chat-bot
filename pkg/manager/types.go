@@ -316,8 +316,13 @@ type Job struct {
 
 	UseSecondaryAccount bool
 
-	IsOperator         bool
-	OperatorBundleName string
+	Operator OperatorInfo
+}
+
+type OperatorInfo struct {
+	Is         bool
+	HasIndex   bool
+	BundleName string
 }
 
 type HypershiftSupportedVersionsType struct {
