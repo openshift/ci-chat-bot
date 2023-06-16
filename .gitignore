@@ -1,2 +1,7 @@
 /ci-chat-bot
 .idea/
+
+.scannerwork/
+coverage.out
+golangci-lint.out
+report.json
