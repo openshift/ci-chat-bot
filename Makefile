@@ -32,3 +32,8 @@ run:
 .PHONY: run
 
 lint: verify-golint
+
+sonar-reports:
+	go test ./... -coverprofile=coverage.out -covermode=count -json > report.json
+	golangci-lint run ./... --verbose --no-config --out-format checkstyle --issues-exit-code 0 > golangci-lint.out
+.PHONY: sonar-reports
