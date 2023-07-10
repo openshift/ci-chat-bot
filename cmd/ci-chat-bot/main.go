@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 
+	buildconfigclientset "github.com/openshift/client-go/build/clientset/versioned"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 
@@ -297,11 +298,16 @@ func processKubeConfigs(kubeConfigs map[string]rest.Config) (utils.BuildClusterC
 		if err != nil {
 			return nil, fmt.Errorf("unable to create project client: %w", err)
 		}
+		buildConfigClient, err := buildconfigclientset.NewForConfig(&tmpClusterConfig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create project client: %w", err)
+		}
 		clusterMap[clusterName] = &utils.BuildClusterClientConfig{
 			CoreConfig:        &tmpClusterConfig,
 			CoreClient:        coreClient,
 			ProjectClient:     projectClient,
 			TargetImageClient: targetImageClient,
+			BuildConfigClient: buildConfigClient,
 		}
 	}
 	return clusterMap, nil

@@ -70,7 +70,8 @@ const (
 )
 
 const (
-	JobTypeBuild = "build"
+	JobTypeCatalog = "catalog"
+	JobTypeBuild   = "build"
 	// TODO: remove this const. It seems out of date and replaced by launch everywhere except for in JobRequest.JobType. Gets changed to "launch" for job.Mode
 	JobTypeInstall         = "install"
 	JobTypeLaunch          = "launch"
@@ -1324,6 +1325,20 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 			return nil, fmt.Errorf("at least one pull request is required to build a release image")
 		}
 		job.Mode = JobTypeBuild
+	case JobTypeCatalog:
+		if req.Architecture != "amd64" {
+			return nil, fmt.Errorf("operator builds are not currently supported for non-amd64 releases")
+		}
+		var prs int
+		for _, input := range jobInputs {
+			for _, ref := range input.Refs {
+				prs += len(ref.Pulls)
+			}
+		}
+		if len(jobInputs) != 1 || prs == 0 {
+			return nil, fmt.Errorf("at least one pull request is required to build an operator catalog")
+		}
+		job.Mode = JobTypeCatalog
 	case JobTypeInstall:
 		if req.Architecture != "amd64" {
 			for _, input := range jobInputs {
@@ -1410,7 +1425,7 @@ func multistageParamsForPlatform(platform string) sets.Set[string] {
 }
 
 func multistageNameFromParams(params map[string]string, platform, jobType string) (string, error) {
-	if jobType == JobTypeWorkflowLaunch || jobType == JobTypeBuild {
+	if jobType == JobTypeWorkflowLaunch || jobType == JobTypeBuild || jobType == JobTypeCatalog {
 		return "launch", nil
 	}
 	if jobType == JobTypeWorkflowUpgrade {

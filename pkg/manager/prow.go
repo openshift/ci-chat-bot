@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openshift/ci-chat-bot/pkg/catalog"
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 
@@ -350,7 +351,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	// set standard annotations and environment variables
 	pj.Annotations["ci-chat-bot.openshift.io/expires"] = strconv.Itoa(int(m.maxAge.Seconds() + launchDeadline.Seconds()))
 	prow.OverrideJobEnvVar(&pj.Spec, "CLUSTER_DURATION", strconv.Itoa(int(m.maxAge.Seconds())))
-	if job.Mode == "build" {
+	if job.Mode == JobTypeBuild || job.Mode == JobTypeCatalog {
 		// keep the built payload images around for a week
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "168h")
 		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "168h")
@@ -798,6 +799,10 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		if err := replaceTargetArgument(pj.Spec.PodSpec, "launch", "[release:latest]"); err != nil {
 			return "", fmt.Errorf("unable to configure pod spec to alter launch target: %v", err)
 		}
+	} else if job.Mode == JobTypeCatalog {
+		if err := replaceTargetArgument(pj.Spec.PodSpec, "launch", job.JobParams["bundle"]); err != nil {
+			return "", fmt.Errorf("unable to configure pod spec to alter launch target: %v", err)
+		}
 	}
 
 	data, _ := json.MarshalIndent(sourceConfig, "", "  ")
@@ -971,6 +976,24 @@ func getClusterClient(m *jobManager, job *Job) (*utils.BuildClusterClientConfig,
 	return clusterClient, nil
 }
 
+func createBotCatalogRBAC(namespace string, client ctrlruntimeclient.Client) error {
+	roleBinding := &rbacapi.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cluster-bot-catalog-access",
+			Namespace: namespace,
+		},
+		Subjects: []rbacapi.Subject{{Kind: "ServiceAccount", Name: "ci-chat-bot", Namespace: "ci"}},
+		RoleRef: rbacapi.RoleRef{
+			Kind: "ClusterRole",
+			Name: "admin",
+		},
+	}
+	if err := client.Create(context.Background(), roleBinding); err != nil && !errors.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
+}
+
 func createAccessRBAC(namespace string, user string, client ctrlruntimeclient.Client) error {
 	roleBinding := &rbacapi.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1106,6 +1129,26 @@ func (m *jobManager) waitForJob(job *Job) error {
 			case prowapiv1.SuccessState:
 				job.Failure = ""
 				job.State = pj.Status.State
+				if job.Mode == JobTypeCatalog {
+					clusterClient, err := getClusterClient(m, job)
+					if err != nil {
+						return false, err
+					}
+					// give the bot admin access to create resources
+					rbacClient, err := ctrlruntimeclient.New(clusterClient.CoreConfig, ctrlruntimeclient.Options{})
+					if err != nil {
+						return false, err
+					}
+					if err := createBotCatalogRBAC(namespace, rbacClient); err != nil {
+						return false, err
+					}
+					fullBundlePullRef := fmt.Sprintf("registry.%s.ci.openshift.org/%s/pipeline:%s", job.BuildCluster, namespace, job.Operator.BundleName)
+					klog.Infof("Creating bundle for %s", fullBundlePullRef)
+					newErr := catalog.CreateBuild(context.TODO(), *clusterClient, fullBundlePullRef, namespace)
+					if newErr != nil {
+						return false, newErr
+					}
+				}
 				return true, nil
 			}
 			return false, nil
@@ -1121,6 +1164,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 	var targetName string
 	switch job.Mode {
 	case JobTypeBuild:
+	case JobTypeCatalog:
 	default:
 		targetName, err = findTargetName(pj.Spec.PodSpec)
 		if err != nil {

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	buildconfigclientset "github.com/openshift/client-go/build/clientset/versioned"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 	corev1 "k8s.io/api/core/v1"
@@ -29,6 +30,7 @@ type BuildClusterClientConfig struct {
 	CoreClient        *clientset.Clientset
 	ProjectClient     *projectclientset.Clientset
 	TargetImageClient *imageclientset.Clientset
+	BuildConfigClient *buildconfigclientset.Clientset
 }
 
 type BuildClusterClientConfigMap map[string]*BuildClusterClientConfig
