@@ -948,6 +948,9 @@ func processOperatorPR(oldOperatorRepo string, sourceConfig, targetConfig *citoo
 			}
 			// the `operator` stanza needs the built images to be in `pipeline`. This is a hacky way to acheieve that
 			for _, image := range targetConfig.Images {
+				if sourceConfig.BaseImages == nil {
+					sourceConfig.BaseImages = make(map[string]citools.ImageStreamTagReference)
+				}
 				sourceConfig.BaseImages[string(image.To)] = citools.ImageStreamTagReference{
 					Name:      "stable",
 					Tag:       string(image.To),
