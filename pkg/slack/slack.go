@@ -88,9 +88,9 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Example: "launch 4.14,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
 			Handler: LaunchCluster,
 		}),
-		parser.NewBotCommand("rosa create <version> <duration>", &parser.CommandDefinition{
-			Description: "Launch an cluster in ROSA. Only GA Openshift versions are supported at the moment.",
-			Example:     "rosa create 4.12.8 3h",
+		parser.NewBotCommand("rosa create <version> <duration> <fips=true/false>", &parser.CommandDefinition{
+			Description: "Launch a ROSA cluster. Only GA Openshift versions are supported at the moment.",
+			Example:     "rosa create 4.12.8 3h ('fips' is optional and only required when requesting 'fips=true'",
 			Handler:     RosaCreate,
 		}),
 		parser.NewBotCommand("rosa lookup <version>", &parser.CommandDefinition{

@@ -246,7 +246,7 @@ type JobManager interface {
 	SetRosaNotifier(RosaCallbackFunc)
 
 	LaunchJobForUser(req *JobRequest) (string, error)
-	CreateRosaCluster(user, channel, version string, duration time.Duration) (string, error)
+	CreateRosaCluster(user, channel, version string, duration time.Duration, fips bool) (string, error)
 	CheckValidJobConfiguration(req *JobRequest) error
 	SyncJobForUser(user string) (string, error)
 	TerminateJobForUser(user string) (string, error)

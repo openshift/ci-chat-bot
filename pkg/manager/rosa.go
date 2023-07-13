@@ -35,7 +35,7 @@ var RosaClusterSecretName = "ci-chat-bot-rosa-clusters"
 
 const adminUsername = "cluster-admin"
 
-func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel string, duration time.Duration) (*clustermgmtv1.Cluster, string, error) {
+func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel string, duration time.Duration, fips bool) (*clustermgmtv1.Cluster, string, error) {
 	clusterName, err := generateRandomString(15, true)
 	if err != nil {
 		return nil, "", fmt.Errorf("Failed to generate random name: %v", err)
@@ -233,6 +233,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 		PodCIDR:             podCIDR,
 		HostPrefix:          hostPrefix,
 		IsSTS:               true,
+		FIPS:                fips,
 		RoleARN:             roleARN,
 		SupportRoleARN:      supportRoleARN,
 		OperatorIAMRoles:    operatorIAMRoleList,

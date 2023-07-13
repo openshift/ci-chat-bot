@@ -356,8 +356,22 @@ func RosaCreate(client *slack.Client, jobManager manager.JobManager, event *slac
 			return fmt.Sprintf("Failed to parse provided duration: %v", err)
 		}
 	}
-
-	msg, err := jobManager.CreateRosaCluster(event.User, event.Channel, providedVersion, duration)
+	rawFips, err := ParseImageInput(properties.StringParam("fips", ""))
+	if err != nil {
+		return err.Error()
+	}
+	var fips bool
+	if len(rawFips) != 0 {
+		switch rawFips[0] {
+		case "false":
+			fips = false
+		case "true":
+			fips = true
+		default:
+			return fmt.Sprintf("Error: invalid option 'fips=%s', only valid options for 'fips' are 'true' or 'false'", rawFips)
+		}
+	}
+	msg, err := jobManager.CreateRosaCluster(event.User, event.Channel, providedVersion, duration, fips)
 	if err != nil {
 		return err.Error()
 	}

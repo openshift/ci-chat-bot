@@ -1908,7 +1908,7 @@ func UseSpotInstances(job *Job) bool {
 	return job.Mode == JobTypeLaunch && len(job.JobParams) == 0 && (job.Platform == "aws" || job.Platform == "aws-2")
 }
 
-func (m *jobManager) CreateRosaCluster(user, channel, version string, duration time.Duration) (string, error) {
+func (m *jobManager) CreateRosaCluster(user, channel, version string, duration time.Duration, fips bool) (string, error) {
 	if duration > m.maxRosaAge {
 		return "", fmt.Errorf("Max duration for a ROSA cluster is %s", m.maxRosaAge.String())
 	}
@@ -1931,7 +1931,7 @@ func (m *jobManager) CreateRosaCluster(user, channel, version string, duration t
 	m.rosaClusters.pendingClusters++
 	m.rosaClusters.lock.Unlock()
 	defer func() { m.rosaClusters.lock.Lock(); m.rosaClusters.pendingClusters--; m.rosaClusters.lock.Unlock() }()
-	cluster, version, err := m.createRosaCluster(version, user, channel, duration)
+	cluster, version, err := m.createRosaCluster(version, user, channel, duration, fips)
 	if err != nil {
 		return "", fmt.Errorf("Failed to create cluster: %w", err)
 	}
