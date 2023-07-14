@@ -96,9 +96,7 @@ func handleJiraStep(client workflowSubmit, event *slackevents.WorkflowStepExecut
 		case "issue.key":
 			outgoingOutputs[incomingOutputs.Name] = issue.Key
 		case "issue.link":
-			outgoingOutputs[incomingOutputs.Name] = issue.Self
-		case "issue.summary":
-			outgoingOutputs[incomingOutputs.Name] = issue.Fields.Summary
+			outgoingOutputs[incomingOutputs.Name] = fmt.Sprintf("https://issues.redhat.com/browse/%s", issue.Key)
 		}
 	}
 	options := slack.WorkflowStepCompletedRequestOptionOutput(outgoingOutputs)
