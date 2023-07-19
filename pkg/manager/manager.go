@@ -1950,6 +1950,15 @@ func (m *jobManager) lookupRosaVersions(prefix string) []string {
 	return matchedVersions
 }
 
+func (m *jobManager) getSupportedRosaVersions() string {
+	m.rosaVersions.lock.RLock()
+	defer m.rosaVersions.lock.RUnlock()
+	var versions []string
+	versions = append(versions, m.rosaVersions.versions...)
+	sort.Sort(sort.Reverse(sort.StringSlice(versions)))
+	return strings.Join(versions, ", ")
+}
+
 func (m *jobManager) LookupRosaInputs(versionPrefix string) (string, error) {
 	matchedVersions := m.lookupRosaVersions(versionPrefix)
 	if len(matchedVersions) == 0 {

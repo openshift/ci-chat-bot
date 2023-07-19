@@ -90,7 +90,7 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		}),
 		parser.NewBotCommand("rosa create <version> <duration>", &parser.CommandDefinition{
 			Description: "Launch an cluster in ROSA. Only GA Openshift versions are supported at the moment.",
-			Example:     "rosa create 4.12.8 3h",
+			Example:     "rosa create 4.12 3h",
 			Handler:     RosaCreate,
 		}),
 		parser.NewBotCommand("rosa lookup <version>", &parser.CommandDefinition{

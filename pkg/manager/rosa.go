@@ -42,7 +42,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	}
 	versions := m.lookupRosaVersions(providedVersion)
 	if len(versions) == 0 {
-		return nil, "", fmt.Errorf("No supported openshift version for Rosa with prefix `%s` found", providedVersion)
+		return nil, "", fmt.Errorf("No supported openshift version for Rosa with prefix `%s` found.\nSupported versions: %s", providedVersion, m.getSupportedRosaVersions())
 	}
 	rawVersion := versions[0]
 	var version string
