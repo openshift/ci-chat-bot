@@ -52,7 +52,7 @@ var SupportedUpgradeTests = []string{"e2e-upgrade", "e2e-upgrade-all", "e2e-upgr
 
 // SupportedPlatforms requires a job within the release periodics that can launch a
 // cluster that has the label job-env: platform-name.
-var SupportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "ovirt", "openstack", "hypershift-hosted"}
+var SupportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "ovirt", "openstack", "hypershift-hosted", "nutanix"}
 
 // SupportedParameters are the allowed parameter keys that can be passed to jobs
 var SupportedParameters = []string{"ovn", "ovn-hybrid", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv4", "ipv6", "dualstack", "preserve-bootstrap", "test", "rt", "single-node", "cgroupsv2", "techpreview", "upi", "crun", "nfv", "kuryr", "sdn", "no-spot", "no-capabilities", "virtualization-support", "multi-zone", "bundle"}
@@ -77,7 +77,7 @@ var MultistageParameters = map[string]EnvVar{
 	"preserve-bootstrap": {
 		name:      "OPENSHIFT_INSTALL_PRESERVE_BOOTSTRAP",
 		value:     "true",
-		Platforms: sets.NewString("aws", "aws-2", "gcp", "azure", "vsphere", "ovirt"),
+		Platforms: sets.NewString("aws", "aws-2", "gcp", "azure", "vsphere", "ovirt", "nutanix"),
 	},
 }
 
@@ -179,7 +179,7 @@ var (
 
 func testStepForPlatform(platform string) string {
 	switch platform {
-	case "aws", "aws-2", "gcp", "azure", "vsphere", "ovirt", "openstack":
+	case "aws", "aws-2", "gcp", "azure", "vsphere", "ovirt", "openstack", "nutanix":
 		return "openshift-e2e-test"
 	case "metal":
 		return "baremetalds-e2e-test"
