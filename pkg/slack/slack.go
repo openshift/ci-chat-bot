@@ -463,7 +463,7 @@ func NotifyRosa(client *slack.Client, cluster *clustermgmtv1.Cluster, password s
 	channel := cluster.AWS().Tags()[utils.ChannelTag]
 	switch {
 	case cluster.State() == clustermgmtv1.ClusterStateError:
-		message := fmt.Sprintf("your cluster (name: `%s`, id: `%s`) has encountered an error; please contact the CRT team in #forum-crt", cluster.Name(), cluster.ID())
+		message := fmt.Sprintf("your cluster (name: `%s`, id: `%s`) has encountered an error; please contact the CRT team in #forum-ocp-crt", cluster.Name(), cluster.ID())
 		_, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false))
 		if err != nil {
 			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
