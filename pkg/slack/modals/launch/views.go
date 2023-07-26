@@ -174,7 +174,7 @@ func ErrorView(error string) slackClient.ModalViewRequest {
 				Type: slackClient.MBTSection,
 				Text: &slackClient.TextBlockObject{
 					Type: slackClient.MarkdownType,
-					Text: fmt.Sprintf("An error occured while peparing the next step. Please try to restart the Workflow.\nIf the issue persist, please contact #forum-crt.\nError details: %s", error),
+					Text: fmt.Sprintf("An error occured while peparing the next step. Please try to restart the Workflow.\nIf the issue persist, please contact #forum-ocp-crt.\nError details: %s", error),
 				},
 			},
 		}},

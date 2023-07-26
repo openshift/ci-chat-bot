@@ -156,7 +156,7 @@ func NotEnabledView() *slack.ModalViewRequest {
 				Type: slack.MBTSection,
 				Text: &slack.TextBlockObject{
 					Type: slack.MarkdownType,
-					Text: "This feature is not implemented. Please contact #forum-crt for more details",
+					Text: "This feature is not implemented. Please contact #forum-ocp-crt for more details",
 				},
 			},
 		}},
