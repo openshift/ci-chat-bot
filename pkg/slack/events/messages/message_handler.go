@@ -102,6 +102,7 @@ func help(client *slack.Client, event *slackevents.MessageEvent, botCommands []p
 	}
 	// Adding pointer to our FAQ...
 	helpMessage += "Please check out our <https://github.com/openshift/ci-chat-bot/blob/master/docs/FAQ.md|Frequently Asked Questions> for more information.\n"
+	helpMessage += "You can also reach out to us in <https://redhat-internal.slack.com/archives/CNHC2DK2M|#forum-ocp-crt> for more information.\n"
 	_, _, err := client.PostMessage(event.Channel, slack.MsgOptionText(helpMessage, false))
 	if err != nil {
 		klog.Warningf("Failed to post the help message")
