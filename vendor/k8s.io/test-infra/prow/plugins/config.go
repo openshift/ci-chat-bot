@@ -200,16 +200,22 @@ type Owners struct {
 	LabelsDenyList []string `json:"labels_denylist,omitempty"`
 
 	// Filenames allows configuring repos to use a separate set of filenames for
-	// any plugin that interacts with these files. Keys are in "org/repo" format.
+	// any plugin that interacts with these files. Keys are in "org" or "org/repo" format.
 	Filenames map[string]ownersconfig.Filenames `json:"filenames,omitempty"`
 }
 
 // OwnersFilenames determines which filenames to use for OWNERS and OWNERS_ALIASES for a repo.
 func (c *Configuration) OwnersFilenames(org, repo string) ownersconfig.Filenames {
 	full := fmt.Sprintf("%s/%s", org, repo)
+
 	if config, configured := c.Owners.Filenames[full]; configured {
 		return config
 	}
+
+	if config, configured := c.Owners.Filenames[org]; configured {
+		return config
+	}
+
 	return ownersconfig.Filenames{
 		Owners:        ownersconfig.DefaultOwnersFile,
 		OwnersAliases: ownersconfig.DefaultOwnersAliasesFile,
@@ -825,7 +831,7 @@ func (c *Configuration) ApproveFor(org, repo string) *Approve {
 	a := func() *Approve {
 		// First search for repo config
 		for _, approve := range c.Approve {
-			if !sets.NewString(approve.Repos...).Has(fullName) {
+			if !sets.New[string](approve.Repos...).Has(fullName) {
 				continue
 			}
 			return &approve
@@ -833,7 +839,7 @@ func (c *Configuration) ApproveFor(org, repo string) *Approve {
 
 		// If you don't find anything, loop again looking for an org config
 		for _, approve := range c.Approve {
-			if !sets.NewString(approve.Repos...).Has(org) {
+			if !sets.New[string](approve.Repos...).Has(org) {
 				continue
 			}
 			return &approve
@@ -857,14 +863,14 @@ func (c *Configuration) ApproveFor(org, repo string) *Approve {
 func (c *Configuration) LgtmFor(org, repo string) *Lgtm {
 	fullName := fmt.Sprintf("%s/%s", org, repo)
 	for _, lgtm := range c.Lgtm {
-		if !sets.NewString(lgtm.Repos...).Has(fullName) {
+		if !sets.New[string](lgtm.Repos...).Has(fullName) {
 			continue
 		}
 		return &lgtm
 	}
 	// If you don't find anything, loop again looking for an org config
 	for _, lgtm := range c.Lgtm {
-		if !sets.NewString(lgtm.Repos...).Has(org) {
+		if !sets.New[string](lgtm.Repos...).Has(org) {
 			continue
 		}
 		return &lgtm
@@ -939,8 +945,8 @@ func (p *Plugins) UnmarshalJSON(d []byte) error {
 }
 
 // EnabledReposForPlugin returns the orgs and repos that have enabled the passed plugin.
-func (c *Configuration) EnabledReposForPlugin(plugin string) (orgs, repos []string, orgExceptions map[string]sets.String) {
-	orgExceptions = make(map[string]sets.String)
+func (c *Configuration) EnabledReposForPlugin(plugin string) (orgs, repos []string, orgExceptions map[string]sets.Set[string]) {
+	orgExceptions = make(map[string]sets.Set[string])
 	for repo, plugins := range c.Plugins {
 		found := false
 		for _, candidate := range plugins.Plugins {
@@ -954,7 +960,7 @@ func (c *Configuration) EnabledReposForPlugin(plugin string) (orgs, repos []stri
 				repos = append(repos, repo)
 			} else {
 				orgs = append(orgs, repo)
-				orgExceptions[repo] = sets.NewString()
+				orgExceptions[repo] = sets.New[string]()
 				for _, excludedRepo := range plugins.ExcludedRepos {
 					orgExceptions[repo].Insert(fmt.Sprintf("%s/%s", repo, excludedRepo))
 				}
@@ -1152,7 +1158,7 @@ type ConfigMapID struct {
 
 func validateConfigUpdater(updater *ConfigUpdater) error {
 	updater.SetDefaults()
-	configMapKeys := map[ConfigMapID]sets.String{}
+	configMapKeys := map[ConfigMapID]sets.Set[string]{}
 	for file, config := range updater.Maps {
 		// Check that Name and PartitionedNames are mutually exclusive
 		if config.Name != "" && len(config.PartitionedNames) > 0 {
@@ -1186,7 +1192,7 @@ func validateConfigUpdater(updater *ConfigUpdater) error {
 					}
 					configMapKeys[cmID].Insert(key)
 				} else {
-					configMapKeys[cmID] = sets.NewString(key)
+					configMapKeys[cmID] = sets.New[string](key)
 				}
 			}
 		}
@@ -1235,7 +1241,7 @@ func validateProjectManager(pm ProjectManager) error {
 			return fmt.Errorf("Org/repo: %s, has no projects configured", orgRepoName)
 		}
 		for projectName, managedProject := range managedOrgRepo.Projects {
-			var labelSets []sets.String
+			var labelSets []sets.Set[string]
 			if len(managedProject.Columns) == 0 {
 				return fmt.Errorf("Org/repo: %s, project %s, has no columns configured", orgRepoName, projectName)
 			}
@@ -1249,7 +1255,7 @@ func validateProjectManager(pm ProjectManager) error {
 				if len(managedColumn.Org) == 0 {
 					return fmt.Errorf("Org/repo: %s, project %s, column %s, has no org configured", orgRepoName, projectName, managedColumn.Name)
 				}
-				sSet := sets.NewString(managedColumn.Labels...)
+				sSet := sets.New[string](managedColumn.Labels...)
 				for _, labels := range labelSets {
 					if sSet.Equal(labels) {
 						return fmt.Errorf("Org/repo: %s, project %s, column %s has same labels configured as another column", orgRepoName, projectName, managedColumn.Name)
@@ -1701,7 +1707,7 @@ func ResolveBugzillaOptions(parent, child BugzillaBranchOptions) BugzillaBranchO
 			logrusutil.ThrottledWarnf(&warnDependentBugTargetRelease, 5*time.Minute, "Please update plugins.yaml to use dependent_bug_target_releases instead of the deprecated dependent_bug_target_release")
 			if parent.DependentBugTargetReleases == nil {
 				output.DependentBugTargetReleases = &[]string{*parent.DeprecatedDependentBugTargetRelease}
-			} else if !sets.NewString(*parent.DependentBugTargetReleases...).Has(*parent.DeprecatedDependentBugTargetRelease) {
+			} else if !sets.New[string](*parent.DependentBugTargetReleases...).Has(*parent.DeprecatedDependentBugTargetRelease) {
 				dependentBugTargetReleases := append(*output.DependentBugTargetReleases, *parent.DeprecatedDependentBugTargetRelease)
 				output.DependentBugTargetReleases = &dependentBugTargetReleases
 			}
@@ -1727,7 +1733,7 @@ func ResolveBugzillaOptions(parent, child BugzillaBranchOptions) BugzillaBranchO
 			output.StateAfterClose = parent.StateAfterClose
 		}
 		if parent.AllowedGroups != nil {
-			output.AllowedGroups = sets.NewString(output.AllowedGroups...).Insert(parent.AllowedGroups...).List()
+			output.AllowedGroups = sets.List(sets.New[string](output.AllowedGroups...).Insert(parent.AllowedGroups...))
 		}
 	}
 
@@ -1773,7 +1779,7 @@ func ResolveBugzillaOptions(parent, child BugzillaBranchOptions) BugzillaBranchO
 		logrusutil.ThrottledWarnf(&warnDependentBugTargetRelease, 5*time.Minute, "Please update plugins.yaml to use dependent_bug_target_releases instead of the deprecated dependent_bug_target_release")
 		if child.DependentBugTargetReleases == nil {
 			output.DependentBugTargetReleases = &[]string{*child.DeprecatedDependentBugTargetRelease}
-		} else if !sets.NewString(*child.DependentBugTargetReleases...).Has(*child.DeprecatedDependentBugTargetRelease) {
+		} else if !sets.New[string](*child.DependentBugTargetReleases...).Has(*child.DeprecatedDependentBugTargetRelease) {
 			dependentBugTargetReleases := append(*output.DependentBugTargetReleases, *child.DeprecatedDependentBugTargetRelease)
 			output.DependentBugTargetReleases = &dependentBugTargetReleases
 		}
@@ -1803,7 +1809,7 @@ func ResolveBugzillaOptions(parent, child BugzillaBranchOptions) BugzillaBranchO
 		output.StateAfterClose = child.StateAfterClose
 	}
 	if child.AllowedGroups != nil {
-		output.AllowedGroups = sets.NewString(output.AllowedGroups...).Insert(child.AllowedGroups...).List()
+		output.AllowedGroups = sets.List(sets.New[string](output.AllowedGroups...).Insert(child.AllowedGroups...))
 	}
 
 	// Status fields should not be used anywhere now when they were mirrored to states
@@ -2068,7 +2074,7 @@ func getLabelConfigFromRestrictedLabelsSlice(s []RestrictedLabel, label string) 
 	return -1
 }
 
-func (c *Configuration) HasConfigFor() (global bool, orgs sets.String, repos sets.String) {
+func (c *Configuration) HasConfigFor() (global bool, orgs sets.Set[string], repos sets.Set[string]) {
 	equals := reflect.DeepEqual(c,
 		&Configuration{Approve: c.Approve, Bugzilla: c.Bugzilla, ExternalPlugins: c.ExternalPlugins,
 			Label: Label{RestrictedLabels: c.Label.RestrictedLabels}, Lgtm: c.Lgtm, Plugins: c.Plugins,
@@ -2077,8 +2083,8 @@ func (c *Configuration) HasConfigFor() (global bool, orgs sets.String, repos set
 	if !equals || c.Bugzilla.Default != nil {
 		global = true
 	}
-	orgs = sets.String{}
-	repos = sets.String{}
+	orgs = sets.Set[string]{}
+	repos = sets.Set[string]{}
 	for orgOrRepo := range c.Plugins {
 		if strings.Contains(orgOrRepo, "/") {
 			repos.Insert(orgOrRepo)

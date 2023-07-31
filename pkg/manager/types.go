@@ -113,7 +113,7 @@ var rosaSyncTimeMetric = prometheus.NewHistogram(
 type EnvVar struct {
 	name      string
 	value     string
-	Platforms sets.String
+	Platforms sets.Set[string]
 }
 
 // ConfigResolver finds a ci-operator config for the given tuple of organization, repository,
@@ -127,7 +127,7 @@ type URLConfigResolver struct {
 }
 
 type RosaSubnets struct {
-	Subnets sets.String
+	Subnets sets.Set[string]
 	Lock    sync.RWMutex
 }
 
@@ -195,7 +195,7 @@ type jobManager struct {
 	}
 	rosaClusterLimit  int
 	rosaSubnets       *RosaSubnets
-	rosaErrorReported sets.String
+	rosaErrorReported sets.Set[string]
 
 	maxRosaAge       time.Duration
 	defaultRosaAge   time.Duration
@@ -327,7 +327,7 @@ type OperatorInfo struct {
 
 type HypershiftSupportedVersionsType struct {
 	Mu       sync.RWMutex
-	Versions sets.String
+	Versions sets.Set[string]
 }
 
 type ListFilters struct {

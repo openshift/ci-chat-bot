@@ -313,7 +313,7 @@ func manageRosaSubnetList(path string, subnetList *manager.RosaSubnets) {
 		if err != nil {
 			klog.Errorf("Failed to read %s: %v", path, err)
 		}
-		newSubnets := sets.NewString(strings.Split(string(subnetsRaw), ",")...)
+		newSubnets := sets.New[string](strings.Split(string(subnetsRaw), ",")...)
 		subnetList.Lock.Lock()
 		subnetList.Subnets = newSubnets
 		subnetList.Lock.Unlock()

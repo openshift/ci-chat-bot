@@ -32,7 +32,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -43,6 +42,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"k8s.io/test-infra/ghproxy/ghcache"
+	"k8s.io/test-infra/prow/throttle"
 	"k8s.io/test-infra/prow/version"
 )
 
@@ -127,6 +127,7 @@ type PullRequestClient interface {
 	GetPullRequests(org, repo string) ([]PullRequest, error)
 	GetPullRequest(org, repo string, number int) (*PullRequest, error)
 	EditPullRequest(org, repo string, number int, pr *PullRequest) (*PullRequest, error)
+	GetPullRequestDiff(org, repo string, number int) ([]byte, error)
 	GetPullRequestPatch(org, repo string, number int) ([]byte, error)
 	CreatePullRequest(org, repo, title, body, head, base string, canModify bool) (int, error)
 	UpdatePullRequest(org, repo string, number int, title, body *string, open *bool, branch *string, canModify *bool) error
@@ -299,6 +300,7 @@ type client struct {
 	identifier string
 	gqlc       gqlClient
 	used       bool
+	mutUsed    sync.Mutex // protects used
 	*delegate
 }
 
@@ -316,7 +318,7 @@ type delegate struct {
 	dry          bool
 	fake         bool
 	usesAppsAuth bool
-	throttle     throttler
+	throttle     ghThrottler
 	getToken     func() []byte
 	censor       func([]byte) []byte
 
@@ -414,92 +416,17 @@ type gqlClient interface {
 	forUserAgent(userAgent string) gqlClient
 }
 
-// throttler sets a ceiling on the rate of GitHub requests.
+// ghThrottler sets a ceiling on the rate of GitHub requests.
 // Configure with Client.Throttle().
 // It gets reconstructed whenever forUserAgent() is called,
-// whereas its *throttlerDelegate remains.
-type throttler struct {
+// whereas its *throttle.Throttler remains.
+type ghThrottler struct {
 	graph gqlClient
-	*throttlerDelegate
+	http  httpClient
+	*throttle.Throttler
 }
 
-type throttlerDelegate struct {
-	ticker   map[string]*time.Ticker
-	throttle map[string]chan time.Time
-	http     httpClient
-	slow     map[string]*int32 // Helps log once when requests start/stop being throttled
-	lock     sync.RWMutex
-}
-
-func (t *throttler) Wait(ctx context.Context, org string) error {
-	start := time.Now()
-	log := logrus.WithFields(logrus.Fields{"client": "github", "throttled": true})
-	defer func() {
-		waitTime := time.Since(start)
-		switch {
-		case waitTime > 15*time.Minute:
-			log.WithField("throttle-duration", waitTime.String()).Warn("Throttled clientside for more than 15 minutes")
-		case waitTime > time.Minute:
-			log.WithField("throttle-duration", waitTime.String()).Debug("Throttled clientside for more than a minute")
-		}
-	}()
-	t.lock.RLock()
-	defer t.lock.RUnlock()
-	if _, found := t.ticker[org]; !found {
-		org = throttlerGlobalKey
-	}
-	if _, hasThrottler := t.ticker[org]; !hasThrottler {
-		return nil
-	}
-
-	var more bool
-	select {
-	case _, more = <-t.throttle[org]:
-		// If we were throttled and the channel is now somewhat (25%+) full, note this
-		if len(t.throttle[org]) > cap(t.throttle[org])/4 && atomic.CompareAndSwapInt32(t.slow[org], 1, 0) {
-			log.Debug("Unthrottled")
-		}
-		if !more {
-			log.Debug("Throttle channel closed")
-		}
-		return nil
-	default: // Do not wait if nothing is available right now
-	}
-	// If this is the first time we are waiting, note this
-	if slow := atomic.SwapInt32(t.slow[org], 1); slow == 0 {
-		log.Debug("Throttled")
-	}
-
-	select {
-	case _, more = <-t.throttle[org]:
-		if !more {
-			log.Debug("Throttle channel closed")
-		}
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	return nil
-}
-
-const throttlerGlobalKey = "*"
-
-func (t *throttler) Refund(org string) {
-	t.lock.RLock()
-	defer t.lock.RUnlock()
-	if _, found := t.ticker[org]; !found {
-		org = throttlerGlobalKey
-	}
-	if _, hasThrottler := t.ticker[org]; !hasThrottler {
-		return
-	}
-	select {
-	case t.throttle[org] <- time.Now():
-	default:
-	}
-}
-
-func (t *throttler) Do(req *http.Request) (*http.Response, error) {
+func (t *ghThrottler) Do(req *http.Request) (*http.Response, error) {
 	org := extractOrgFromContext(req.Context())
 	if err := t.Wait(req.Context(), org); err != nil {
 		return nil, err
@@ -530,96 +457,37 @@ func (t *throttler) Do(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-func (t *throttler) QueryWithGitHubAppsSupport(ctx context.Context, q interface{}, vars map[string]interface{}, org string) error {
+func (t *ghThrottler) QueryWithGitHubAppsSupport(ctx context.Context, q interface{}, vars map[string]interface{}, org string) error {
 	if err := t.Wait(ctx, extractOrgFromContext(ctx)); err != nil {
 		return err
 	}
 	return t.graph.QueryWithGitHubAppsSupport(ctx, q, vars, org)
 }
 
-func (t *throttler) MutateWithGitHubAppsSupport(ctx context.Context, m interface{}, input githubql.Input, vars map[string]interface{}, org string) error {
+func (t *ghThrottler) MutateWithGitHubAppsSupport(ctx context.Context, m interface{}, input githubql.Input, vars map[string]interface{}, org string) error {
 	if err := t.Wait(ctx, extractOrgFromContext(ctx)); err != nil {
 		return err
 	}
 	return t.graph.MutateWithGitHubAppsSupport(ctx, m, input, vars, org)
 }
 
-func (t *throttler) forUserAgent(userAgent string) gqlClient {
-	return &throttler{
-		graph:             t.graph.forUserAgent(userAgent),
-		throttlerDelegate: t.throttlerDelegate,
+func (t *ghThrottler) forUserAgent(userAgent string) gqlClient {
+	return &ghThrottler{
+		graph:     t.graph.forUserAgent(userAgent),
+		Throttler: t.Throttler,
 	}
 }
 
 // Throttle client to a rate of at most hourlyTokens requests per hour,
 // allowing burst tokens.
 func (c *client) Throttle(hourlyTokens, burst int, orgs ...string) error {
-	org := "*"
 	if len(orgs) > 0 {
 		if !c.usesAppsAuth {
 			return errors.New("passing an org to the throttler is only allowed when using github apps auth")
 		}
-		if len(orgs) > 1 {
-			return fmt.Errorf("may only pass one org for throttling, got %d", len(orgs))
-		}
-		org = orgs[0]
 	}
-	c.log("Throttle", hourlyTokens, burst, org)
-	c.throttle.lock.Lock()
-	defer c.throttle.lock.Unlock()
-	if hourlyTokens <= 0 || burst <= 0 { // Disable throttle
-		if c.throttle.throttle[org] != nil {
-			delete(c.throttle.throttle, org)
-			delete(c.throttle.slow, org)
-			c.throttle.ticker[org].Stop()
-			delete(c.throttle.ticker, org)
-		}
-		return nil
-	}
-	period := time.Hour / time.Duration(hourlyTokens) // Duration between token refills
-	ticker := time.NewTicker(period)
-	throttle := make(chan time.Time, burst)
-	for i := 0; i < burst; i++ { // Fill up the channel
-		throttle <- time.Now()
-	}
-	go func() {
-		// Before refilling, wait the amount of time it would have taken to refill the burst channel.
-		// This prevents granting too many tokens in the first hour due to the initial burst.
-		for i := 0; i < burst; i++ {
-			<-ticker.C
-		}
-		// Refill the channel
-		for t := range ticker.C {
-			select {
-			case throttle <- t:
-			default:
-			}
-		}
-	}()
-	if c.throttle.http == nil { // Wrap clients if we haven't already
-		c.throttle.http = c.client
-		c.throttle.graph = c.gqlc
-		c.client = &c.throttle
-		c.gqlc = &c.throttle
-	}
-
-	if c.throttle.ticker == nil {
-		c.throttle.ticker = map[string]*time.Ticker{}
-	}
-	c.throttle.ticker[org] = ticker
-
-	if c.throttle.throttle == nil {
-		c.throttle.throttle = map[string]chan time.Time{}
-	}
-	c.throttle.throttle[org] = throttle
-
-	if c.throttle.slow == nil {
-		c.throttle.slow = map[string]*int32{}
-	}
-	var i int32
-	c.throttle.slow[org] = &i
-
-	return nil
+	c.log("Throttle", hourlyTokens, burst, orgs)
+	return c.throttle.Throttle(hourlyTokens, burst, orgs...)
 }
 
 func (c *client) SetMax404Retries(max int) {
@@ -704,6 +572,14 @@ func NewAppsAuthClientWithFields(fields logrus.Fields, censor func([]byte) []byt
 	}.Default())
 }
 
+// This should only be called once when the client is created.
+func (c *client) wrapThrottler() {
+	c.throttle.http = c.client
+	c.throttle.graph = c.gqlc
+	c.client = &c.throttle
+	c.gqlc = &c.throttle
+}
+
 // NewClientFromOptions creates a new client from the options we expose. This method should be used over the more-specific ones.
 func NewClientFromOptions(fields logrus.Fields, options ClientOptions) (TokenGenerator, UserGenerator, Client, error) {
 	options = options.Default()
@@ -736,7 +612,7 @@ func NewClientFromOptions(fields logrus.Fields, options ClientOptions) (TokenGen
 			time:          &standardTime{},
 			client:        httpClient,
 			bases:         options.Bases,
-			throttle:      throttler{throttlerDelegate: &throttlerDelegate{}},
+			throttle:      ghThrottler{Throttler: &throttle.Throttler{}},
 			getToken:      options.GetToken,
 			censor:        options.Censor,
 			dry:           options.DryRun,
@@ -748,6 +624,9 @@ func NewClientFromOptions(fields logrus.Fields, options ClientOptions) (TokenGen
 		},
 	}
 	c.gqlc = c.gqlc.forUserAgent(c.userAgent())
+
+	// Wrap clients with the throttler
+	c.wrapThrottler()
 
 	var tokenGenerator func(_ string) (string, error)
 	var userGenerator func() (string, error)
@@ -906,7 +785,10 @@ func NewFakeClient() Client {
 }
 
 func (c *client) log(methodName string, args ...interface{}) (logDuration func()) {
+	c.mutUsed.Lock()
 	c.used = true
+	c.mutUsed.Unlock()
+
 	if c.logger == nil {
 		return func() {}
 	}
@@ -1121,7 +1003,7 @@ func (c *client) requestRetryWithContext(ctx context.Context, method, path, acce
 						authorizedScopes = "no"
 					}
 
-					want := sets.NewString()
+					want := sets.New[string]()
 					for _, acceptedScope := range strings.Split(acceptedScopes, ",") {
 						want.Insert(strings.TrimSpace(acceptedScope))
 					}
@@ -1225,7 +1107,7 @@ func toCurl(r *http.Request) string {
 	return fmt.Sprintf("curl -k -v -X%s %s '%s'", r.Method, headers, r.URL.String())
 }
 
-var knownAuthTypes = sets.NewString("bearer", "basic", "negotiate")
+var knownAuthTypes = sets.New[string]("bearer", "basic", "negotiate")
 
 // maskAuthorizationHeader masks credential content from authorization headers
 // See https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Authorization
@@ -2168,21 +2050,20 @@ func (c *client) GetFailedActionRunsByHeadBranch(org, repo, branchName, headSHA 
 
 	var runs WorkflowRuns
 
-	url := url.URL{
+	u := url.URL{
 		Path: fmt.Sprintf("/repos/%s/%s/actions/runs", org, repo),
 	}
-	query := url.Query()
-
+	query := u.Query()
 	query.Add("status", "failure")
-	query.Add("event", "pull_request")
+	// setting the OR condition to get both PR and PR target workflows
+	query.Add("event", "pull_request OR pull_request_target")
 	query.Add("branch", branchName)
-
-	url.RawQuery = query.Encode()
+	u.RawQuery = query.Encode()
 
 	_, err := c.request(&request{
 		accept:    "application/vnd.github.v3+json",
 		method:    http.MethodGet,
-		path:      url.String(),
+		path:      u.String(),
 		org:       org,
 		exitCodes: []int{200},
 	}, &runs)
@@ -2298,15 +2179,32 @@ func (c *client) EditIssue(org, repo string, number int, issue *Issue) (*Issue, 
 	return &ret, nil
 }
 
+// GetPullRequestDiff gets the diff version of a pull request.
+//
+// See https://docs.github.com/en/rest/overview/media-types?apiVersion=2022-11-28#commits-commit-comparison-and-pull-requests
+func (c *client) GetPullRequestDiff(org, repo string, number int) ([]byte, error) {
+	durationLogger := c.log("GetPullRequestDiff", org, repo, number)
+	defer durationLogger()
+
+	_, diff, err := c.requestRaw(&request{
+		accept:    "application/vnd.github.diff",
+		method:    http.MethodGet,
+		path:      fmt.Sprintf("/repos/%s/%s/pulls/%d", org, repo, number),
+		org:       org,
+		exitCodes: []int{200},
+	})
+	return diff, err
+}
+
 // GetPullRequestPatch gets the patch version of a pull request.
 //
-// See https://developer.github.com/v3/media/#commits-commit-comparison-and-pull-requests
+// See https://docs.github.com/en/rest/overview/media-types?apiVersion=2022-11-28#commits-commit-comparison-and-pull-requests
 func (c *client) GetPullRequestPatch(org, repo string, number int) ([]byte, error) {
 	durationLogger := c.log("GetPullRequestPatch", org, repo, number)
 	defer durationLogger()
 
 	_, patch, err := c.requestRaw(&request{
-		accept:    "application/vnd.github.VERSION.patch",
+		accept:    "application/vnd.github.patch",
 		method:    http.MethodGet,
 		path:      fmt.Sprintf("/repos/%s/%s/pulls/%d", org, repo, number),
 		org:       org,

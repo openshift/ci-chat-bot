@@ -1,7 +1,11 @@
 package messages
 
 import (
+	"context"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/events"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
@@ -10,8 +14,6 @@ import (
 	"github.com/slack-go/slack/slackevents"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog"
-	"strings"
-	"time"
 )
 
 func Handle(client *slack.Client, manager manager.JobManager, botCommands []parser.BotCommand) events.PartialHandler {
@@ -64,7 +66,8 @@ func Handle(client *slack.Client, manager manager.JobManager, botCommands []pars
 
 func postResponse(client *slack.Client, event *slackevents.MessageEvent, response string) error {
 	var lastErr error
-	err := wait.PollImmediate(5*time.Second, 20*time.Second, func() (bool, error) {
+	ctx := context.TODO()
+	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 20*time.Second, true, func(ctx context.Context) (bool, error) {
 		_, responseTimestamp, err := client.PostMessage(event.Channel, slack.MsgOptionText(response, false))
 		if err != nil {
 			lastErr = err

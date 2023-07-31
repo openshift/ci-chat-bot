@@ -51,6 +51,10 @@ const (
 
 	APPCIKubeAPIURL = "https://api.ci.l2s4.p1.openshiftapps.com:6443"
 
+	// ReasonPending is the error reason for pods not scheduled in time.
+	// It is generated when pods are for whatever reason not scheduled before
+	// `podStartTimeout`.
+	ReasonPending = "pod_pending"
 	// CliEnv if the env we use to expose the path to the cli
 	CliEnv          = "CLI_DIR"
 	DefaultLeaseEnv = "LEASED_RESOURCE"

@@ -66,8 +66,8 @@ func Run(refs prowapi.Refs, dir, gitUserName, gitUserEmail, cookiePath string, e
 	}
 
 	if token != "" {
-		logrus.SetFormatter(logrusutil.NewCensoringFormatter(logrus.StandardLogger().Formatter, func() sets.String {
-			return sets.NewString(token)
+		logrus.SetFormatter(logrusutil.NewCensoringFormatter(logrus.StandardLogger().Formatter, func() sets.Set[string] {
+			return sets.New[string](token)
 		}))
 	}
 	logrus.WithFields(logrus.Fields{"refs": refs}).Info("Cloning refs")
@@ -176,15 +176,18 @@ func gitCtxForRefs(refs prowapi.Refs, baseDir string, env []string, user, token 
 	}
 
 	if token != "" {
-		u, _ := url.Parse(g.repositoryURI)
-		if user != "" {
-			u.User = url.UserPassword(user, token)
-		} else {
-			// GitHub requires that the personal access token is set as a username.
-			// e.g., https://<token>:x-oauth-basic@github.com/owner/repo.git
-			u.User = url.UserPassword(token, "x-oauth-basic")
+		u, err := url.Parse(g.repositoryURI)
+		// Ignore invalid URL from a CloneURI override (e.g. git@github.com:owner/repo)
+		if err == nil {
+			if user != "" {
+				u.User = url.UserPassword(user, token)
+			} else {
+				// GitHub requires that the personal access token is set as a username.
+				// e.g., https://<token>:x-oauth-basic@github.com/owner/repo.git
+				u.User = url.UserPassword(token, "x-oauth-basic")
+			}
+			g.repositoryURI = u.String()
 		}
-		g.repositoryURI = u.String()
 	}
 
 	return g
