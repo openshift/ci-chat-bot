@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tektoncd/pipeline/pkg/apis/config"
 	"knative.dev/pkg/apis"
 )
 
@@ -26,14 +25,44 @@ func (tr TaskResult) Validate(ctx context.Context) (errs *apis.FieldError) {
 	if !resultNameFormatRegex.MatchString(tr.Name) {
 		return apis.ErrInvalidKeyName(tr.Name, "name", fmt.Sprintf("Name must consist of alphanumeric characters, '-', '_', and must start and end with an alphanumeric character (e.g. 'MyName',  or 'my-name',  or 'my_name', regex used for validation is '%s')", ResultNameFormat))
 	}
-	// Array and Object is alpha feature
-	if tr.Type == ResultsTypeArray || tr.Type == ResultsTypeObject {
-		return errs.Also(ValidateEnabledAPIFields(ctx, "results type", config.AlphaAPIFields))
+
+	switch {
+	case tr.Type == ResultsTypeObject:
+		errs := validateObjectResult(tr)
+		return errs
+	case tr.Type == ResultsTypeArray:
+		return errs
+	// Resources created before the result. Type was introduced may not have Type set
+	// and should be considered valid
+	case tr.Type == "":
+		return nil
+	// By default, the result type is string
+	case tr.Type != ResultsTypeString:
+		return apis.ErrInvalidValue(tr.Type, "type", "type must be string")
 	}
 
-	if tr.Type != ResultsTypeString {
-		return apis.ErrInvalidValue(tr.Type, "type", fmt.Sprintf("type must be string"))
+	return nil
+}
+
+// validateObjectResult validates the object result and check if the Properties is missing
+// for Properties values it will check if the type is string.
+func validateObjectResult(tr TaskResult) (errs *apis.FieldError) {
+	if ParamType(tr.Type) == ParamTypeObject && tr.Properties == nil {
+		return apis.ErrMissingField(fmt.Sprintf("%s.properties", tr.Name))
 	}
 
+	invalidKeys := []string{}
+	for key, propertySpec := range tr.Properties {
+		if propertySpec.Type != ParamTypeString {
+			invalidKeys = append(invalidKeys, key)
+		}
+	}
+
+	if len(invalidKeys) != 0 {
+		return &apis.FieldError{
+			Message: fmt.Sprintf("The value type specified for these keys %v is invalid, the type must be string", invalidKeys),
+			Paths:   []string{fmt.Sprintf("%s.properties", tr.Name)},
+		}
+	}
 	return nil
 }

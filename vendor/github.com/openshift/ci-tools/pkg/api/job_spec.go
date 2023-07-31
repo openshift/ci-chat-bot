@@ -27,8 +27,9 @@ type JobSpec struct {
 	// if set, any new artifacts will be a child of this object
 	owner *meta.OwnerReference
 
-	Metadata Metadata
-	Target   string
+	Metadata               Metadata
+	Target                 string
+	TargetAdditionalSuffix string
 }
 
 // Namespace returns the namespace of the job. Must not be evaluated
@@ -74,6 +75,14 @@ func (s *JobSpec) Inputs() InputDefinition {
 
 func (s JobSpec) JobNameHash() string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(s.Job)))[:5]
+}
+
+func (s JobSpec) UniqueHash() string {
+	job := s.Job
+	if s.TargetAdditionalSuffix != "" {
+		job += fmt.Sprintf("-%s", s.TargetAdditionalSuffix)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(job)))[:5]
 }
 
 // ResolveSpecFromEnv will determine the Refs being

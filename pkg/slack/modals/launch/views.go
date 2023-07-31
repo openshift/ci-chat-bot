@@ -3,14 +3,15 @@ package launch
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"sort"
+	"strings"
+
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
 	slackClient "github.com/slack-go/slack"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
-	"net/http"
-	"sort"
-	"strings"
 )
 
 func FetchReleases(client *http.Client, architecture string) (map[string][]string, error) {
@@ -98,7 +99,7 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 			}
 		}
 	}
-	blacklist := sets.String{}
+	blacklist := sets.Set[string]{}
 	for _, parameter := range manager.SupportedParameters {
 		for k, envs := range manager.MultistageParameters {
 			if k == parameter {
@@ -257,7 +258,7 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 	}
 }
 
-func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, data CallbackData, httpclient *http.Client, mode sets.String) slackClient.ModalViewRequest {
+func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, data CallbackData, httpclient *http.Client, mode sets.Set[string]) slackClient.ModalViewRequest {
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
@@ -279,7 +280,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	var streams []string
 	for stream := range releases {
 		if platform == "hypershift-hosted" {
-			for _, v := range manager.HypershiftSupportedVersions.Versions.List() {
+			for _, v := range sets.List(manager.HypershiftSupportedVersions.Versions) {
 				if strings.HasPrefix(stream, v) || strings.Split(stream, "-")[1] == "dev" || strings.Split(stream, "-")[1] == "stable" {
 					streams = append(streams, stream)
 					break
@@ -293,7 +294,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 
 	sort.Strings(streams)
 	streamsOptions := modals.BuildOptions(streams, nil)
-	metadata := fmt.Sprintf("Architecture: %s;Platform: %s;%s: %s", architecture, platform, LaunchModeContext, strings.Join(mode.List(), ","))
+	metadata := fmt.Sprintf("Architecture: %s;Platform: %s;%s: %s", architecture, platform, LaunchModeContext, strings.Join(sets.List(mode), ","))
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: string(IdentifierFilterVersionView),

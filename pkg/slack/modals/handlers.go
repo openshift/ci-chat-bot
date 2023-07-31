@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"strings"
 	"text/template"
+
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
@@ -315,7 +316,7 @@ func ValidationError(errors map[string]string) ([]byte, error) {
 	return response, nil
 }
 
-func BuildOptions(options []string, blacklist sets.String) []*slack.OptionBlockObject {
+func BuildOptions(options []string, blacklist sets.Set[string]) []*slack.OptionBlockObject {
 	slackOptions := make([]*slack.OptionBlockObject, 0)
 	for _, parameter := range options {
 		if !blacklist.Has(parameter) {

@@ -71,6 +71,8 @@ type ClientFactoryOpts struct {
 	Censor Censor
 	// Path to the httpCookieFile that will be used to authenticate client
 	CookieFilePath string
+	// If set, cacheDir persist. Otherwise temp dir will be used for CacheDir
+	Persist *bool
 }
 
 // Apply allows to use a ClientFactoryOpts as Opt
@@ -99,6 +101,18 @@ func (cfo *ClientFactoryOpts) Apply(target *ClientFactoryOpts) {
 	if cfo.CookieFilePath != "" {
 		target.CookieFilePath = cfo.CookieFilePath
 	}
+	if cfo.Persist != nil {
+		target.Persist = cfo.Persist
+	}
+}
+
+func defaultTempDir() *string {
+	switch runtime.GOOS {
+	case "linux":
+		return utilpointer.String("/var/tmp")
+	default:
+		return utilpointer.String("")
+	}
 }
 
 // ClientFactoryOpts allows to manipulate the options for a ClientFactory
@@ -109,12 +123,8 @@ func defaultClientFactoryOpts(cfo *ClientFactoryOpts) {
 		cfo.Host = "github.com"
 	}
 	if cfo.CacheDirBase == nil {
-		switch runtime.GOOS {
-		case "linux":
-			cfo.CacheDirBase = utilpointer.StringPtr("/var/tmp")
-		default:
-			cfo.CacheDirBase = utilpointer.StringPtr("")
-		}
+		// If we do not have a place to put cache, put it in temp dir.
+		cfo.CacheDirBase = defaultTempDir()
 	}
 	if cfo.Censor == nil {
 		cfo.Censor = func(in []byte) []byte { return in }
@@ -140,10 +150,15 @@ func NewClientFactory(opts ...ClientFactoryOpt) (ClientFactory, error) {
 		}
 	}
 
-	cacheDir, err := os.MkdirTemp(*o.CacheDirBase, "gitcache")
-	if err != nil {
+	var cacheDir string
+	var err error
+	// If we want to persist the Cache between runs, use the cacheDirBase as the cache. Otherwise make a temp dir.
+	if o.Persist != nil && *o.Persist {
+		cacheDir = *o.CacheDirBase
+	} else if cacheDir, err = os.MkdirTemp(*o.CacheDirBase, "gitcache"); err != nil {
 		return nil, err
 	}
+
 	var remote RemoteResolverFactory
 	if o.UseSSH != nil && *o.UseSSH {
 		remote = &sshRemoteResolverFactory{
@@ -279,7 +294,8 @@ func (c *clientFactory) ClientFor(org, repo string) (RepoClient, error) {
 		return nil, err
 	}
 
-	repoDir, err := os.MkdirTemp(c.cacheDirBase, "gitrepo")
+	// Put copies of the repo in temp dir.
+	repoDir, err := os.MkdirTemp(*defaultTempDir(), "gitrepo")
 	if err != nil {
 		return nil, err
 	}
@@ -303,7 +319,7 @@ func (c *clientFactory) ClientFor(org, repo string) (RepoClient, error) {
 		// something unexpected happened
 		return nil, err
 		// we have cloned the repo previously, ensure it is valid and refresh it
-	} else if err := c.ensureValidUpdatedCache(cacheDir, repoClient, cacheClientCacher); err != nil {
+	} else if err := c.ensureValidUpdatedCache(cacheDir, cacheClientCacher); err != nil {
 		return nil, err
 	}
 
@@ -316,11 +332,11 @@ func (c *clientFactory) ClientFor(org, repo string) (RepoClient, error) {
 }
 
 // Ensures that the repos in the cache are valid, clean, and up to date
-func (c *clientFactory) ensureValidUpdatedCache(cacheDir string, repoClient RepoClient, cacheClientCacher cacher) error {
+func (c *clientFactory) ensureValidUpdatedCache(cacheDir string, cacheClientCacher cacher) error {
 	// We only need to verify that the repos are valid once on startup
 	if _, ok := c.verifiedRepos[cacheDir]; !ok {
 		// Ensure it is valid
-		if valid, _ := repoClient.Fsck(); !valid {
+		if valid, _ := cacheClientCacher.Fsck(); !valid {
 			if err := os.RemoveAll(cacheDir); err != nil {
 				return err
 			}
@@ -329,9 +345,6 @@ func (c *clientFactory) ensureValidUpdatedCache(cacheDir string, repoClient Repo
 			}
 			c.verifiedRepos[cacheDir] = true
 			return nil
-		}
-		if err := repoClient.ResetHard("HEAD"); err != nil {
-			return err
 		}
 	}
 	// Ensure it is up to date

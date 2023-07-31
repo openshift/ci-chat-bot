@@ -2,6 +2,8 @@ package steps
 
 import (
 	"encoding/json"
+	"net/http"
+
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
@@ -9,7 +11,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"net/http"
 )
 
 func RegisterLaunchModeStep(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
@@ -25,7 +26,7 @@ func processNextLaunchModeStep(updater modals.ViewUpdater, jobmanager manager.Jo
 			Context:           callbackContext(callback),
 			MultipleSelection: modals.CallbackMultipleSelect(callback),
 		}
-		mode := make(sets.String)
+		mode := sets.New[string]()
 		for _, selection := range submissionData.MultipleSelection[launch.LaunchMode] {
 			switch selection {
 			case launch.LaunchModePRKey:

@@ -17,7 +17,6 @@ limitations under the License.
 package config
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -25,7 +24,6 @@ import (
 	"strings"
 	"time"
 
-	pipelinev1alpha1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
 	pipelinev1beta1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 
 	v1 "k8s.io/api/core/v1"
@@ -116,7 +114,7 @@ type JobBase struct {
 	// Spec is the Kubernetes pod spec used if Agent is kubernetes.
 	Spec *v1.PodSpec `json:"spec,omitempty"`
 	// PipelineRunSpec is the tekton pipeline spec used if Agent is tekton-pipeline.
-	PipelineRunSpec *pipelinev1alpha1.PipelineRunSpec `json:"pipeline_run_spec,omitempty"`
+	PipelineRunSpec *pipelinev1beta1.PipelineRunSpec `json:"pipeline_run_spec,omitempty"`
 	// TektonPipelineRunSpec is the versioned tekton pipeline spec used if Agent is tekton-pipeline.
 	TektonPipelineRunSpec *prowapi.TektonPipelineRunSpec `json:"tekton_pipeline_run_spec,omitempty"`
 	// Annotations are unused by prow itself, but provide a space to configure other automation.
@@ -169,11 +167,7 @@ func (jb JobBase) GetPipelineRunSpec() (*pipelinev1beta1.PipelineRunSpec, error)
 		found = jb.TektonPipelineRunSpec.V1Beta1
 	}
 	if found == nil && jb.PipelineRunSpec != nil {
-		var spec pipelinev1beta1.PipelineRunSpec
-		if err := jb.PipelineRunSpec.ConvertTo(context.TODO(), &spec); err != nil {
-			return nil, err
-		}
-		found = &spec
+		found = jb.PipelineRunSpec
 	}
 	if found == nil {
 		return nil, errors.New("pipeline run spec not found")
@@ -385,15 +379,15 @@ func (br Brancher) Intersects(other Brancher) bool {
 		return true
 	}
 	if len(br.Branches) > 0 {
-		baseBranches := sets.NewString(br.Branches...)
+		baseBranches := sets.New[string](br.Branches...)
 		if len(other.Branches) > 0 {
-			otherBranches := sets.NewString(other.Branches...)
+			otherBranches := sets.New[string](other.Branches...)
 			return baseBranches.Intersection(otherBranches).Len() > 0
 		}
 
 		// Actually test our branches against the other brancher - if there are regex skip lists, simple comparison
 		// is insufficient.
-		for _, b := range baseBranches.List() {
+		for _, b := range sets.List(baseBranches) {
 			if other.ShouldRun(b) {
 				return true
 			}

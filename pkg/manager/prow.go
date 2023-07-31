@@ -62,22 +62,22 @@ var MultistageParameters = map[string]EnvVar{
 	"compact": {
 		name:      "SIZE_VARIANT",
 		value:     "compact",
-		Platforms: sets.NewString("aws", "aws-2", "gcp", "azure"),
+		Platforms: sets.New[string]("aws", "aws-2", "gcp", "azure"),
 	},
 	"large": {
 		name:      "SIZE_VARIANT",
 		value:     "large",
-		Platforms: sets.NewString("aws", "aws-2", "gcp", "azure"),
+		Platforms: sets.New[string]("aws", "aws-2", "gcp", "azure"),
 	},
 	"xlarge": {
 		name:      "SIZE_VARIANT",
 		value:     "xlarge",
-		Platforms: sets.NewString("aws", "aws-2", "gcp", "azure"),
+		Platforms: sets.New[string]("aws", "aws-2", "gcp", "azure"),
 	},
 	"preserve-bootstrap": {
 		name:      "OPENSHIFT_INSTALL_PRESERVE_BOOTSTRAP",
 		value:     "true",
-		Platforms: sets.NewString("aws", "aws-2", "gcp", "azure", "vsphere", "ovirt", "nutanix"),
+		Platforms: sets.New[string]("aws", "aws-2", "gcp", "azure", "vsphere", "ovirt", "nutanix"),
 	},
 }
 
@@ -486,7 +486,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		if UseSpotInstances(job) {
 			matchedTarget.MultiStageTestConfiguration.Environment["SPOT_INSTANCES"] = "true"
 		}
-		envParams := sets.NewString()
+		envParams := sets.New[string]()
 		platformParams := multistageParamsForPlatform(job.Platform)
 		for k := range job.JobParams {
 			if platformParams.Has(k) {
@@ -790,7 +790,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 	// error if bundle name is provided but no operator repo PR was provided
 	if bundleName, ok := job.JobParams["bundle"]; ok && !job.Operator.Is {
-		return "", fmt.Errorf("Bundle name %s provided, but no PR for an operator repo provided", bundleName)
+		return "", fmt.Errorf("bundle name %s provided, but no PR for an operator repo provided", bundleName)
 	}
 
 	// build jobs do not launch contents
@@ -818,7 +818,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 	var prowJobURL string
 	// Wait for ProwJob URL to be assigned
-	err = wait.PollImmediate(10*time.Second, 5*time.Minute, func() (bool, error) {
+	err = wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
 		uns, err := m.prowClient.Namespace(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, err
@@ -908,7 +908,7 @@ func processOperatorPR(oldOperatorRepo string, sourceConfig, targetConfig *citoo
 				if bundleName == "" {
 					bundleName = "unnamed"
 				}
-				return "", fmt.Errorf("Unable to locate test using %s bundle", bundleName)
+				return "", fmt.Errorf("unable to locate test using %s bundle", bundleName)
 			}
 			for index, test := range sourceConfig.Tests {
 				if test.As == "launch" {
@@ -1030,7 +1030,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	klog.Infof("Job %q started a prow job that will create pods in namespace %s", job.Name, namespace)
 	var pj *prowapiv1.ProwJob
-	err := wait.PollImmediate(10*time.Second, 15*time.Minute, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, 15*time.Minute, true, func(ctx context.Context) (bool, error) {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
@@ -1086,7 +1086,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 		klog.Infof("Job %s will report results at %s (to %s / %s)", job.Name, job.URL, job.RequestedBy, job.RequestedChannel)
 
 		// loop waiting for job to complete
-		err = wait.PollImmediate(time.Minute, 5*setupContainerTimeout, func() (bool, error) {
+		err = wait.PollUntilContextTimeout(context.TODO(), time.Minute, 5*setupContainerTimeout, true, func(ctx context.Context) (bool, error) {
 			if m.jobIsComplete(job) {
 				return false, errJobCompleted
 			}
@@ -1133,7 +1133,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 	}
 
 	seen := false
-	err = wait.PollImmediate(5*time.Second, 15*time.Minute, func() (bool, error) {
+	err = wait.PollUntilContextTimeout(context.TODO(), 5*time.Second, 15*time.Minute, true, func(ctx context.Context) (bool, error) {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
@@ -1168,7 +1168,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 
 	seen = false
 	var lastErr error
-	err = wait.PollImmediate(15*time.Second, setupContainerTimeout, func() (bool, error) {
+	err = wait.PollUntilContextTimeout(context.TODO(), 15*time.Second, setupContainerTimeout, true, func(ctx context.Context) (bool, error) {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
@@ -1209,7 +1209,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 		return false, nil
 	})
 	if err != nil {
-		if lastErr != nil && err == wait.ErrWaitTimeout {
+		if lastErr != nil {
 			err = lastErr
 		}
 		if strings.HasPrefix(err.Error(), "cluster ") {
@@ -1304,7 +1304,7 @@ func waitForClusterReachable(kubeconfig string, abortFn func() bool) error {
 		return err
 	}
 
-	return wait.PollImmediate(15*time.Second, 30*time.Minute, func() (bool, error) {
+	return wait.PollUntilContextTimeout(context.TODO(), 15*time.Second, 30*time.Minute, true, func(ctx context.Context) (bool, error) {
 		if abortFn() {
 			return false, errJobCompleted
 		}

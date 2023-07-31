@@ -161,7 +161,7 @@ func (m *jobManager) updateHypershiftSupportedVersions() error {
 		HypershiftSupportedVersions.Mu.Lock()
 		defer HypershiftSupportedVersions.Mu.Unlock()
 		// assume that current default release for chat-bot is supported
-		HypershiftSupportedVersions.Versions = sets.NewString(fmt.Sprintf("%d.%d", CurrentRelease.Major, CurrentRelease.Minor))
+		HypershiftSupportedVersions.Versions = sets.New[string](fmt.Sprintf("%d.%d", CurrentRelease.Major, CurrentRelease.Minor))
 		return nil
 	}
 	supportedVersionConfigMap, err := m.hiveConfigMapClient.Get(context.TODO(), "supported-versions", metav1.GetOptions{})
@@ -183,8 +183,8 @@ func (m *jobManager) updateHypershiftSupportedVersions() error {
 	}
 	HypershiftSupportedVersions.Mu.Lock()
 	defer HypershiftSupportedVersions.Mu.Unlock()
-	HypershiftSupportedVersions.Versions = sets.NewString(convertedVersions.Versions...)
-	klog.Infof("Hypershift Supported Versions: %+v", HypershiftSupportedVersions.Versions.List())
+	HypershiftSupportedVersions.Versions = sets.New[string](convertedVersions.Versions...)
+	klog.Infof("Hypershift Supported Versions: %+v", sets.List(HypershiftSupportedVersions.Versions))
 	return nil
 }
 
@@ -338,7 +338,7 @@ func (m *jobManager) rosaSync() error {
 					metrics.RecordError(errorRosaFailure, m.errorMetric)
 				}
 				if m.rosaErrorReported == nil {
-					m.rosaErrorReported = sets.NewString()
+					m.rosaErrorReported = sets.New[string]()
 				}
 				if !m.rosaErrorReported.Has(cluster.ID()) {
 					klog.Infof("Reporting failure for cluster %s", cluster.ID())
@@ -1302,7 +1302,7 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 				}
 				if !isValidVersion {
 					HypershiftSupportedVersions.Mu.RUnlock()
-					return nil, fmt.Errorf("hypershift currently only supports the following releases: %v", HypershiftSupportedVersions.Versions.List())
+					return nil, fmt.Errorf("hypershift currently only supports the following releases: %v", sets.List(HypershiftSupportedVersions.Versions))
 				}
 			}
 		}
@@ -1399,8 +1399,8 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 	return job, nil
 }
 
-func multistageParamsForPlatform(platform string) sets.String {
-	params := sets.NewString()
+func multistageParamsForPlatform(platform string) sets.Set[string] {
+	params := sets.New[string]()
 	for param, env := range MultistageParameters {
 		if env.Platforms.Has(platform) {
 			params.Insert(param)
@@ -1425,7 +1425,7 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 	case JobTypeUpgrade:
 		prefix = "upgrade"
 	default:
-		return "", fmt.Errorf("Unknown job type %s", jobType)
+		return "", fmt.Errorf("unknown job type %s", jobType)
 	}
 	_, okTest := params["test"]
 	_, okNoSpot := params["no-spot"]
@@ -1433,7 +1433,7 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 		return prefix, nil
 	}
 	platformParams := multistageParamsForPlatform(platform)
-	variants := sets.NewString()
+	variants := sets.New[string]()
 	for k := range params {
 		if utils.Contains(SupportedParameters, k) && !platformParams.Has(k) && k != "test" && k != "bundle" && k != "no-spot" { // we only need parameters that are not configured via multistage env vars
 			variants.Insert(k)
@@ -1442,7 +1442,7 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 	if len(variants) == 0 {
 		return prefix, nil
 	}
-	return fmt.Sprintf("%s-%s", prefix, strings.Join(variants.List(), "-")), nil
+	return fmt.Sprintf("%s-%s", prefix, strings.Join(sets.List(variants), "-")), nil
 }
 
 func configContainsVariant(params map[string]string, platform, unresolvedConfig, jobType string) (bool, string, error) {
