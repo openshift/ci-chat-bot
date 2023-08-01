@@ -201,6 +201,47 @@ func Test(client *slack.Client, jobManager manager.JobManager, event *slackevent
 	return msg
 }
 
+func CatalogBuild(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	userName := GetUserName(client, event.User)
+	from, err := ParseImageInput(properties.StringParam("pullrequest", ""))
+	if err != nil {
+		return err.Error()
+	}
+	if len(from) == 0 {
+		return "you must specify at least one pull request to build an operator catalog"
+	}
+
+	bundleName, err := ParseImageInput(properties.StringParam("bundle_name", ""))
+	if err != nil {
+		return err.Error()
+	}
+	if len(bundleName) == 0 {
+		return "you must specify the bundle name for the operator bundle you wish to build"
+	}
+
+	// this allows us to default platform and arch in the same location as other commands
+	platform, architecture, _, err := ParseOptions(properties.StringParam("options", ""), [][]string{from}, manager.JobTypeCatalog)
+	if err != nil {
+		return err.Error()
+	}
+
+	msg, err := jobManager.LaunchJobForUser(&manager.JobRequest{
+		OriginalMessage: event.Text,
+		User:            event.User,
+		UserName:        userName,
+		Inputs:          [][]string{from},
+		Type:            manager.JobTypeCatalog,
+		Channel:         event.Channel,
+		JobParams:       map[string]string{"bundle": bundleName[0]},
+		Architecture:    architecture,
+		Platform:        platform,
+	})
+	if err != nil {
+		return err.Error()
+	}
+	return msg
+}
+
 func Build(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	userName := GetUserName(client, event.User)
 	from, err := ParseImageInput(properties.StringParam("pullrequest", ""))
