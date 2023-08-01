@@ -1,11 +1,12 @@
 package parser
 
 import (
+	"regexp"
+	"strings"
+
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
-	"regexp"
-	"strings"
 )
 
 const (
@@ -16,7 +17,7 @@ const (
 	spacePattern         = "\\s+"
 	inputPattern         = "(.+)"
 	lazyInputPattern     = "(.+?)"
-	preCommandPattern    = "(\\s|^)"
+	preCommandPattern    = "(^)"
 	postCommandPattern   = "(\\s|$)"
 )
 
