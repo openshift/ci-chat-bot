@@ -1125,6 +1125,9 @@ func (m *jobManager) waitForJob(job *Job) error {
 			case prowapiv1.AbortedState, prowapiv1.ErrorState, prowapiv1.FailureState:
 				job.Failure = "job failed"
 				job.State = pj.Status.State
+				if job.Mode == JobTypeCatalog {
+					job.CatalogComplete = true
+				}
 				return true, nil
 			case prowapiv1.SuccessState:
 				job.Failure = ""
@@ -1145,7 +1148,9 @@ func (m *jobManager) waitForJob(job *Job) error {
 					fullBundlePullRef := fmt.Sprintf("registry.%s.ci.openshift.org/%s/pipeline:%s", job.BuildCluster, namespace, job.Operator.BundleName)
 					klog.Infof("Creating bundle for %s", fullBundlePullRef)
 					newErr := catalog.CreateBuild(context.TODO(), *clusterClient, fullBundlePullRef, namespace)
+					job.CatalogComplete = true
 					if newErr != nil {
+						job.CatalogError = true
 						return false, newErr
 					}
 				}

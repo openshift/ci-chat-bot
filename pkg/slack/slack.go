@@ -288,39 +288,58 @@ func NotifyJob(client *slack.Client, job *manager.Job) {
 		return
 	}
 
-	if len(job.URL) > 0 {
-		switch job.State {
-		case prowapiv1.FailureState, prowapiv1.AbortedState, prowapiv1.ErrorState:
-			message := fmt.Sprintf("job <%s | %s> failed", job.URL, job.OriginalMessage)
-			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-			if err != nil {
-				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
-			}
-			return
-		case prowapiv1.SuccessState:
-			message := fmt.Sprintf("job <%s | %s> succeeded", job.URL, job.OriginalMessage)
-			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-			if err != nil {
-				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
-			}
-			return
+	// Catalog builds incomplete after the job completes; assume complete unless catalog build
+	incomplete := false
+	if job.Mode == manager.JobTypeCatalog {
+		incomplete = !job.CatalogComplete
+	}
+
+	var failure, success bool
+	switch job.State {
+	case prowapiv1.FailureState, prowapiv1.AbortedState, prowapiv1.ErrorState:
+		failure = true
+	case prowapiv1.SuccessState:
+		if job.CatalogError {
+			failure = true
 		}
-	} else {
-		switch job.State {
-		case prowapiv1.FailureState, prowapiv1.AbortedState, prowapiv1.ErrorState:
-			message := fmt.Sprintf("job %s failed, but no details could be retrieved", job.OriginalMessage)
-			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-			if err != nil {
-				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+		success = true
+	}
+
+	if !incomplete {
+		if len(job.URL) > 0 {
+			if failure {
+				message := fmt.Sprintf("job <%s | %s> failed", job.URL, job.OriginalMessage)
+				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
+				if err != nil {
+					klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+				}
+				return
 			}
-			return
-		case prowapiv1.SuccessState:
-			message := fmt.Sprintf("job %s succeded, but no details could be retrieved", job.OriginalMessage)
-			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-			if err != nil {
-				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+			if success {
+				message := fmt.Sprintf("job <%s | %s> succeeded", job.URL, job.OriginalMessage)
+				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
+				if err != nil {
+					klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+				}
+				return
 			}
-			return
+		} else {
+			if failure {
+				message := fmt.Sprintf("job %s failed, but no details could be retrieved", job.OriginalMessage)
+				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
+				if err != nil {
+					klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+				}
+				return
+			}
+			if success {
+				message := fmt.Sprintf("job %s succeded, but no details could be retrieved", job.OriginalMessage)
+				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
+				if err != nil {
+					klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+				}
+				return
+			}
 		}
 	}
 
