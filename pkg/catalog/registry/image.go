@@ -20,7 +20,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/adrg/xdg"
 	registryimage "github.com/operator-framework/operator-registry/pkg/image"
 	"github.com/operator-framework/operator-registry/pkg/image/containerdregistry"
 	log "github.com/sirupsen/logrus"
@@ -34,12 +33,16 @@ func ExtractBundleImage(ctx context.Context, logger *log.Entry, image string, lo
 	}
 	// Use a temp directory for bundle files. This will likely be removed by
 	// the caller.
-	bundleDir, err := os.MkdirTemp(xdg.RuntimeDir, "bundle-")
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	bundleDir, err := os.MkdirTemp(wd, "bundle-")
 	if err != nil {
 		return "", err
 	}
 	// This should always work, but if it doesn't bundleDir is still valid.
-	if dir, err := filepath.Rel(xdg.RuntimeDir, bundleDir); err == nil {
+	if dir, err := filepath.Rel(wd, bundleDir); err == nil {
 		bundleDir = dir
 	}
 
