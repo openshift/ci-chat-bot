@@ -316,7 +316,9 @@ type Job struct {
 
 	UseSecondaryAccount bool
 
-	Operator OperatorInfo
+	Operator        OperatorInfo
+	CatalogComplete bool
+	CatalogError    bool
 }
 
 type OperatorInfo struct {

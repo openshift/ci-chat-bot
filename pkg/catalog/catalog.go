@@ -191,9 +191,9 @@ func UpdateDockerConfigJSON(secretData []byte) error {
 					if _, err = os.Stat(configPath); err != nil {
 						return fmt.Errorf("Failed to stat newly created container auth file: %w", err)
 					}
+				} else {
+					return fmt.Errorf("Failed to stat container auth file: %w", err)
 				}
-			} else {
-				return fmt.Errorf("Failed to stat container auth file: %w", err)
 			}
 		} else {
 			return fmt.Errorf("Failed to stat docker config file: %w", err)
