@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adrg/xdg"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
@@ -131,6 +132,11 @@ func run() error {
 	klog.SetOutput(os.Stderr)
 	// let k8s know that we're alive
 	health := pjutil.NewHealthOnPort(opt.InstrumentationOptions.HealthPort)
+
+	// change directory to writable XDG_RUNTIME_DIR for catalog build caching purposes
+	if err := os.Chdir(xdg.RuntimeDir); err != nil {
+		return fmt.Errorf("couldn't change directory to $XDG_RUNTIME_DIR (%s): %w", xdg.RuntimeDir, err)
+	}
 
 	if err := opt.Validate(); err != nil {
 		return fmt.Errorf("unable to validate program arguments: %w", err)
