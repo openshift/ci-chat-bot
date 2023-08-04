@@ -710,6 +710,18 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 					newImage := image
 					newImage.Optional = false
 					updatedImageList = append(updatedImageList, newImage)
+					// if a job is building an operator, images built from other repos may be an operand,
+					// and thus need to be accessible as a pipeline image for the bundle build
+					for pipelineTag, baseImage := range sourceConfig.BaseImages {
+						if baseImage.Tag == string(image.To) {
+							sourceConfig.BaseImages[pipelineTag] = citools.ImageStreamTagReference{
+								Name:      "stable",
+								Tag:       string(image.To),
+								Namespace: "$(NAMESPACE)",
+							}
+							break
+						}
+					}
 				}
 				targetConfig.Images = updatedImageList
 
