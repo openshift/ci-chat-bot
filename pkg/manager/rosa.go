@@ -61,7 +61,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 
 	// Find all installer roles in the current account using AWS resource tags
 	foundRoleARNs, err := m.rClient.AWSClient.FindRoleARNs(aws.InstallerAccountRole, minor)
-	if err != nil {
+	if err != nil || foundRoleARNs == nil || len(foundRoleARNs) == 0 {
 		metrics.RecordError(errorRosaAWS, m.errorMetric)
 		return nil, "", fmt.Errorf("Failed to find %s role: %s", role.Name, err)
 	}
