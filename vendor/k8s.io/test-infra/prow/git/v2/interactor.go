@@ -44,8 +44,8 @@ type Interactor interface {
 	RevParse(commitlike string) (string, error)
 	// BranchExists determines if a branch with the name exists
 	BranchExists(branch string) bool
-	// CommitExists determines if the commit SHA exists locally
-	CommitExists(sha string) (bool, error)
+	// ObjectExists determines if the Git object exists locally
+	ObjectExists(sha string) (bool, error)
 	// CheckoutNewBranch creates a new branch from HEAD and checks it out
 	CheckoutNewBranch(branch string) error
 	// Merge merges the commitlike into the current HEAD
@@ -80,14 +80,15 @@ type cacher interface {
 	MirrorClone() error
 	// RemoteUpdate fetches all updates from the remote.
 	RemoteUpdate() error
-	// Fsck verifies the connectivity and validity of the repo and returns true if passed
-	Fsck() (bool, error)
 }
 
 // cloner knows how to clone repositories from a central cache
 type cloner interface {
 	// Clone clones the repository from a local path.
 	Clone(from string) error
+	CloneWithRepoOpts(from string, repoOpts RepoOpts) error
+	// FetchCommits fetches only the given commits.
+	FetchCommits(bool, []string) error
 }
 
 // MergeOpt holds options for git merge operations.
@@ -139,9 +140,45 @@ func (i *interactor) IsDirty() (bool, error) {
 
 // Clone clones the repository from a local path.
 func (i *interactor) Clone(from string) error {
+	return i.CloneWithRepoOpts(from, RepoOpts{})
+}
+
+// CloneWithRepoOpts clones the repository from a local path, but additionally
+// use any repository options (RepoOpts) to customize the clone behavior.
+func (i *interactor) CloneWithRepoOpts(from string, repoOpts RepoOpts) error {
 	i.logger.Infof("Creating a clone of the repo at %s from %s", i.dir, from)
-	if out, err := i.executor.Run("clone", from, i.dir); err != nil {
+	cloneArgs := []string{"clone"}
+
+	if repoOpts.ShareObjectsWithSourceRepo {
+		cloneArgs = append(cloneArgs, "--shared")
+	}
+
+	// Handle sparse checkouts.
+	if repoOpts.SparseCheckoutDirs != nil {
+		cloneArgs = append(cloneArgs, "--sparse")
+	}
+
+	cloneArgs = append(cloneArgs, []string{from, i.dir}...)
+
+	if out, err := i.executor.Run(cloneArgs...); err != nil {
 		return fmt.Errorf("error creating a clone: %w %v", err, string(out))
+	}
+
+	// For sparse checkouts, we have to do some additional housekeeping after
+	// the clone is completed. We use Git's global "-C <directory>" flag to
+	// switch to that directory before running the "sparse-checkout" command,
+	// because otherwise the command will fail (because it will try to run the
+	// command in the $PWD, which is not the same as the just-created clone
+	// directory (i.dir)).
+	if repoOpts.SparseCheckoutDirs != nil {
+		if len(repoOpts.SparseCheckoutDirs) == 0 {
+			return nil
+		}
+		sparseCheckoutArgs := []string{"-C", i.dir, "sparse-checkout", "set"}
+		sparseCheckoutArgs = append(sparseCheckoutArgs, repoOpts.SparseCheckoutDirs...)
+		if out, err := i.executor.Run(sparseCheckoutArgs...); err != nil {
+			return fmt.Errorf("error setting it to a sparse checkout: %w %v", err, string(out))
+		}
 	}
 	return nil
 }
@@ -185,16 +222,20 @@ func (i *interactor) BranchExists(branch string) bool {
 	return err == nil
 }
 
-func (i *interactor) CommitExists(sha string) (bool, error) {
-	i.logger.WithField("SHA", sha).Info("Checking if SHA exists")
-	_, err := i.executor.Run("branch", "--contains", sha)
-	if err != nil && strings.Contains(err.Error(), "no such commit") {
+func (i *interactor) ObjectExists(sha string) (bool, error) {
+	i.logger.WithField("SHA", sha).Info("Checking if Git object exists")
+	output, err := i.executor.Run("cat-file", "-e", sha)
+	// If the object does not exist, cat-file will exit with a non-zero exit
+	// code. This will make err non-nil. However this is a known behavior, so
+	// we just log it.
+	//
+	// We still have the error type as a return value because the v1 git client
+	// adapter needs to know that this operation is not supported there.
+	if err != nil {
+		i.logger.WithError(err).WithField("SHA", sha).Debugf("error from 'git cat-file -e': %s", string(output))
 		return false, nil
-	} else if err != nil {
-		return false, fmt.Errorf("Unable to check if commit exists: %v", err)
 	}
 	return true, nil
-
 }
 
 // CheckoutNewBranch creates a new branch and checks it out.
@@ -334,14 +375,6 @@ func (i *interactor) MergeAndCheckout(baseSHA string, mergeStrategy string, head
 	return nil
 }
 
-func (i *interactor) Fsck() (bool, error) {
-	i.logger.Info("Running file system check")
-	if out, err := i.executor.Run("fsck"); err != nil {
-		return false, fmt.Errorf("error running git file system check: %w %v", err, string(out))
-	}
-	return true, nil
-}
-
 // Am tries to apply the patch in the given path into the current branch
 // by performing a three-way merge (similar to git cherry-pick). It returns
 // an error if the patch cannot be applied.
@@ -356,6 +389,40 @@ func (i *interactor) Am(path string) error {
 		i.logger.WithError(abortErr).Warningf("Aborting patch apply failed with output: %s", string(abortOut))
 	}
 	return errors.New(string(bytes.TrimPrefix(out, []byte("The copy of the patch that failed is found in: .git/rebase-apply/patch"))))
+}
+
+// FetchCommits only fetches those commits which we want, and only if they are
+// missing.
+func (i *interactor) FetchCommits(noFetchTags bool, commitSHAs []string) error {
+	fetchArgs := []string{"--no-write-fetch-head"}
+
+	if noFetchTags {
+		fetchArgs = append(fetchArgs, "--no-tags")
+	}
+
+	// For each commit SHA, check if it already exists. If so, don't bother
+	// fetching it.
+	var missingCommits bool
+	for _, commitSHA := range commitSHAs {
+		if exists, _ := i.ObjectExists(commitSHA); exists {
+			continue
+		}
+
+		fetchArgs = append(fetchArgs, commitSHA)
+		missingCommits = true
+	}
+
+	// Skip the fetch operation altogether if nothing is missing (we already
+	// fetched everything previously at some point).
+	if !missingCommits {
+		return nil
+	}
+
+	if err := i.Fetch(fetchArgs...); err != nil {
+		return fmt.Errorf("failed to fetch %s: %v", fetchArgs, err)
+	}
+
+	return nil
 }
 
 // RemoteUpdate fetches all updates from the remote.
