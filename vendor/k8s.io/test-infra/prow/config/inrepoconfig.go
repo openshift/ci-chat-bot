@@ -59,10 +59,7 @@ var inrepoconfigRepoOpts = git.RepoOpts{
 	SparseCheckoutDirs: []string{inRepoConfigDirName, inRepoConfigFileName},
 	// The sparse checkout would avoid creating another copy of Git objects
 	// from the mirror clone into the secondary clone.
-	ShareObjectsWithSourceRepo: true,
-	// Disable fetching tag objects, because they are redundant and useless (we
-	// already have baseSHA and headSHAs).
-	NoFetchTags: true,
+	ShareObjectsWithPrimaryClone: true,
 }
 
 var inrepoconfigMetrics = struct {
@@ -115,6 +112,19 @@ type ProwYAMLGetter func(c *Config, gc git.ClientFactory, identifier, baseSHA st
 var _ ProwYAMLGetter = prowYAMLGetterWithDefaults
 var _ ProwYAMLGetter = prowYAMLGetter
 
+// InRepoConfigGetter defines a common interface that both the Moonraker client
+// and raw InRepoConfigCache can implement. This way, Prow components like Sub
+// and Gerrit can choose either one (based on runtime flags), but regardless of
+// the choice the surrounding code can still just call this GetProwYAML()
+// interface method (without being aware whether the underlying implementation
+// is going over the network to Moonraker or is done locally with the local
+// InRepoConfigCache (LRU cache)).
+type InRepoConfigGetter interface {
+	GetInRepoConfig(identifier string, baseSHAGetter RefGetter, headSHAGetters ...RefGetter) (*ProwYAML, error)
+	GetPresubmits(identifier string, baseSHAGetter RefGetter, headSHAGetters ...RefGetter) ([]Presubmit, error)
+	GetPostsubmits(identifier string, baseSHAGetter RefGetter, headSHAGetters ...RefGetter) ([]Postsubmit, error)
+}
+
 // prowYAMLGetter is like prowYAMLGetterWithDefaults, but without default values
 // (it does not call DefaultAndValidateProwYAML()). Its sole purpose is to allow
 // caching of ProwYAMLs that are retrieved purely from the inrepoconfig's repo,
@@ -144,8 +154,8 @@ func prowYAMLGetter(
 	repoOpts := inrepoconfigRepoOpts
 	// For Gerrit, the baseSHA could appear as a headSHA for postsubmits if the
 	// change was a fast-forward merge. So we need to dedupe it with sets.
-	repoOpts.FetchCommits = sets.New(baseSHA)
-	repoOpts.FetchCommits.Insert(headSHAs...)
+	repoOpts.NeededCommits = sets.New(baseSHA)
+	repoOpts.NeededCommits.Insert(headSHAs...)
 	repo, err := gc.ClientForWithRepoOpts(orgRepo.Org, orgRepo.Repo, repoOpts)
 	inrepoconfigMetrics.gitCloneDuration.WithLabelValues(orgRepo.Org, orgRepo.Repo).Observe((float64(time.Since(timeBeforeClone).Seconds())))
 	if err != nil {
