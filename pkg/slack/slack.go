@@ -512,11 +512,11 @@ func NotifyRosa(client *slack.Client, cluster *clustermgmtv1.Cluster, password s
 		}
 		if console, ok := cluster.GetConsole(); ok {
 			message += "\n" + console.URL()
+			ocLoginCommand := fmt.Sprintf("oc login %s --username cluster-admin --password %s", cluster.API().URL(), password)
+			message += "\n\nLog in to the console with user `cluster-admin` and password `" + password + "`.\nTo use the `oc` command, log in by running `" + ocLoginCommand + "`."
 		} else {
 			message += "\nYour cluster's console is not currently available. We will send you another message when the console becomes ready. To manually check if the console is ready, use the `auth` command."
 		}
-		ocLoginCommand := fmt.Sprintf("oc login %s --username cluster-admin --password %s", cluster.API().URL(), password)
-		message += "\n\nLog in to the console with user `cluster-admin` and password `" + password + "`.\nTo use the `oc` command, log in by running `" + ocLoginCommand + "`."
 		if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
 			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
 		}
