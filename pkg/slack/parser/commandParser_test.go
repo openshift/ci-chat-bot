@@ -157,6 +157,16 @@ func TestMatch(t *testing.T) {
 			},
 		},
 	}, {
+		command: "test e2e 4.14 alibaba",
+		match:   5,
+		properties: &Properties{
+			PropertyMap: map[string]string{
+				"name":                    "e2e",
+				"image_or_version_or_prs": "4.14",
+				"options":                 "alibaba",
+			},
+		},
+	}, {
 		command: "build openshift/operator-framework-olm#68,operator-framework/operator-marketplace#396",
 		match:   6,
 		properties: &Properties{
