@@ -88,21 +88,21 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Example: "launch 4.14,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
 			Handler: LaunchCluster,
 		}),
-		parser.NewBotCommand("rosa create <version> <duration>", &parser.CommandDefinition{
-			Description: "Launch an cluster in ROSA. Only GA Openshift versions are supported at the moment.",
-			Example:     "rosa create 4.12 3h",
-			Handler:     RosaCreate,
-		}),
-		parser.NewBotCommand("rosa lookup <version>", &parser.CommandDefinition{
-			Description: "Find openshift version(s) with provided prefix that is supported in ROSA.",
-			Example:     "rosa lookup 4.12",
-			Handler:     RosaLookup,
-		}),
-		parser.NewBotCommand("rosa describe <cluster>", &parser.CommandDefinition{
-			Description: "Display the details of the specified ROSA cluster.",
-			Example:     "rosa describe s9h9g-9b6nj-x94",
-			Handler:     RosaDescribe,
-		}),
+		//parser.NewBotCommand("rosa create <version> <duration>", &parser.CommandDefinition{
+		//	Description: "Launch an cluster in ROSA. Only GA Openshift versions are supported at the moment.",
+		//	Example:     "rosa create 4.12 3h",
+		//	Handler:     RosaCreate,
+		//}),
+		//parser.NewBotCommand("rosa lookup <version>", &parser.CommandDefinition{
+		//	Description: "Find openshift version(s) with provided prefix that is supported in ROSA.",
+		//	Example:     "rosa lookup 4.12",
+		//	Handler:     RosaLookup,
+		//}),
+		//parser.NewBotCommand("rosa describe <cluster>", &parser.CommandDefinition{
+		//	Description: "Display the details of the specified ROSA cluster.",
+		//	Example:     "rosa describe s9h9g-9b6nj-x94",
+		//	Handler:     RosaDescribe,
+		//}),
 		parser.NewBotCommand("list", &parser.CommandDefinition{
 			Description: "See who is hogging all the clusters.",
 			Handler:     List,
