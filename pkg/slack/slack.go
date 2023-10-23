@@ -2,6 +2,7 @@ package slack
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -87,21 +88,21 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Example: "launch 4.14,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
 			Handler: LaunchCluster,
 		}),
-		//parser.NewBotCommand("rosa create <version> <duration>", &parser.CommandDefinition{
-		//	Description: "Launch an cluster in ROSA. Only GA Openshift versions are supported at the moment.",
-		//	Example:     "rosa create 4.12 3h",
-		//	Handler:     RosaCreate,
-		//}),
-		//parser.NewBotCommand("rosa lookup <version>", &parser.CommandDefinition{
-		//	Description: "Find openshift version(s) with provided prefix that is supported in ROSA.",
-		//	Example:     "rosa lookup 4.12",
-		//	Handler:     RosaLookup,
-		//}),
-		//parser.NewBotCommand("rosa describe <cluster>", &parser.CommandDefinition{
-		//	Description: "Display the details of the specified ROSA cluster.",
-		//	Example:     "rosa describe s9h9g-9b6nj-x94",
-		//	Handler:     RosaDescribe,
-		//}),
+		parser.NewBotCommand("rosa create <version> <duration>", &parser.CommandDefinition{
+			Description: "Launch an cluster in ROSA. Only GA Openshift versions are supported at the moment.",
+			Example:     "rosa create 4.12 3h",
+			Handler:     RosaCreate,
+		}),
+		parser.NewBotCommand("rosa lookup <version>", &parser.CommandDefinition{
+			Description: "Find openshift version(s) with provided prefix that is supported in ROSA.",
+			Example:     "rosa lookup 4.12",
+			Handler:     RosaLookup,
+		}),
+		parser.NewBotCommand("rosa describe <cluster>", &parser.CommandDefinition{
+			Description: "Display the details of the specified ROSA cluster.",
+			Example:     "rosa describe s9h9g-9b6nj-x94",
+			Handler:     RosaDescribe,
+		}),
 		parser.NewBotCommand("list", &parser.CommandDefinition{
 			Description: "See who is hogging all the clusters.",
 			Handler:     List,
@@ -483,41 +484,41 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 }
 
 func NotifyRosa(client *slack.Client, cluster *clustermgmtv1.Cluster, password string) {
-	//channel := cluster.AWS().Tags()[utils.ChannelTag]
-	//switch {
-	//case cluster.State() == clustermgmtv1.ClusterStateError:
-	//	message := fmt.Sprintf("your cluster (name: `%s`, id: `%s`) has encountered an error; please contact the CRT team in #forum-ocp-crt", cluster.Name(), cluster.ID())
-	//	_, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false))
-	//	if err != nil {
-	//		klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
-	//	}
-	//case cluster.State() == clustermgmtv1.ClusterStateInstalling:
-	//	message := fmt.Sprintf("cluster is still starting (launched %d minutes ago)", time.Since(cluster.CreationTimestamp())/time.Minute)
-	//	_, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false))
-	//	if err != nil {
-	//		klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
-	//	}
-	//default:
-	//	message := "Your cluster is ready"
-	//	expiryTime, err := base64.RawStdEncoding.DecodeString(cluster.AWS().Tags()[utils.ExpiryTimeTag])
-	//	if err != nil {
-	//		klog.Errorf("Failed to base64 decode expiry time tag: %v", err)
-	//		message += "."
-	//	} else if parsedExpiryTime, err := time.Parse(time.RFC3339, string(expiryTime)); err != nil {
-	//		klog.Errorf("Failed to parse time: %v", err)
-	//		message += "."
-	//	} else {
-	//		message += fmt.Sprintf(", it will be shut down automatically in ~%d minutes.", time.Until(parsedExpiryTime)/time.Minute)
-	//	}
-	//	if console, ok := cluster.GetConsole(); ok {
-	//		message += "\n" + console.URL()
-	//	} else {
-	//		message += "\nYour cluster's console is not currently available. We will send you another message when the console becomes ready. To manually check if the console is ready, use the `auth` command."
-	//	}
-	//	ocLoginCommand := fmt.Sprintf("oc login %s --username cluster-admin --password %s", cluster.API().URL(), password)
-	//	message += "\n\nLog in to the console with user `cluster-admin` and password `" + password + "`.\nTo use the `oc` command, log in by running `" + ocLoginCommand + "`."
-	//	if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
-	//		klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
-	//	}
-	//}
+	channel := cluster.AWS().Tags()[utils.ChannelTag]
+	switch {
+	case cluster.State() == clustermgmtv1.ClusterStateError:
+		message := fmt.Sprintf("your cluster (name: `%s`, id: `%s`) has encountered an error; please contact the CRT team in #forum-ocp-crt", cluster.Name(), cluster.ID())
+		_, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false))
+		if err != nil {
+			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+		}
+	case cluster.State() == clustermgmtv1.ClusterStateInstalling:
+		message := fmt.Sprintf("cluster is still starting (launched %d minutes ago)", time.Since(cluster.CreationTimestamp())/time.Minute)
+		_, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false))
+		if err != nil {
+			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+		}
+	default:
+		message := "Your cluster is ready"
+		expiryTime, err := base64.RawStdEncoding.DecodeString(cluster.AWS().Tags()[utils.ExpiryTimeTag])
+		if err != nil {
+			klog.Errorf("Failed to base64 decode expiry time tag: %v", err)
+			message += "."
+		} else if parsedExpiryTime, err := time.Parse(time.RFC3339, string(expiryTime)); err != nil {
+			klog.Errorf("Failed to parse time: %v", err)
+			message += "."
+		} else {
+			message += fmt.Sprintf(", it will be shut down automatically in ~%d minutes.", time.Until(parsedExpiryTime)/time.Minute)
+		}
+		if console, ok := cluster.GetConsole(); ok {
+			message += "\n" + console.URL()
+		} else {
+			message += "\nYour cluster's console is not currently available. We will send you another message when the console becomes ready. To manually check if the console is ready, use the `auth` command."
+		}
+		ocLoginCommand := fmt.Sprintf("oc login %s --username cluster-admin --password %s", cluster.API().URL(), password)
+		message += "\n\nLog in to the console with user `cluster-admin` and password `" + password + "`.\nTo use the `oc` command, log in by running `" + ocLoginCommand + "`."
+		if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
+			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+		}
+	}
 }
