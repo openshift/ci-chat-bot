@@ -1,6 +1,7 @@
 /ci-chat-bot
 .idea/
 
+.dccache
 .scannerwork/
 coverage.out
 golangci-lint.out
