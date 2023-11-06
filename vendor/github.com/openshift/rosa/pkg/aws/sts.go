@@ -24,7 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/iam"
-
+	common "github.com/openshift-online/ocm-common/pkg/aws/validations"
 	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	awscbRoles "github.com/openshift/rosa/pkg/aws/commandbuilder/helper/roles"
 	"github.com/openshift/rosa/pkg/aws/tags"
@@ -156,11 +156,11 @@ func UpgradeOperatorPolicies(reporter *rprtr.Object, awsClient Client, accountID
 		policy := policies[filename]
 		policyARN, err := awsClient.EnsurePolicy(policyARN, policy,
 			defaultPolicyVersion, map[string]string{
-				tags.OpenShiftVersion:  defaultPolicyVersion,
-				tags.RolePrefix:        prefix,
-				tags.RedHatManaged:     "true",
-				tags.OperatorNamespace: operator.Namespace(),
-				tags.OperatorName:      operator.Name(),
+				common.OpenShiftVersion: defaultPolicyVersion,
+				tags.RolePrefix:         prefix,
+				tags.RedHatManaged:      "true",
+				tags.OperatorNamespace:  operator.Namespace(),
+				tags.OperatorName:       operator.Name(),
 			}, "")
 		if err != nil {
 			return err
@@ -171,7 +171,8 @@ func UpgradeOperatorPolicies(reporter *rprtr.Object, awsClient Client, accountID
 }
 
 func BuildOperatorRoleCommands(prefix string, accountID string, awsClient Client,
-	defaultPolicyVersion string, credRequests map[string]*cmv1.STSOperator, policyPath string) []string {
+	defaultPolicyVersion string, credRequests map[string]*cmv1.STSOperator, policyPath string,
+	cluster *cmv1.Cluster) []string {
 	commands := []string{}
 	for credrequest, operator := range credRequests {
 		policyARN := GetOperatorPolicyARN(
@@ -188,6 +189,9 @@ func BuildOperatorRoleCommands(prefix string, accountID string, awsClient Client
 		)
 		_, err := awsClient.IsPolicyExists(policyARN)
 		hasPolicy := err == nil
+		isSharedVpc := cluster.AWS().PrivateHostedZoneRoleARN() != ""
+		fileName := GetOperatorPolicyKey(credrequest, cluster.Hypershift().Enabled(), isSharedVpc)
+		fileName = GetFormattedFileName(fileName)
 		upgradePoliciesCommands := awscbRoles.ManualCommandsForUpgradeOperatorRolePolicy(
 			awscbRoles.ManualCommandsForUpgradeOperatorRolePolicyInput{
 				HasPolicy:                hasPolicy,
@@ -198,9 +202,70 @@ func BuildOperatorRoleCommands(prefix string, accountID string, awsClient Client
 				PolicyARN:                policyARN,
 				DefaultPolicyVersion:     defaultPolicyVersion,
 				PolicyName:               policyName,
+				FileName:                 fileName,
 			},
 		)
 		commands = append(commands, upgradePoliciesCommands...)
 	}
 	return commands
+}
+
+type OidcProviderOutput struct {
+	Arn       string
+	ClusterId string
+}
+
+func (c *awsClient) ListOidcProviders(targetClusterId string) ([]OidcProviderOutput, error) {
+	providers := []OidcProviderOutput{}
+	output, err := c.iamClient.ListOpenIDConnectProviders(&iam.ListOpenIDConnectProvidersInput{})
+	if err != nil {
+		return providers, err
+	}
+	for _, provider := range output.OpenIDConnectProviderList {
+		if err != nil {
+			return providers, err
+		}
+		isTruncated := true
+		var marker *string
+		for isTruncated {
+			resp, err := c.iamClient.ListOpenIDConnectProviderTags(&iam.ListOpenIDConnectProviderTagsInput{
+				OpenIDConnectProviderArn: provider.Arn,
+				Marker:                   marker,
+			})
+			if err != nil {
+				return providers, err
+			}
+			isTruncated = *resp.IsTruncated
+			marker = resp.Marker
+			skip := true
+			clusterId := ""
+			for _, tag := range resp.Tags {
+				switch *tag.Key {
+				case tags.ClusterID:
+					clusterId = *tag.Value
+				case tags.RedHatManaged:
+					skip = false
+				}
+			}
+			if targetClusterId != "" {
+				if targetClusterId != clusterId {
+					skip = true
+				} else {
+					providers = append(providers, OidcProviderOutput{
+						Arn:       *provider.Arn,
+						ClusterId: clusterId,
+					})
+					return providers, nil
+				}
+			}
+			if skip {
+				continue
+			}
+			providers = append(providers, OidcProviderOutput{
+				Arn:       *provider.Arn,
+				ClusterId: clusterId,
+			})
+		}
+	}
+	return providers, nil
 }

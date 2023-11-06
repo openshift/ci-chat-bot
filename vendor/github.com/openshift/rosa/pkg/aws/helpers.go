@@ -1,11 +1,10 @@
 package aws
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -16,19 +15,29 @@ import (
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/aws/aws-sdk-go/service/sts"
 	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	awscb "github.com/openshift/rosa/pkg/aws/commandbuilder"
 
+	"github.com/openshift-online/ocm-common/pkg"
+	common "github.com/openshift-online/ocm-common/pkg/aws/validations"
 	"github.com/openshift/rosa/pkg/arguments"
 	"github.com/openshift/rosa/pkg/aws/tags"
+	"github.com/openshift/rosa/pkg/constants"
 	"github.com/openshift/rosa/pkg/fedramp"
 	"github.com/openshift/rosa/pkg/helper"
 	rprtr "github.com/openshift/rosa/pkg/reporter"
 )
 
+// AWS accepted role name: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-iam-role.html
 var RoleNameRE = regexp.MustCompile(`^[\w+=,.@-]+$`)
+
+// AWS accepted arn format: https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html
+var RoleArnRE = regexp.MustCompile(
+	`^arn:aws[\w-]*:iam::\d{12}:role(?:\/+[\w+=,.@-]+)+$`,
+)
 
 // UserTagKeyRE , UserTagValueRE - https://docs.aws.amazon.com/general/latest/gr/aws_tagging.html#tag-conventions
 var UserTagKeyRE = regexp.MustCompile(`^[\pL\pZ\pN_.:/=+\-@]{1,128}$`)
@@ -80,6 +89,27 @@ func ARNValidator(input interface{}) error {
 		return nil
 	}
 	return fmt.Errorf("can only validate strings, got %v", input)
+}
+
+func SecretManagerArnValidator(input interface{}) error {
+	str, ok := input.(string)
+	if !ok {
+		return fmt.Errorf("can only validate strings, got %v", input)
+	}
+	if str == "" {
+		return nil
+	}
+	if !arn.IsARN(str) {
+		return fmt.Errorf("Secret ARN '%s' is not a valid ARN", str)
+	}
+	parsedSecretArn, err := arn.Parse(str)
+	if err != nil {
+		return fmt.Errorf("Invalid ARN: %s", err)
+	}
+	if parsedSecretArn.Service != constants.SecretsManagerService {
+		return fmt.Errorf("Secret ARN '%s' is not a valid secrets manager ARN", str)
+	}
+	return nil
 }
 
 func ARNPathValidator(input interface{}) error {
@@ -144,7 +174,8 @@ func getClientDetails(awsClient *awsClient) (*sts.GetCallerIdentityOutput, bool,
 
 // Currently user can rosa init using the region from their config or using --region
 // When checking for cloud formation we need to check in the region used by the user
-func GetAWSClientForUserRegion(reporter *rprtr.Object, logger *logrus.Logger, supportedRegions []string) Client {
+func GetAWSClientForUserRegion(reporter *rprtr.Object, logger *logrus.Logger,
+	supportedRegions []string, useLocalCreds bool) Client {
 	// Get AWS region from env
 	awsRegionInUserConfig, err := GetRegion(arguments.GetRegion())
 	if err != nil {
@@ -165,6 +196,7 @@ func GetAWSClientForUserRegion(reporter *rprtr.Object, logger *logrus.Logger, su
 	client, err := NewClient().
 		Logger(logger).
 		Region(awsRegionInUserConfig).
+		UseLocalCredentials(useLocalCreds).
 		Build()
 	if err != nil {
 		reporter.Errorf("Error creating aws client for stack validation: %v", err)
@@ -186,6 +218,7 @@ func GetAWSClientForUserRegion(reporter *rprtr.Object, logger *logrus.Logger, su
 		awsClient, err := NewClient().
 			Logger(logger).
 			Region(regionUsedForInit).
+			UseLocalCredentials(useLocalCreds).
 			Build()
 		if err != nil {
 			reporter.Errorf("Error creating aws client for stack validation: %v", err)
@@ -239,29 +272,57 @@ func resolveSTSRole(ARN arn.ARN) (*string, error) {
 }
 
 func UserTagValidator(input interface{}) error {
-	if str, ok := input.(string); ok {
-		if str == "" {
+	var inputTags []string
+	inputType := reflect.TypeOf(input).Kind()
+	switch inputType {
+	case reflect.String:
+		if input.(string) == "" {
 			return nil
 		}
-		tags := strings.Split(str, ",")
-		for _, t := range tags {
-			if !strings.Contains(t, ":") {
-				return fmt.Errorf("invalid tag format, Tags are comma separated, for example: 'foo:bar,bar:baz'")
-			}
-			tag := strings.Split(t, ":")
-			if len(tag) != 2 {
-				return fmt.Errorf("invalid tag format. Expected tag format: 'key:value'")
-			}
-			if !UserTagKeyRE.MatchString(tag[0]) {
-				return fmt.Errorf("expected a valid user tag key '%s' matching %s", tag[0], UserTagKeyRE.String())
-			}
-			if !UserTagValueRE.MatchString(tag[1]) {
-				return fmt.Errorf("expected a valid user tag value '%s' matching %s", tag[1], UserTagValueRE.String())
-			}
+		inputTags = strings.Split(input.(string), ",")
+	case reflect.Slice:
+		if reflect.TypeOf(input).Elem().Kind() != reflect.String {
+			return fmt.Errorf("unable to verify tags, incompatible type, expected slice of string got: '%s'",
+				inputType.String())
 		}
-		return nil
+		inputTags = input.([]string)
+	default:
+		return fmt.Errorf("can only validate string types, got %v", inputType.String())
 	}
-	return fmt.Errorf("can only validate strings, got %v", input)
+
+	if duplicate, hasDupe := hasDuplicateTagKey(inputTags); hasDupe {
+		return fmt.Errorf("invalid tags, user tag keys must be unique, duplicate key '%s' found", duplicate)
+	}
+
+	delimiter := GetTagsDelimiter(inputTags)
+	for _, t := range inputTags {
+		tag := strings.Split(t, delimiter)
+		if len(tag) != 2 {
+			return fmt.Errorf("invalid tag format for tag '%s'. Expected tag format: 'key%svalue'", tag, delimiter)
+		}
+
+		if tag[0] == "" || tag[1] == "" {
+			return fmt.Errorf("invalid tag format, tag key or tag value can not be empty")
+		}
+
+		if !UserTagKeyRE.MatchString(tag[0]) {
+			return fmt.Errorf("expected a valid user tag key '%s' matching %s", tag[0], UserTagKeyRE.String())
+		}
+
+		if !UserTagValueRE.MatchString(tag[1]) {
+			return fmt.Errorf("expected a valid user tag value '%s' matching %s", tag[1], UserTagValueRE.String())
+		}
+	}
+	return nil
+}
+
+func GetTagsDelimiter(tags []string) string {
+	sanitizeTags(tags)
+	tagsString := strings.Join(tags, "")
+	if strings.Contains(tagsString, " ") {
+		return " "
+	}
+	return ":"
 }
 
 func UserTagDuplicateValidator(input interface{}) error {
@@ -269,8 +330,9 @@ func UserTagDuplicateValidator(input interface{}) error {
 		if str == "" {
 			return nil
 		}
-		tags := strings.Split(str, ",")
-		duplicate, found := HasDuplicateTagKey(tags)
+		splitTags := strings.Split(str, ",")
+		sanitizeTags(splitTags)
+		duplicate, found := hasDuplicateTagKey(splitTags)
 		if found {
 			return fmt.Errorf("user tag keys must be unique, duplicate key '%s' found", duplicate)
 		}
@@ -279,16 +341,23 @@ func UserTagDuplicateValidator(input interface{}) error {
 	return fmt.Errorf("can only validate strings, got %v", input)
 }
 
-func HasDuplicateTagKey(tags []string) (string, bool) {
+func hasDuplicateTagKey(tags []string) (string, bool) {
+	delimiter := GetTagsDelimiter(tags)
 	visited := make(map[string]bool)
 	for _, t := range tags {
-		tag := strings.Split(t, ":")
+		tag := strings.Split(t, delimiter)
 		if visited[tag[0]] {
 			return tag[0], true
 		}
 		visited[tag[0]] = true
 	}
 	return "", false
+}
+
+func sanitizeTags(tags []string) {
+	for i, str := range tags {
+		tags[i] = strings.TrimSpace(str)
+	}
 }
 
 func UserNoProxyValidator(input interface{}) error {
@@ -339,55 +408,33 @@ func GetTagValues(tagsValue []*iam.Tag) (roleType string, version string) {
 		switch aws.StringValue(tag.Key) {
 		case tags.RoleType:
 			roleType = aws.StringValue(tag.Value)
-		case tags.OpenShiftVersion:
+		case common.OpenShiftVersion:
 			version = aws.StringValue(tag.Value)
 		}
 	}
 	return
 }
 
-func MarshalRoles(role []Role, b *bytes.Buffer) error {
-	reqBodyBytes := new(bytes.Buffer)
-	json.NewEncoder(reqBodyBytes).Encode(role)
-	return prettyPrint(reqBodyBytes, b)
-}
-
-func prettyPrint(reqBodyBytes *bytes.Buffer, b *bytes.Buffer) error {
-	err := json.Indent(b, reqBodyBytes.Bytes(), "", "  ")
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func GetRoleName(prefix string, role string) string {
-	name := fmt.Sprintf("%s-%s-Role", prefix, role)
-	if len(name) > 64 {
-		name = name[0:64]
-	}
-	return name
-}
-
 func GetOCMRoleName(prefix string, role string, postfix string) string {
 	name := fmt.Sprintf("%s-%s-Role-%s", prefix, role, postfix)
-	if len(name) > 64 {
-		name = name[0:64]
+	if len(name) > pkg.MaxByteSize {
+		name = name[0:pkg.MaxByteSize]
 	}
 	return name
 }
 
 func GetUserRoleName(prefix string, role string, userName string) string {
 	name := fmt.Sprintf("%s-%s-%s-Role", prefix, role, userName)
-	if len(name) > 64 {
-		name = name[0:64]
+	if len(name) > pkg.MaxByteSize {
+		name = name[0:pkg.MaxByteSize]
 	}
 	return name
 }
 
 func GetOperatorPolicyName(prefix string, namespace string, name string) string {
 	policy := fmt.Sprintf("%s-%s-%s", prefix, namespace, name)
-	if len(policy) > 64 {
-		policy = policy[0:64]
+	if len(policy) > pkg.MaxByteSize {
+		policy = policy[0:pkg.MaxByteSize]
 	}
 	return policy
 }
@@ -471,6 +518,7 @@ func GetPartition() string {
 }
 
 func GetPrefixFromAccountRole(cluster *cmv1.Cluster, roleNameSuffix string) (string, error) {
+	// role name here is resource id (ex: dle-test-Worker-Role)
 	roleName, err := GetAccountRoleName(cluster, roleNameSuffix)
 	if err != nil {
 		return "", err
@@ -478,7 +526,7 @@ func GetPrefixFromAccountRole(cluster *cmv1.Cluster, roleNameSuffix string) (str
 
 	var suffix string
 	if IsHostedCPManagedPolicies(cluster) {
-		suffix = fmt.Sprintf("-HCP-%s-Role", roleNameSuffix)
+		suffix = fmt.Sprintf("-%s-%s-Role", HCPSuffixPattern, roleNameSuffix)
 	} else {
 		suffix = fmt.Sprintf("-%s-Role", roleNameSuffix)
 	}
@@ -573,9 +621,13 @@ func GetAccountRolesArnsMap(cluster *cmv1.Cluster) map[string]string {
 
 func GetAccountRoleName(cluster *cmv1.Cluster, accountRole string) (string, error) {
 	accRoles := GetAccountRolesArnsMap(cluster)
+
+	// checks to see if role arn exists from map
 	if accRoles[accountRole] == "" {
 		return "", nil
 	}
+
+	// outputs resource id (ex: "dle-test-Worker-Role") from role arn
 	return GetResourceIdFromARN(accRoles[accountRole])
 }
 
@@ -585,7 +637,7 @@ func GetInstallerAccountRoleName(cluster *cmv1.Cluster) (string, error) {
 
 func GeneratePolicyFiles(reporter *rprtr.Object, env string, generateAccountRolePolicies bool,
 	generateOperatorRolePolicies bool, policies map[string]*cmv1.AWSSTSPolicy,
-	credRequests map[string]*cmv1.STSOperator, managedPolicies bool) error {
+	credRequests map[string]*cmv1.STSOperator, managedPolicies bool, sharedVpcRoleArn string) error {
 	if generateAccountRolePolicies {
 		for file := range AccountRoles {
 			//Get trust policy
@@ -612,9 +664,15 @@ func GeneratePolicyFiles(reporter *rprtr.Object, env string, generateAccountRole
 		}
 	}
 	if generateOperatorRolePolicies {
+		isSharedVpc := sharedVpcRoleArn != ""
 		for credrequest := range credRequests {
-			filename := fmt.Sprintf("openshift_%s_policy", credrequest)
+			filename := GetOperatorPolicyKey(credrequest, false, isSharedVpc)
 			policyDetail := GetPolicyDetails(policies, filename)
+			if isSharedVpc {
+				policyDetail = InterpolatePolicyDocument(policyDetail, map[string]string{
+					"shared_vpc_role_arn": sharedVpcRoleArn,
+				})
+			}
 			//In case any missing policy we dont want to block the user.This might not happen
 			if policyDetail == "" {
 				continue
@@ -660,11 +718,11 @@ func BuildOperatorRolePolicies(prefix string, accountID string, awsClient Client
 		if err != nil {
 			name := GetOperatorPolicyName(prefix, operator.Namespace(), operator.Name())
 			iamTags := map[string]string{
-				tags.OpenShiftVersion:  defaultPolicyVersion,
-				tags.RolePrefix:        prefix,
-				tags.OperatorNamespace: operator.Namespace(),
-				tags.OperatorName:      operator.Name(),
-				tags.RedHatManaged:     "true",
+				common.OpenShiftVersion: defaultPolicyVersion,
+				tags.RolePrefix:         prefix,
+				tags.OperatorNamespace:  operator.Namespace(),
+				tags.OperatorName:       operator.Name(),
+				tags.RedHatManaged:      "true",
 			}
 			createPolicy := awscb.NewIAMCommandBuilder().
 				SetCommand(awscb.CreatePolicy).
@@ -675,7 +733,7 @@ func BuildOperatorRolePolicies(prefix string, accountID string, awsClient Client
 			commands = append(commands, createPolicy)
 		} else {
 			policyTags := map[string]string{
-				tags.OpenShiftVersion: defaultPolicyVersion,
+				common.OpenShiftVersion: defaultPolicyVersion,
 			}
 
 			createPolicy := awscb.NewIAMCommandBuilder().
@@ -699,7 +757,7 @@ func BuildOperatorRolePolicies(prefix string, accountID string, awsClient Client
 func FindAllAttachedPolicyDetails(policiesDetails []PolicyDetail) []PolicyDetail {
 	attachedPolicies := make([]PolicyDetail, 0)
 	for _, policy := range policiesDetails {
-		if policy.PolicType == Attached {
+		if policy.PolicyType == Attached {
 			attachedPolicies = append(attachedPolicies, policy)
 		}
 	}
@@ -708,7 +766,7 @@ func FindAllAttachedPolicyDetails(policiesDetails []PolicyDetail) []PolicyDetail
 
 func FindFirstAttachedPolicy(policiesDetails []PolicyDetail) PolicyDetail {
 	for _, policy := range policiesDetails {
-		if policy.PolicType == Attached {
+		if policy.PolicyType == Attached {
 			return policy
 		}
 	}
@@ -724,17 +782,24 @@ func UpgradeOperatorRolePolicies(
 	defaultPolicyVersion string,
 	credRequests map[string]*cmv1.STSOperator,
 	path string,
+	cluster *cmv1.Cluster,
 ) error {
+	isSharedVpc := cluster.AWS().PrivateHostedZoneRoleARN() != ""
 	for credrequest, operator := range credRequests {
 		policyARN := GetOperatorPolicyARN(accountID, prefix, operator.Namespace(), operator.Name(), path)
-		filename := fmt.Sprintf("openshift_%s_policy", credrequest)
+		filename := GetOperatorPolicyKey(credrequest, cluster.Hypershift().Enabled(), isSharedVpc)
 		policyDetails := GetPolicyDetails(policies, filename)
+		if isSharedVpc {
+			policyDetails = InterpolatePolicyDocument(policyDetails, map[string]string{
+				"shared_vpc_role_arn": cluster.AWS().PrivateHostedZoneRoleARN(),
+			})
+		}
 		policyARN, err := awsClient.EnsurePolicy(policyARN, policyDetails,
 			defaultPolicyVersion, map[string]string{
-				tags.OpenShiftVersion:  defaultPolicyVersion,
-				tags.RolePrefix:        prefix,
-				tags.OperatorNamespace: operator.Namespace(),
-				tags.OperatorName:      operator.Name(),
+				common.OpenShiftVersion: defaultPolicyVersion,
+				tags.RolePrefix:         prefix,
+				tags.OperatorNamespace:  operator.Namespace(),
+				tags.OperatorName:       operator.Name(),
 			}, path)
 		if err != nil {
 			return err
@@ -744,16 +809,42 @@ func UpgradeOperatorRolePolicies(
 	return nil
 }
 
-const subnetTemplate = "%s (%s)"
-
-// SetSubnetOption Creates a subnet options using a predefined template.
-func SetSubnetOption(subnet, zone string) string {
-	return fmt.Sprintf(subnetTemplate, subnet, zone)
+type Subnet struct {
+	AvailabilityZone string
+	OwnerID          string
 }
 
-// ParseSubnet Parses the subnet from the option chosen by the user.
-func ParseSubnet(subnetOption string) string {
-	return strings.Split(subnetOption, " ")[0]
+const (
+	subnetTemplate        = "%s ('%s','%s','%s', Owner ID: '%s')"
+	securityGroupTemplate = "%s ('%s')"
+)
+
+// SetSubnetOption Creates a subnet option using a predefined template.
+func SetSubnetOption(subnet *ec2.Subnet) string {
+	subnetName := ""
+	for _, tag := range subnet.Tags {
+		switch *tag.Key {
+		case "Name":
+			subnetName = *tag.Value
+		}
+		if subnetName != "" {
+			break
+		}
+	}
+	return fmt.Sprintf(subnetTemplate, aws.StringValue(subnet.SubnetId),
+		subnetName, aws.StringValue(subnet.VpcId), aws.StringValue(subnet.AvailabilityZone),
+		aws.StringValue(subnet.OwnerId))
+}
+
+// SetSecurityGroupOption Creates a security group option using a predefined template.
+func SetSecurityGroupOption(securityGroup *ec2.SecurityGroup) string {
+	return fmt.Sprintf(securityGroupTemplate,
+		aws.StringValue(securityGroup.GroupId), aws.StringValue(securityGroup.GroupName))
+}
+
+// Parse option expects the actual option as the first token followed by a space
+func ParseOption(option string) string {
+	return strings.Split(option, " ")[0]
 }
 
 // GetResourceIdFromARN
@@ -776,6 +867,26 @@ func GetResourceIdFromARN(stringARN string) (string, error) {
 	// If the customer has created the provider using a / at the end of the URL for some reason
 	if index == len(parsedARN.Resource)-1 {
 		return GetResourceIdFromARN(stringARN[:index])
+	}
+
+	return parsedARN.Resource[index+1:], nil
+}
+
+func GetResourceIdFromOidcProviderARN(stringARN string) (string, error) {
+	parsedARN, err := arn.Parse(stringARN)
+
+	if err != nil {
+		return "", fmt.Errorf("couldn't parse arn '%s': %v", stringARN, err)
+	}
+
+	index := strings.Index(parsedARN.Resource, "/")
+	if index == -1 {
+		return "", fmt.Errorf("can't find resource-id in ARN '%s'", stringARN)
+	}
+
+	// If the customer has created the provider using a / at the end of the URL for some reason
+	if index == len(parsedARN.Resource)-1 {
+		return GetResourceIdFromOidcProviderARN(stringARN[:index])
 	}
 
 	return parsedARN.Resource[index+1:], nil
@@ -838,9 +949,13 @@ func GetManagedPolicyARN(policies map[string]*cmv1.AWSSTSPolicy, key string) (st
 	return policy.ARN(), nil
 }
 
-func GetOperatorPolicyKey(roleType string, hostedCP bool) string {
+func GetOperatorPolicyKey(roleType string, hostedCP bool, sharedVpc bool) string {
 	if hostedCP {
 		return fmt.Sprintf("openshift_hcp_%s_policy", roleType)
+	}
+
+	if sharedVpc && roleType == IngressOperatorCloudCredentialsRoleType {
+		return fmt.Sprintf("shared_vpc_openshift_%s_policy", roleType)
 	}
 
 	return fmt.Sprintf("openshift_%s_policy", roleType)
@@ -861,8 +976,8 @@ func GetAccountRolePolicyKeys(roleType string) []string {
 
 func ComputeOperatorRoleArn(prefix string, operator *cmv1.STSOperator, creator *Creator, path string) string {
 	role := fmt.Sprintf("%s-%s-%s", prefix, operator.Namespace(), operator.Name())
-	if len(role) > 64 {
-		role = role[0:64]
+	if len(role) > pkg.MaxByteSize {
+		role = role[0:pkg.MaxByteSize]
 	}
 	str := fmt.Sprintf("arn:%s:iam::%s:role", GetPartition(), creator.AccountID)
 	if path != "" {
@@ -879,4 +994,8 @@ func IsStandardNamedAccountRole(accountRoleName, roleSuffix string) (bool, strin
 
 func IsHostedCPManagedPolicies(cluster *cmv1.Cluster) bool {
 	return cluster.Hypershift().Enabled() && cluster.AWS().STS().ManagedPolicies()
+}
+
+func IsHostedCP(cluster *cmv1.Cluster) bool {
+	return cluster.Hypershift().Enabled()
 }

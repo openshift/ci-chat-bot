@@ -1,10 +1,11 @@
 package helper
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
-	"net"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -14,8 +15,10 @@ import (
 	"github.com/openshift/rosa/pkg/reporter"
 )
 
+var r *rand.Rand
+
 func init() {
-	rand.Seed(time.Now().UnixNano())
+	r = rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec G404
 }
 
 // ASCII codes of important characters:
@@ -36,7 +39,7 @@ const True = "true"
 const ProtocolHttps = "https"
 
 func RandomLabel(size int) string {
-	value := rand.Int() // #nosec G404
+	value := r.Int()
 	chars := make([]byte, size)
 	for size > 0 {
 		size--
@@ -79,13 +82,22 @@ func RankMapStringInt(values map[string]int) []string {
 	return ranked
 }
 
-func Contains(s []string, str string) bool {
-	for _, v := range s {
-		if v == str {
+func Contains[T comparable](slice []T, element T) bool {
+	for _, sliceElement := range slice {
+		if reflect.DeepEqual(sliceElement, element) {
 			return true
 		}
 	}
 
+	return false
+}
+
+func ContainsPrefix(slice []string, prefix string) bool {
+	for _, sliceElement := range slice {
+		if strings.HasPrefix(sliceElement, prefix) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -100,11 +112,22 @@ func SliceToMap(s []string) map[string]bool {
 }
 
 func SliceToSortedString(s []string) string {
+	if len(s) == 0 {
+		return ""
+	}
 	SortStringRespectLength(s)
 	return "[" + strings.Join(s, ", ") + "]"
 }
 
-func MapKeysToString(m map[string]bool) string {
+func MapKeys[K comparable, V any](m map[K]V) []K {
+	r := make([]K, 0, len(m))
+	for k := range m {
+		r = append(r, k)
+	}
+	return r
+}
+
+func MapKeysToString[T any](m map[string]T) string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -204,14 +227,16 @@ func LongestCommonPrefixBySorting(stringSlice []string) string {
 	return first[:i]
 }
 
-func IsURLReachable(apiURL string) error {
-	dialer := &net.Dialer{
-		Timeout: time.Second,
+func GigybyteStringer(size int) string {
+	return fmt.Sprintf("%d GiB", size)
+}
+
+func KeysByValue(m map[string]string, value string) []string {
+	var keys []string
+	for k, v := range m {
+		if value == v {
+			keys = append(keys, k)
+		}
 	}
-	externalConnection, err := dialer.Dial("tcp", apiURL)
-	if err != nil {
-		return err
-	}
-	defer externalConnection.Close()
-	return nil
+	return keys
 }

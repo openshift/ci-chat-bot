@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	ver "github.com/hashicorp/go-version"
 	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
@@ -27,11 +28,20 @@ import (
 )
 
 const (
-	DefaultChannelGroup   = "stable"
-	NightlyChannelGroup   = "nightly"
-	LowestSTSSupport      = "4.7.11"
-	LowestSTSMinor        = "4.7"
-	LowestHostedCPSupport = "4.12.0-0.a" //TODO: Remove the 0.a once stable 4.12 builds are available
+	CloseToEolDays                  = 60
+	OneDayHourDuration              = 24
+	DefaultChannelGroup             = "stable"
+	NightlyChannelGroup             = "nightly"
+	LowestSTSSupport                = "4.7.11"
+	LowestHttpTokensRequiredSupport = "4.11.0"
+	LowestSTSMinor                  = "4.7"
+	//TODO: Remove the 0.a once stable 4.12 builds are available
+	LowestHostedCpSupport         = "4.12.0-0.a"
+	MinVersionForManagedIngressV2 = "4.14-0"
+	VersionPrefix                 = "openshift-v"
+
+	MinVersionForAdditionalComputeSecurityGroupIdsDay1 = "4.14-0"
+	MinVersionForAdditionalComputeSecurityGroupIdsDay2 = "4.11-0"
 )
 
 func (c *Client) ManagedServiceVersionInquiry(serviceType string) (string, error) {
@@ -51,21 +61,31 @@ func (c *Client) ManagedServiceVersionInquiry(serviceType string) (string, error
 	return versionInquiryResponse.Body().Version(), nil
 }
 
-func (c *Client) GetVersions(channelGroup string) (versions []*cmv1.Version, err error) {
+func (c *Client) GetVersions(channelGroup string, defaultFirst bool) (versions []*cmv1.Version, err error) {
+	return c.GetVersionsWithProduct("", channelGroup, defaultFirst)
+}
+
+func (c *Client) GetVersionsWithProduct(product string, channelGroup string,
+	defaultFirst bool) (versions []*cmv1.Version, err error) {
 	collection := c.ocm.ClustersMgmt().V1().Versions()
 	page := 1
 	size := 100
 	filter := "enabled = 'true' AND rosa_enabled = 'true'"
+	order := "default desc, id desc"
 	if channelGroup != "" {
 		filter = fmt.Sprintf("%s AND channel_group = '%s'", filter, channelGroup)
 	}
 	for {
 		var response *cmv1.VersionsListResponse
-		response, err = collection.List().
+		request := collection.List().
 			Search(filter).
+			Order(order).
 			Page(page).
-			Size(size).
-			Send()
+			Size(size)
+		if product != "" {
+			request.Parameter("product", product)
+		}
+		response, err = request.Send()
 		if err != nil {
 			return nil, handleErr(response.Error(), err)
 		}
@@ -78,6 +98,12 @@ func (c *Client) GetVersions(channelGroup string) (versions []*cmv1.Version, err
 
 	// Sort list in descending order
 	sort.Slice(versions, func(i, j int) bool {
+		if defaultFirst && versions[i].Default() {
+			return true
+		}
+		if defaultFirst && versions[j].Default() {
+			return false
+		}
 		a, erra := ver.NewVersion(versions[i].RawID())
 		b, errb := ver.NewVersion(versions[j].RawID())
 		if erra != nil || errb != nil {
@@ -103,6 +129,24 @@ func HasSTSSupport(rawID string, channelGroup string) bool {
 	return a.GreaterThanOrEqual(b)
 }
 
+func ValidateHttpTokensVersion(version string, httpTokens string) error {
+	if cmv1.Ec2MetadataHttpTokens(httpTokens) != cmv1.Ec2MetadataHttpTokensRequired {
+		return nil
+	}
+
+	a, err := ver.NewVersion(version)
+	if err != nil {
+		return fmt.Errorf("version '%s' is not supported: %v", version, err)
+	}
+	b, _ := ver.NewVersion(LowestHttpTokensRequiredSupport)
+	if !a.GreaterThanOrEqual(b) {
+		return fmt.Errorf("version '%s' is not supported with http tokens required, "+
+			"minimum supported version is %s", version, LowestHttpTokensRequiredSupport)
+	}
+
+	return nil
+}
+
 func HasSTSSupportMinor(minor string) bool {
 	a, erra := ver.NewVersion(minor)
 	b, errb := ver.NewVersion(LowestSTSMinor)
@@ -121,7 +165,7 @@ func HasHostedCPSupport(version *cmv1.Version) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("error while parsing OCP version '%s': %v", version.RawID(), err)
 	}
-	b, err := ver.NewVersion(LowestHostedCPSupport)
+	b, err := ver.NewVersion(LowestHostedCpSupport)
 	if err != nil {
 		return false, fmt.Errorf("error while parsing OCP version '%s': %v", version.RawID(), err)
 	}
@@ -168,6 +212,20 @@ func (c *Client) GetAvailableUpgrades(versionID string) ([]string, error) {
 	return availableUpgrades, nil
 }
 
+func GetAvailableUpgradesByCluster(cluster *cmv1.Cluster) []string {
+	if cluster == nil {
+		return []string{}
+	}
+	return sortVersionsDesc(cluster.Version().AvailableUpgrades())
+}
+
+func GetNodePoolAvailableUpgrades(nodePool *cmv1.NodePool) []string {
+	if nodePool == nil {
+		return []string{}
+	}
+	return sortVersionsDesc(nodePool.Version().AvailableUpgrades())
+}
+
 func CreateVersionID(version string, channelGroup string) string {
 	versionID := fmt.Sprintf("openshift-v%s", version)
 	if channelGroup != DefaultChannelGroup {
@@ -177,7 +235,7 @@ func CreateVersionID(version string, channelGroup string) string {
 }
 
 func GetRawVersionId(versionId string) string {
-	trimmedPrefix := strings.TrimPrefix(versionId, "openshift-v")
+	trimmedPrefix := strings.TrimPrefix(versionId, VersionPrefix)
 	channelSeparator := strings.LastIndex(trimmedPrefix, "-")
 	if channelSeparator > 0 {
 		return trimmedPrefix[:channelSeparator]
@@ -187,7 +245,7 @@ func GetRawVersionId(versionId string) string {
 
 // Get a list of all STS-supported minor versions
 func GetVersionMinorList(ocmClient *Client) (versionList []string, err error) {
-	vs, err := ocmClient.GetVersions("")
+	vs, err := ocmClient.GetVersions("", false)
 	if err != nil {
 		err = fmt.Errorf("Failed to retrieve versions: %s", err)
 		return
@@ -216,8 +274,16 @@ func GetVersionMinorList(ocmClient *Client) (versionList []string, err error) {
 	return
 }
 
-func (c *Client) GetDefaultVersion() (version string, err error) {
-	response, err := c.GetVersions("")
+func (c *Client) GetDefaultVersion(channelGroup string) (version string, err error) {
+	return c.getFirstVersion(channelGroup, true)
+}
+
+func (c *Client) GetLatestVersion(channelGroup string) (version string, err error) {
+	return c.getFirstVersion(channelGroup, false)
+}
+
+func (c *Client) getFirstVersion(channelGroup string, defaultFirst bool) (version string, err error) {
+	response, err := c.GetVersions(channelGroup, defaultFirst)
 	if err != nil {
 		return "", err
 	}
@@ -247,12 +313,21 @@ func IsValidVersion(userRequestedVersion string, supportedVersion string, cluste
 		return false, err
 	}
 
+	c, err := ver.NewVersion(clusterVersion)
+	if err != nil {
+		return false, err
+	}
+
 	isPreRelease := a.Prerelease() != "" && b.Prerelease() != ""
 
+	// User wants to upgrade from a prerelease version
+	// i.e. from 4.14.0-rc.4 to 4.10.0
+	fromPreRelease := c.Prerelease() != ""
+
 	versionSplit := a.Segments64()
-	// If user has specified patch or not specified patch but is a preRelease
+	// If user has specified patch or not specified patch but is a preRelease or cluster is in a preRelease
 	// Check directly
-	if len(versionSplit) > 2 && versionSplit[2] > 0 || (versionSplit[2] == 0 && isPreRelease) {
+	if len(versionSplit) > 2 && versionSplit[2] > 0 || (versionSplit[2] == 0 && isPreRelease) || fromPreRelease {
 		return a.Equal(b), err
 	}
 
@@ -315,17 +390,59 @@ func checkClusterVersion(clusterVersion string, userRequestedParsedVersion *ver.
 	return true, nil
 }
 
-func CheckAndParseVersion(availableUpgrades []string, version string) (string, error) {
+func CheckAndParseVersion(availableUpgrades []string, version string, cluster *cmv1.Cluster) (string, error) {
+	clusterVersion := cluster.OpenshiftVersion()
+	if clusterVersion == "" {
+		clusterVersion = cluster.Version().RawID()
+	}
 	a, err := ver.NewVersion(version)
 	if err != nil {
 		return "", err
 	}
 	isPreRelease := a.Prerelease() != ""
 	versionSplit := a.Segments64()
-	if len(versionSplit) > 2 && versionSplit[2] > 0 || (versionSplit[2] == 0 && isPreRelease) {
+
+	c, err := ver.NewVersion(clusterVersion)
+	if err != nil {
+		return "", err
+	}
+
+	// User wants to upgrade from a prerelease version
+	// i.e. from 4.14.0-rc.4 to 4.10.0
+	fromPreRelease := c.Prerelease() != ""
+
+	if len(versionSplit) > 2 && versionSplit[2] > 0 || (versionSplit[2] == 0 && isPreRelease) || fromPreRelease {
 		return version, nil
 	}
 	return availableUpgrades[0], nil
+}
+
+func (c *Client) IsVersionCloseToEol(daysAwayToCheck int, version string, channelGroup string) error {
+	collection := c.ocm.ClustersMgmt().V1().Versions()
+	filter := fmt.Sprintf("raw_id='%s'", GetRawVersionId(version))
+	if channelGroup != "" {
+		filter = fmt.Sprintf("%s AND channel_group = '%s'", filter, channelGroup)
+	}
+	response, err := collection.List().
+		Search(filter).
+		Page(1).
+		Size(1).
+		Send()
+	if err != nil {
+		return handleErr(response.Error(), err)
+	}
+	ocmVersion := response.Items().Get(0)
+	now := time.Now().UTC()
+	if !ocmVersion.EndOfLifeTimestamp().IsZero() &&
+		ocmVersion.EndOfLifeTimestamp().Compare(
+			now.Add(time.Duration(daysAwayToCheck)*OneDayHourDuration*time.Hour)) <= 0 {
+		return fmt.Errorf(
+			"The version of Red Hat OpenShift Service on AWS that you are installing will no longer be supported after '%s'."+
+				" Red Hat recommends selecting a newer version. For more information,"+
+				" see https://docs.openshift.com/rosa/rosa_policy/rosa-life-cycle.html",
+			ocmVersion.EndOfLifeTimestamp().Format(time.DateOnly))
+	}
+	return nil
 }
 
 // Validate OpenShift versions
@@ -359,10 +476,14 @@ func (c *Client) ValidateVersion(version string, versionList []string, channelGr
 	if isHostedCP {
 		collection := c.ocm.ClustersMgmt().V1().Versions()
 		filter := fmt.Sprintf("raw_id='%s'", version)
+		if channelGroup != "" {
+			filter = fmt.Sprintf("%s AND channel_group = '%s'", filter, channelGroup)
+		}
 		response, err := collection.List().
 			Search(filter).
 			Page(1).
 			Size(1).
+			Parameter("product", HcpProduct).
 			Send()
 		if err != nil {
 			return "", handleErr(response.Error(), err)
@@ -380,4 +501,17 @@ func (c *Client) ValidateVersion(version string, versionList []string, channelGr
 	}
 
 	return CreateVersionID(version, channelGroup), nil
+}
+
+// sortVersionsDesc sorts list in descending order
+func sortVersionsDesc(versions []string) []string {
+	sort.Slice(versions, func(i, j int) bool {
+		a, erra := ver.NewVersion(versions[i])
+		b, errb := ver.NewVersion(versions[j])
+		if erra != nil || errb != nil {
+			return false
+		}
+		return a.GreaterThan(b)
+	})
+	return versions
 }

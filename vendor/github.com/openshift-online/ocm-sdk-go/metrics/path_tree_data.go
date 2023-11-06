@@ -32,6 +32,9 @@ var pathTreeData = `{
             }
           }
         },
+        "billing_models": {
+          "-": null
+        },
         "capabilities": null,
         "cloud_resources": {
           "-": null
@@ -124,6 +127,9 @@ var pathTreeData = `{
             "addon_inquiries": {
               "-": null
             },
+            "addons": {
+              "-": null
+            },
             "status": {
               "-": null
             }
@@ -160,6 +166,7 @@ var pathTreeData = `{
         "aws_inquiries": {
           "machine_types": null,
           "regions": null,
+          "sts_account_roles": null,
           "sts_credential_requests": null,
           "sts_policies": null,
           "vpcs": null
@@ -185,6 +192,7 @@ var pathTreeData = `{
             "addons": {
               "-": null
             },
+            "autoscaler": null,
             "aws": {
               "private_link_configuration": {
                 "principals": {
@@ -258,7 +266,11 @@ var pathTreeData = `{
               "socket_total_by_node_roles_os": null
             },
             "node_pools": {
-              "-": null
+              "-": {
+                "upgrade_policies": {
+                  "-": null
+                }
+              }
             },
             "product": null,
             "provision_shard": null,
@@ -270,6 +282,7 @@ var pathTreeData = `{
             "sts_operator_roles": {
               "-": null
             },
+            "sts_support_jump_role": null,
             "tuning_configs": {
               "-": null
             },
@@ -277,8 +290,12 @@ var pathTreeData = `{
               "-": {
                 "state": null
               }
-            }
+            },
+            "vpc": null
           }
+        },
+        "dns_domains": {
+          "-": null
         },
         "environment": null,
         "events": null,
@@ -297,6 +314,9 @@ var pathTreeData = `{
         "machine_types": {
           "-": null
         },
+        "network_verifications": {
+          "-": null
+        },
         "oidc_configs": {
           "-": null
         },
@@ -307,6 +327,9 @@ var pathTreeData = `{
           "-": null
         },
         "provision_shards": {
+          "-": null
+        },
+        "trusted_ip_addresses": {
           "-": null
         },
         "version_gates": {
@@ -336,10 +359,18 @@ var pathTreeData = `{
     "osd_fleet_mgmt": {
       "v1": {
         "management_clusters": {
-          "-": null
+          "-": {
+            "labels": {
+              "-": null
+            }
+          }
         },
         "service_clusters": {
-          "-": null
+          "-": {
+            "labels": {
+              "-": null
+            }
+          }
         }
       }
     },
@@ -351,7 +382,8 @@ var pathTreeData = `{
         "clusters": {
           "-": {
             "cluster_logs": null
-          }
+          },
+          "cluster_logs": null
         }
       }
     },

@@ -27,6 +27,7 @@ import (
 
 	"github.com/ghodss/yaml"
 	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
+	msv1 "github.com/openshift-online/ocm-sdk-go/servicemgmt/v1"
 	"github.com/openshift/rosa/pkg/aws"
 	"gitlab.com/c0b/go-ordered-json"
 )
@@ -39,7 +40,12 @@ var emptyBuffer = []byte{91, 10, 32, 32, 10, 93}
 
 func Print(resource interface{}) error {
 	var b bytes.Buffer
+
 	switch reflect.TypeOf(resource).String() {
+	case "[]*v1.ManagedService":
+		if managedServices, ok := resource.([]*msv1.ManagedService); ok {
+			msv1.MarshalManagedServiceList(managedServices, &b)
+		}
 	case "[]*v1.CloudRegion":
 		if cloudRegions, ok := resource.([]*cmv1.CloudRegion); ok {
 			cmv1.MarshalCloudRegionList(cloudRegions, &b)
@@ -51,6 +57,10 @@ func Print(resource interface{}) error {
 	case "[]*v1.Cluster":
 		if clusters, ok := resource.([]*cmv1.Cluster); ok {
 			cmv1.MarshalClusterList(clusters, &b)
+		}
+	case "[]*v1.DNSDomain":
+		if dnsdomains, ok := resource.([]*cmv1.DNSDomain); ok {
+			cmv1.MarshalDNSDomainList(dnsdomains, &b)
 		}
 	case "[]*v1.IdentityProvider":
 		if idps, ok := resource.([]*cmv1.IdentityProvider); ok {
@@ -76,13 +86,17 @@ func Print(resource interface{}) error {
 		if nodePool, ok := resource.(*cmv1.NodePool); ok {
 			cmv1.MarshalNodePool(nodePool, &b)
 		}
+	case "[]*v1.NodePool":
+		if nodePools, ok := resource.([]*cmv1.NodePool); ok {
+			cmv1.MarshalNodePoolList(nodePools, &b)
+		}
 	case "[]*v1.Version":
 		if versions, ok := resource.([]*cmv1.Version); ok {
 			cmv1.MarshalVersionList(versions, &b)
 		}
 	case "[]*v1.VersionGate":
-		if versionGate, ok := resource.(*cmv1.VersionGate); ok {
-			cmv1.MarshalVersionGate(versionGate, &b)
+		if versionGates, ok := resource.([]*cmv1.VersionGate); ok {
+			cmv1.MarshalVersionGateList(versionGates, &b)
 		}
 	case "[]*v1.OidcConfig":
 		if oidcConfigs, ok := resource.([]*cmv1.OidcConfig); ok {
@@ -100,13 +114,15 @@ func Print(resource interface{}) error {
 		if tuningConfig, ok := resource.(*cmv1.TuningConfig); ok {
 			cmv1.MarshalTuningConfig(tuningConfig, &b)
 		}
-	case "[]aws.Role":
+	case "[]*v1.User":
+		if users, ok := resource.([]*cmv1.User); ok {
+			cmv1.MarshalUserList(users, &b)
+		}
+	case "[]aws.Role", "[]aws.OidcProviderOutput":
 		{
-			if roles, ok := resource.([]aws.Role); ok {
-				err := aws.MarshalRoles(roles, &b)
-				if err != nil {
-					return err
-				}
+			err := defaultEncode(resource, &b)
+			if err != nil {
+				return err
 			}
 		}
 	case "map[string][]aws.Role":
@@ -118,11 +134,10 @@ func Print(resource interface{}) error {
 				}
 			}
 		}
-	case "object.Object", "map[string]interface {}":
+	// default to catch non concrete types
+	default:
 		{
-			reqBodyBytes := new(bytes.Buffer)
-			json.NewEncoder(reqBodyBytes).Encode(resource)
-			err := json.Indent(&b, reqBodyBytes.Bytes(), "", "  ")
+			err := defaultEncode(resource, &b)
 			if err != nil {
 				return err
 			}
@@ -138,6 +153,22 @@ func Print(resource interface{}) error {
 		return err
 	}
 	fmt.Print(str)
+	return nil
+}
+
+// Provides a default encoding to JSON for types not being marshalled via the cmv1 package
+func defaultEncode(resource interface{}, b *bytes.Buffer) error {
+	reqBodyBytes := new(bytes.Buffer)
+	err := json.NewEncoder(reqBodyBytes).Encode(resource)
+	if err != nil {
+		return err
+	}
+
+	err = json.Indent(b, reqBodyBytes.Bytes(), "", "  ")
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

@@ -19,11 +19,13 @@ package ocm
 import (
 	"crypto/x509"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	awssdk "github.com/aws/aws-sdk-go/aws"
@@ -34,12 +36,15 @@ import (
 	"github.com/openshift/rosa/pkg/output"
 	"github.com/openshift/rosa/pkg/reporter"
 	errors "github.com/zgalor/weberr"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	amsv1 "github.com/openshift-online/ocm-sdk-go/accountsmgmt/v1"
 	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	ocmerrors "github.com/openshift-online/ocm-sdk-go/errors"
 
 	"github.com/openshift/rosa/pkg/helper"
+
+	common "github.com/openshift-online/ocm-common/pkg/ocm/validations"
 )
 
 const (
@@ -60,11 +65,15 @@ const (
 	USERRoleLabel = "sts_user_role"
 
 	maxClusterNameLength = 15
+
+	HcpProduct = "hcp"
 )
 
 // Regular expression to used to make sure that the identifier or name given by the user is
 // safe and that it there is no risk of SQL injection:
 var clusterKeyRE = regexp.MustCompile(`^(\w|-)+$`)
+
+var kubernetesLabelRE = regexp.MustCompile(`^[a-z0-9A-Z]+[-_.a-z0-9A-Z/]*$`)
 
 // Cluster names must be valid DNS-1035 labels, so they must consist of lower case alphanumeric
 // characters or '-', start with an alphabetic character, and end with an alphanumeric character
@@ -168,19 +177,19 @@ func handleErr(res *ocmerrors.Error, err error) error {
 }
 
 func (c *Client) GetDefaultClusterFlavors(flavour string) (dMachinecidr *net.IPNet, dPodcidr *net.IPNet,
-	dServicecidr *net.IPNet, dhostPrefix int, computeInstanceType string) {
+	dServicecidr *net.IPNet, dhostPrefix, defaultMachineRootVolumeSize int, computeInstanceType string) {
 	flavourGetResponse, err := c.ocm.ClustersMgmt().V1().Flavours().Flavour(flavour).Get().Send()
 	if err != nil {
 		flavourGetResponse, _ = c.ocm.ClustersMgmt().V1().Flavours().Flavour("osd-4").Get().Send()
 	}
 	aws, ok := flavourGetResponse.Body().GetAWS()
 	if !ok {
-		return nil, nil, nil, 0, ""
+		return nil, nil, nil, 0, 0, ""
 	}
 	computeInstanceType = aws.ComputeInstanceType()
 	network, ok := flavourGetResponse.Body().GetNetwork()
 	if !ok {
-		return nil, nil, nil, 0, computeInstanceType
+		return nil, nil, nil, 0, 0, computeInstanceType
 	}
 	_, dMachinecidr, err = net.ParseCIDR(network.MachineCIDR())
 	if err != nil {
@@ -195,7 +204,11 @@ func (c *Client) GetDefaultClusterFlavors(flavour string) (dMachinecidr *net.IPN
 		dServicecidr = nil
 	}
 	dhostPrefix, _ = network.GetHostPrefix()
-	return dMachinecidr, dPodcidr, dServicecidr, dhostPrefix, computeInstanceType
+
+	// default machine root volume size
+	defaultMachineRootVolumeSize = aws.WorkerVolume().Size()
+
+	return dMachinecidr, dPodcidr, dServicecidr, dhostPrefix, defaultMachineRootVolumeSize, computeInstanceType
 }
 
 func (c *Client) LogEvent(key string, body map[string]string) {
@@ -483,7 +496,7 @@ func (c *Client) CheckRoleExists(orgID string, roleName string, awsAccountID str
 }
 
 func GetVersionMinor(ver string) string {
-	rawID := strings.Replace(ver, "openshift-v", "", 1)
+	rawID := strings.Replace(ver, VersionPrefix, "", 1)
 	version, err := semver.NewVersion(rawID)
 	if err != nil {
 		segments := strings.Split(rawID, ".")
@@ -702,24 +715,6 @@ func ValidateHostedClusterSubnets(awsClient aws.Client, isPrivate bool, subnetID
 	return privateSubnetCount, nil
 }
 
-const (
-	singleAZCount = 1
-	MultiAZCount  = 3
-)
-
-func ValidateAvailabilityZonesCount(multiAZ bool, availabilityZonesCount int) error {
-	if multiAZ && availabilityZonesCount != MultiAZCount {
-		return fmt.Errorf("The number of availability zones for a multi AZ cluster should be %d, "+
-			"instead received: %d", MultiAZCount, availabilityZonesCount)
-	}
-	if !multiAZ && availabilityZonesCount != singleAZCount {
-		return fmt.Errorf("The number of availability zones for a single AZ cluster should be %d, "+
-			"instead received: %d", singleAZCount, availabilityZonesCount)
-	}
-
-	return nil
-}
-
 func (c *Client) CheckUpgradeClusterVersion(
 	availableUpgrades []string,
 	clusterUpgradeVersion string,
@@ -750,14 +745,18 @@ func (c *Client) CheckUpgradeClusterVersion(
 }
 
 func (c *Client) GetPolicyVersion(userRequestedVersion string, channelGroup string) (string, error) {
-	versionList, err := c.GetVersionsList(channelGroup)
+	if userRequestedVersion == "" {
+		version, err := c.GetLatestVersion(channelGroup)
+		if err != nil {
+			return userRequestedVersion, err
+		}
+		return version, nil
+	}
+
+	versionList, err := c.GetVersionsList(channelGroup, false)
 	if err != nil {
 		err := fmt.Errorf("%v", err)
 		return userRequestedVersion, err
-	}
-
-	if userRequestedVersion == "" {
-		return versionList[0], nil
 	}
 
 	hasVersion := false
@@ -789,8 +788,8 @@ func ParseVersion(version string) (string, error) {
 	return fmt.Sprintf("%d.%d", versionSplit[0], versionSplit[1]), nil
 }
 
-func (c *Client) GetVersionsList(channelGroup string) ([]string, error) {
-	response, err := c.GetVersions(channelGroup)
+func (c *Client) GetVersionsList(channelGroup string, defaultFirst bool) ([]string, error) {
+	response, err := c.GetVersions(channelGroup, defaultFirst)
 	if err != nil {
 		err := fmt.Errorf("error getting versions: %s", err)
 		return make([]string, 0), err
@@ -817,7 +816,7 @@ func (c *Client) GetVersionsList(channelGroup string) ([]string, error) {
 
 func ValidateOperatorRolesMatchOidcProvider(reporter *reporter.Object, awsClient aws.Client,
 	operatorIAMRoleList []OperatorIAMRole, oidcEndpointUrl string,
-	clusterVersion string, expectedOperatorRolePath string) error {
+	clusterVersion string, expectedOperatorRolePath string, accountRolesHasManagedPolicies bool) error {
 	operatorIAMRoles := operatorIAMRoleList
 	parsedUrl, err := url.Parse(oidcEndpointUrl)
 	if err != nil {
@@ -844,7 +843,7 @@ func ValidateOperatorRolesMatchOidcProvider(reporter *reporter.Object, awsClient
 			return errors.Errorf("Computed Operator Role '%s' does not match role ARN found in AWS '%s', "+
 				"please check if the correct parameters have been supplied.", operatorIAMRole.RoleARN, roleARN)
 		}
-		err = validateIssuerUrlMatchesAssumePolicyDocument(
+		err = common.ValidateIssuerUrlMatchesAssumePolicyDocument(
 			roleARN, parsedUrl, *roleObject.AssumeRolePolicyDocument)
 		if err != nil {
 			return err
@@ -852,6 +851,10 @@ func ValidateOperatorRolesMatchOidcProvider(reporter *reporter.Object, awsClient
 		hasManagedPolicies, err := awsClient.HasManagedPolicies(roleARN)
 		if err != nil {
 			return err
+		}
+		if accountRolesHasManagedPolicies && !hasManagedPolicies {
+			return errors.Errorf("Operator role '%s' has unmanaged policies and is not compatible with the account "+
+				"role's managed policies.", roleARN)
 		}
 		if hasManagedPolicies {
 			// Managed policies should be compatible with all versions
@@ -862,7 +865,7 @@ func ValidateOperatorRolesMatchOidcProvider(reporter *reporter.Object, awsClient
 			return err
 		}
 		for _, policyDetails := range policiesDetails {
-			if policyDetails.PolicType == aws.Inline {
+			if policyDetails.PolicyType == aws.Inline {
 				continue
 			}
 			isCompatible, err := awsClient.IsPolicyCompatible(policyDetails.PolicyArn, clusterVersion)
@@ -880,19 +883,117 @@ func ValidateOperatorRolesMatchOidcProvider(reporter *reporter.Object, awsClient
 	return nil
 }
 
-func validateIssuerUrlMatchesAssumePolicyDocument(
-	roleArn string, parsedUrl *url.URL, assumePolicyDocument string) error {
-	issuerUrl := parsedUrl.Host
-	if parsedUrl.Path != "" {
-		issuerUrl += parsedUrl.Path
+func ValidateHttpTokensValue(val interface{}) error {
+	if httpTokens, ok := val.(string); ok {
+		if httpTokens == "" {
+			return nil
+		}
+		switch cmv1.Ec2MetadataHttpTokens(httpTokens) {
+		case cmv1.Ec2MetadataHttpTokensRequired, cmv1.Ec2MetadataHttpTokensOptional:
+			return nil
+		default:
+			return errors.Errorf("ec2-metadata-http-tokens value should be one of '%s', '%s'",
+				cmv1.Ec2MetadataHttpTokensRequired, cmv1.Ec2MetadataHttpTokensOptional)
+		}
 	}
-	decodedAssumePolicyDocument, err := url.QueryUnescape(assumePolicyDocument)
+
+	return fmt.Errorf("can only validate strings, got %v", val)
+}
+
+func ParseDiskSizeToGigibyte(size string) (int, error) {
+	// Empty string is valid, a default will be set later
+	if size == "" {
+		return 0, nil
+	}
+
+	suffixErrorString := "accepted units are Giga or Tera in the form of g, G, GB, GiB, Gi, t, T, TB, TiB, Ti"
+
+	// Remove spaces if the value is '100 GB'
+	size = strings.ReplaceAll(size, " ", "")
+
+	// Do a bit of cleaning to avoid errors from the resources quantity parser
+	// Convert units using regular expressions, units on the left will be converted to the unit on
+	// the right if matched
+	unitToConvert := map[string]string{
+		"GB|gb|Gb|g":      "G",
+		"gib|GIB|GiB|Gib": "Gi",
+		"TB|tb|Tb|t":      "T",
+		"tib|TIB|TiB|Tib": "Ti",
+	}
+
+	for badUnit, rightUnit := range unitToConvert {
+		re, err := regexp.Compile(badUnit)
+		if err != nil {
+			return 0, err
+		}
+		size = re.ReplaceAllString(size, rightUnit)
+	}
+
+	qty, err := resource.ParseQuantity(size)
 	if err != nil {
-		return err
+		if err == resource.ErrFormatWrong {
+			return 0, fmt.Errorf("invalid disk size format: %s. %s", size, suffixErrorString)
+		}
+		return 0, fmt.Errorf("invalid disk size: %w", err)
 	}
-	if !strings.Contains(decodedAssumePolicyDocument, issuerUrl) {
-		return errors.Errorf("Operator role '%s' does not have trusted relationship to '%s' issuer URL",
-			roleArn, issuerUrl)
+
+	// If the value is 0, this could mean the user forgot to specify the unit suffix
+	if qty.IsZero() {
+		return 0, nil
 	}
+
+	// Check the suffix is correct
+	diskSize := qty.String()
+
+	// If we can convert the string to a number, it means there is no suffix, thus the user passes
+	// bytes and forgot to include a suffix
+	if diskSizeInt, err := strconv.Atoi(diskSize); err == nil {
+		// If the conversion hit the maximum value of a 64 bit integer, it means the user passed a very
+		// large value which is ok, we can still proceed and the backend will return an error since
+		// the size is too large
+		if diskSizeInt != math.MaxInt64 {
+			return 0, fmt.Errorf("missing unit suffix: %s. %s", diskSize, suffixErrorString)
+		}
+	}
+
+	// If the suffix is too small, it means the user passed a very small value
+	if strings.HasSuffix(diskSize, "M") ||
+		strings.HasSuffix(diskSize, "Mi") ||
+		strings.HasSuffix(diskSize, "K") ||
+		strings.HasSuffix(diskSize, "Ki") {
+		return 0, fmt.Errorf("invalid disk size format: %s. %s", diskSize, suffixErrorString)
+	}
+
+	// Return gibibytes since the AWS expects that format
+	// qty.Value() returns the value in bytes
+	return int(qty.Value() / 1024 / 1024 / 1024), nil
+}
+
+func ValidateBalancingIgnoredLabels(val interface{}) error {
+	labelsInput, ok := val.(string)
+
+	if !ok {
+		return fmt.Errorf("can only validate strings, got %v", val)
+	}
+
+	labels := strings.Split(labelsInput, ",")
+
+	for _, label := range labels {
+		if label == "" {
+			continue
+		}
+
+		if len(label) > 63 {
+			return fmt.Errorf("label key '%v' has has exceeded allowed label length of 63 characters", label)
+		}
+
+		if !kubernetesLabelRE.MatchString(label) {
+			return fmt.Errorf("label '%v' is not a valid Kubernetes label key. "+
+				"It must start with an alphanumeric character and may additionally contain only forward-slashes, "+
+				"dashes, underscores, and dots",
+				label)
+		}
+	}
+
 	return nil
 }

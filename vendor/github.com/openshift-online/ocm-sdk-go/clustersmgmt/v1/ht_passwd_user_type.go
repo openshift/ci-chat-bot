@@ -21,10 +21,11 @@ package v1 // github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1
 
 // HTPasswdUser represents the values of the 'HT_passwd_user' type.
 type HTPasswdUser struct {
-	bitmap_  uint32
-	id       string
-	password string
-	username string
+	bitmap_        uint32
+	id             string
+	hashedPassword string
+	password       string
+	username       string
 }
 
 // Empty returns true if the object is empty, i.e. no attribute has a value.
@@ -55,12 +56,38 @@ func (o *HTPasswdUser) GetID() (value string, ok bool) {
 	return
 }
 
+// HashedPassword returns the value of the 'hashed_password' attribute, or
+// the zero value of the type if the attribute doesn't have a value.
+//
+// HTPasswd Hashed Password for a user in the _HTPasswd_ data file.
+// The value of this field is set as-is in the _HTPasswd_ data file for the HTPasswd IDP
+func (o *HTPasswdUser) HashedPassword() string {
+	if o != nil && o.bitmap_&2 != 0 {
+		return o.hashedPassword
+	}
+	return ""
+}
+
+// GetHashedPassword returns the value of the 'hashed_password' attribute and
+// a flag indicating if the attribute has a value.
+//
+// HTPasswd Hashed Password for a user in the _HTPasswd_ data file.
+// The value of this field is set as-is in the _HTPasswd_ data file for the HTPasswd IDP
+func (o *HTPasswdUser) GetHashedPassword() (value string, ok bool) {
+	ok = o != nil && o.bitmap_&2 != 0
+	if ok {
+		value = o.hashedPassword
+	}
+	return
+}
+
 // Password returns the value of the 'password' attribute, or
 // the zero value of the type if the attribute doesn't have a value.
 //
-// Password for a secondary user in the _HTPasswd_ data file.
+// Password in plain-text for a  user in the _HTPasswd_ data file.
+// The value of this field is hashed before setting it in the  _HTPasswd_ data file for the HTPasswd IDP
 func (o *HTPasswdUser) Password() string {
-	if o != nil && o.bitmap_&2 != 0 {
+	if o != nil && o.bitmap_&4 != 0 {
 		return o.password
 	}
 	return ""
@@ -69,9 +96,10 @@ func (o *HTPasswdUser) Password() string {
 // GetPassword returns the value of the 'password' attribute and
 // a flag indicating if the attribute has a value.
 //
-// Password for a secondary user in the _HTPasswd_ data file.
+// Password in plain-text for a  user in the _HTPasswd_ data file.
+// The value of this field is hashed before setting it in the  _HTPasswd_ data file for the HTPasswd IDP
 func (o *HTPasswdUser) GetPassword() (value string, ok bool) {
-	ok = o != nil && o.bitmap_&2 != 0
+	ok = o != nil && o.bitmap_&4 != 0
 	if ok {
 		value = o.password
 	}
@@ -83,7 +111,7 @@ func (o *HTPasswdUser) GetPassword() (value string, ok bool) {
 //
 // Username for a secondary user in the _HTPasswd_ data file.
 func (o *HTPasswdUser) Username() string {
-	if o != nil && o.bitmap_&4 != 0 {
+	if o != nil && o.bitmap_&8 != 0 {
 		return o.username
 	}
 	return ""
@@ -94,7 +122,7 @@ func (o *HTPasswdUser) Username() string {
 //
 // Username for a secondary user in the _HTPasswd_ data file.
 func (o *HTPasswdUser) GetUsername() (value string, ok bool) {
-	ok = o != nil && o.bitmap_&4 != 0
+	ok = o != nil && o.bitmap_&8 != 0
 	if ok {
 		value = o.username
 	}
