@@ -21,21 +21,42 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"reflect"
+	"strconv"
 	"time"
 
 	amv1 "github.com/openshift-online/ocm-sdk-go/accountsmgmt/v1"
 	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
-	"github.com/openshift/rosa/pkg/helper"
-
+	v1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	"github.com/openshift/rosa/pkg/aws"
+	"github.com/openshift/rosa/pkg/helper"
 	"github.com/openshift/rosa/pkg/info"
+	"github.com/openshift/rosa/pkg/interactive/consts"
 	"github.com/openshift/rosa/pkg/logging"
 	"github.com/openshift/rosa/pkg/properties"
 	rprtr "github.com/openshift/rosa/pkg/reporter"
 	errors "github.com/zgalor/weberr"
 )
 
+const (
+	legacyIngressSupportLabel = "ext-managed.openshift.io/legacy-ingress-support"
+)
+
 var NetworkTypes = []string{"OpenShiftSDN", "OVNKubernetes"}
+
+type DefaultIngressSpec struct {
+	RouteSelectors           map[string]string
+	ExcludedNamespaces       []string
+	WildcardPolicy           string
+	NamespaceOwnershipPolicy string
+}
+
+func NewDefaultIngressSpec() DefaultIngressSpec {
+	defaultIngressSpec := DefaultIngressSpec{}
+	defaultIngressSpec.RouteSelectors = map[string]string{}
+	defaultIngressSpec.ExcludedNamespaces = []string{}
+	return defaultIngressSpec
+}
 
 // Spec is the configuration for a cluster spec.
 type Spec struct {
@@ -58,6 +79,7 @@ type Spec struct {
 	ComputeMachineType string
 	ComputeNodes       int
 	Autoscaling        bool
+	AutoscalerConfig   *AutoscalerConfig
 	MinReplicas        int
 	MaxReplicas        int
 	ComputeLabels      map[string]string
@@ -112,6 +134,34 @@ type Spec struct {
 	// HyperShift options:
 	Hypershift     Hypershift
 	BillingAccount string
+
+	// Audit Log Forwarding
+	AuditLogRoleARN *string
+
+	Ec2MetadataHttpTokens cmv1.Ec2MetadataHttpTokens
+
+	// Cluster Admin
+	ClusterAdminUser     string
+	ClusterAdminPassword string
+
+	// Default Ingress Attributes
+	DefaultIngress DefaultIngressSpec
+
+	// Machine pool's storage
+	MachinePoolRootDisk *Volume
+
+	// Shared VPC
+	PrivateHostedZoneID string
+	SharedVPCRoleArn    string
+	BaseDomain          string
+
+	// Worker Machine Pool attributes
+	AdditionalComputeSecurityGroupIds []string
+}
+
+// Volume represents a volume property for a disk
+type Volume struct {
+	Size int
 }
 
 type OperatorIAMRole struct {
@@ -140,12 +190,15 @@ type Hypershift struct {
 
 // Generate a query that filters clusters running on the current AWS session account
 func getClusterFilter(creator *aws.Creator) string {
-	return fmt.Sprintf(
-		"product.id = 'rosa' AND (properties.%s LIKE '%%:%s:%%' OR aws.sts.role_arn LIKE '%%:%s:%%')",
-		properties.CreatorARN,
-		creator.AccountID,
-		creator.AccountID,
-	)
+	filter := "product.id = 'rosa'"
+	if creator != nil {
+		filter = fmt.Sprintf("%s AND (properties.%s LIKE '%%:%s:%%' OR aws.sts.role_arn LIKE '%%:%s:%%')",
+			filter,
+			properties.CreatorARN,
+			creator.AccountID,
+			creator.AccountID)
+	}
+	return filter
 }
 
 func (c *Client) HasClusters(creator *aws.Creator) (bool, error) {
@@ -198,13 +251,44 @@ func (c *Client) CreateCluster(config Spec) (*cmv1.Cluster, error) {
 	return clusterObject, nil
 }
 
-// Pass 0 to get all clusters
-func (c *Client) GetClusters(creator *aws.Creator, count int) (clusters []*cmv1.Cluster, err error) {
+// Maps between the account role type and the field on the cluster struct that the role
+// will be present in so that we can send the correct query in the "search" parameter
+// in the GET to the /api/clusters_mgmt/v1/clusters endpoint
+var accountRoleTypeFieldMap = map[string]string{
+	aws.InstallerAccountRoleType:    "aws.sts.role_arn",
+	aws.ControlPlaneAccountRoleType: "aws.sts.instance_iam_roles.master_role_arn",
+	aws.SupportAccountRoleType:      "aws.sts.support_role_arn",
+	aws.WorkerAccountRoleType:       "aws.sts.instance_iam_roles.worker_role_arn",
+}
+
+func getAccountRoleClusterFilter(aws *aws.Creator, role *aws.Role) (string, error) {
+	query := getClusterFilter(aws)
+	accountRoleField := accountRoleTypeFieldMap[role.RoleType]
+	if accountRoleField == "" {
+		return "",
+			fmt.Errorf("unrecognised Role Type '%s' for Account Role with ARN '%s'", role.RoleType, role.RoleARN)
+	}
+
+	// Append to our normal query our search for the specific role arn based around the role type
+	return fmt.Sprintf("%s AND %s='%s'", query, accountRoleField, role.RoleARN), nil
+}
+
+func (c *Client) GetClustersUsingAccountRole(aws *aws.Creator, role *aws.Role, count int) ([]*cmv1.Cluster, error) {
+	query, err := getAccountRoleClusterFilter(aws, role)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.queryClusters(query, count)
+}
+
+func (c *Client) queryClusters(query string, count int) (clusters []*cmv1.Cluster, err error) {
+
 	if count < 0 {
 		err = errors.Errorf("Invalid Cluster count")
 		return
 	}
-	query := getClusterFilter(creator)
+
 	request := c.ocm.ClustersMgmt().V1().Clusters().List().Search(query)
 	page := 1
 	for {
@@ -227,6 +311,11 @@ func (c *Client) GetClusters(creator *aws.Creator, count int) (clusters []*cmv1.
 		page++
 	}
 	return clusters, nil
+}
+
+// Pass 0 to get all clusters
+func (c *Client) GetClusters(creator *aws.Creator, count int) (clusters []*cmv1.Cluster, err error) {
+	return c.queryClusters(getClusterFilter(creator), count)
 }
 
 func (c *Client) GetAllClusters(creator *aws.Creator) (clusters []*cmv1.Cluster, err error) {
@@ -409,6 +498,24 @@ func (c *Client) HasAClusterUsingOperatorRolesPrefix(prefix string) (bool, error
 	return false, nil
 }
 
+func (c *Client) HasAClusterUsingOidcProvider(
+	issuerUrl string, curAccountId string) (bool, error) {
+	query := fmt.Sprintf(
+		"aws.sts.oidc_endpoint_url = '%s' AND aws.sts.role_arn like '%%%s%%'",
+		issuerUrl, curAccountId,
+	)
+	request := c.ocm.ClustersMgmt().V1().Clusters().List().Search(query)
+	page := 1
+	response, err := request.Page(page).Send()
+	if err != nil {
+		return false, err
+	}
+	if response.Total() > 0 {
+		return true, nil
+	}
+	return false, nil
+}
+
 func (c *Client) HasAClusterUsingOidcEndpointUrl(issuerUrl string) (bool, error) {
 	query := fmt.Sprintf(
 		"aws.sts.oidc_endpoint_url = '%s'", issuerUrl,
@@ -564,6 +671,14 @@ func (c *Client) UpdateCluster(clusterKey string, creator *aws.Creator, config S
 		clusterBuilder.Hypershift(hyperShiftBuilder)
 	}
 
+	// Edit audit log role arn
+	if config.AuditLogRoleARN != nil {
+		awsBuilder := cmv1.NewAWS()
+		auditLogBuiler := cmv1.NewAuditLog().RoleArn(*config.AuditLogRoleARN)
+		awsBuilder = awsBuilder.AuditLog(auditLogBuiler)
+		clusterBuilder.AWS(awsBuilder)
+	}
+
 	clusterSpec, err := clusterBuilder.Build()
 	if err != nil {
 		return err
@@ -581,7 +696,8 @@ func (c *Client) UpdateCluster(clusterKey string, creator *aws.Creator, config S
 	return nil
 }
 
-func (c *Client) DeleteCluster(clusterKey string, creator *aws.Creator) (*cmv1.Cluster, error) {
+func (c *Client) DeleteCluster(clusterKey string, bestEffort bool,
+	creator *aws.Creator) (*cmv1.Cluster, error) {
 	cluster, err := c.GetCluster(clusterKey, creator)
 	if err != nil {
 		return nil, err
@@ -590,6 +706,7 @@ func (c *Client) DeleteCluster(clusterKey string, creator *aws.Creator) (*cmv1.C
 	response, err := c.ocm.ClustersMgmt().V1().Clusters().
 		Cluster(cluster.ID()).
 		Delete().
+		BestEffort(bestEffort).
 		Send()
 	if err != nil {
 		return nil, handleErr(response.Error(), err)
@@ -731,6 +848,15 @@ func (c *Client) createClusterSpec(config Spec, awsClient aws.Client) (*cmv1.Clu
 
 			reporter.Debugf("Using machine type '%s'", config.ComputeMachineType)
 		}
+		if machinePoolRootDisk := config.MachinePoolRootDisk; machinePoolRootDisk != nil &&
+			machinePoolRootDisk.Size != 0 {
+			machineTypeRootVolumeBuilder := cmv1.NewRootVolume().
+				AWS(cmv1.NewAWSVolume().
+					Size(machinePoolRootDisk.Size))
+			clusterNodesBuilder = clusterNodesBuilder.ComputeRootVolume(
+				(machineTypeRootVolumeBuilder),
+			)
+		}
 		if config.Autoscaling {
 			clusterNodesBuilder = clusterNodesBuilder.AutoscaleCompute(
 				cmv1.NewMachinePoolAutoscaling().
@@ -775,6 +901,10 @@ func (c *Client) createClusterSpec(config Spec, awsClient aws.Client) (*cmv1.Clu
 	awsBuilder := cmv1.NewAWS().
 		AccountID(awsCreator.AccountID)
 
+	if len(config.AdditionalComputeSecurityGroupIds) > 0 {
+		awsBuilder = awsBuilder.AdditionalComputeSecurityGroupIds(config.AdditionalComputeSecurityGroupIds...)
+	}
+
 	if config.SubnetIds != nil {
 		awsBuilder = awsBuilder.SubnetIDs(config.SubnetIds...)
 	}
@@ -788,6 +918,10 @@ func (c *Client) createClusterSpec(config Spec, awsClient aws.Client) (*cmv1.Clu
 
 	if config.BillingAccount != "" {
 		awsBuilder = awsBuilder.BillingAccountID(config.BillingAccount)
+	}
+
+	if config.Ec2MetadataHttpTokens != "" {
+		awsBuilder = awsBuilder.Ec2MetadataHttpTokens(config.Ec2MetadataHttpTokens)
 	}
 
 	if config.RoleARN != "" {
@@ -840,9 +974,23 @@ func (c *Client) createClusterSpec(config Spec, awsClient aws.Client) (*cmv1.Clu
 		awsBuilder = awsBuilder.Tags(config.Tags)
 	}
 
+	if config.AuditLogRoleARN != nil {
+		auditLogBuiler := cmv1.NewAuditLog().RoleArn(*config.AuditLogRoleARN)
+		awsBuilder = awsBuilder.AuditLog(auditLogBuiler)
+	}
+
 	// etcd encryption kms key arn
 	if config.EtcdEncryptionKMSArn != "" {
 		awsBuilder = awsBuilder.EtcdEncryption(cmv1.NewAwsEtcdEncryption().KMSKeyARN(config.EtcdEncryptionKMSArn))
+	}
+
+	// shared vpc
+	if config.PrivateHostedZoneID != "" {
+		awsBuilder = awsBuilder.PrivateHostedZoneID(config.PrivateHostedZoneID)
+		awsBuilder = awsBuilder.PrivateHostedZoneRoleARN(config.SharedVPCRoleArn)
+	}
+	if config.BaseDomain != "" {
+		clusterBuilder = clusterBuilder.DNS(v1.NewDNS().BaseDomain(config.BaseDomain))
 	}
 
 	clusterBuilder = clusterBuilder.AWS(awsBuilder)
@@ -884,6 +1032,37 @@ func (c *Client) createClusterSpec(config Spec, awsClient aws.Client) (*cmv1.Clu
 
 	if config.AdditionalTrustBundle != nil {
 		clusterBuilder = clusterBuilder.AdditionalTrustBundle(*config.AdditionalTrustBundle)
+	}
+
+	if config.ClusterAdminUser != "" {
+		htpasswdUsers := []*v1.HTPasswdUserBuilder{}
+		htpasswdUsers = append(htpasswdUsers, v1.NewHTPasswdUser().
+			Username(config.ClusterAdminUser).Password(config.ClusterAdminPassword))
+		htpassUserList := v1.NewHTPasswdUserList().Items(htpasswdUsers...)
+		htPasswdIDP := v1.NewHTPasswdIdentityProvider().Users(htpassUserList)
+		clusterBuilder = clusterBuilder.Htpasswd(htPasswdIDP)
+	}
+
+	if !reflect.DeepEqual(config.DefaultIngress, NewDefaultIngressSpec()) {
+		defaultIngress := cmv1.NewIngress().Default(true)
+		if len(config.DefaultIngress.RouteSelectors) != 0 {
+			defaultIngress.RouteSelectors(config.DefaultIngress.RouteSelectors)
+		}
+		if len(config.DefaultIngress.ExcludedNamespaces) != 0 {
+			defaultIngress.ExcludedNamespaces(config.DefaultIngress.ExcludedNamespaces...)
+		}
+		if !helper.Contains([]string{"", consts.SkipSelectionOption}, config.DefaultIngress.WildcardPolicy) {
+			defaultIngress.RouteWildcardPolicy(v1.WildcardPolicy(config.DefaultIngress.WildcardPolicy))
+		}
+		if !helper.Contains([]string{"", consts.SkipSelectionOption}, config.DefaultIngress.NamespaceOwnershipPolicy) {
+			defaultIngress.RouteNamespaceOwnershipPolicy(
+				v1.NamespaceOwnershipPolicy(config.DefaultIngress.NamespaceOwnershipPolicy))
+		}
+		clusterBuilder.Ingresses(cmv1.NewIngressList().Items(defaultIngress))
+	}
+
+	if config.AutoscalerConfig != nil {
+		clusterBuilder.Autoscaler(BuildClusterAutoscaler(config.AutoscalerConfig))
 	}
 
 	clusterSpec, err := clusterBuilder.Build()
@@ -941,4 +1120,19 @@ func IsOidcConfigReusable(cluster *cmv1.Cluster) bool {
 
 func IsSts(cluster *cmv1.Cluster) bool {
 	return cluster != nil && cluster.AWS().STS().RoleARN() != ""
+}
+
+func (c *Client) HasLegacyIngressSupport(cluster *cmv1.Cluster) (bool, error) {
+	labelList, err := c.ocm.ClustersMgmt().V1().Clusters().
+		Cluster(cluster.ID()).ExternalConfiguration().Labels().List().Send()
+	if err != nil {
+		return true, fmt.Errorf("Failed to retrieve external configuration label list: %v", err)
+	}
+
+	for _, label := range labelList.Items().Slice() {
+		if label.Key() == legacyIngressSupportLabel {
+			return strconv.ParseBool(label.Value())
+		}
+	}
+	return true, nil
 }

@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -71,6 +72,8 @@ const (
 	DefaultRegion = "us-east-1"
 	Inline        = "inline"
 	Attached      = "attached"
+
+	govPartition = "aws-us-gov"
 )
 
 // addROSAVersionToUserAgent is a named handler that will add ROSA CLI
@@ -96,7 +99,7 @@ type Client interface {
 	GetLocalAWSAccessKeys() (*AccessKey, error)
 	GetCreator() (*Creator, error)
 	ValidateSCP(*string, map[string]*cmv1.AWSSTSPolicy) (bool, error)
-	GetSubnetIDs() ([]*ec2.Subnet, error)
+	ListSubnets(subnetIds ...string) ([]*ec2.Subnet, error)
 	GetSubnetAvailabilityZone(subnetID string) (string, error)
 	GetVPCSubnets(subnetID string) ([]*ec2.Subnet, error)
 	GetVPCPrivateSubnets(subnetID string) ([]*ec2.Subnet, error)
@@ -117,13 +120,14 @@ type Client interface {
 	DeleteOpenIDConnectProvider(providerURL string) error
 	HasOpenIDConnectProvider(issuerURL string, accountID string) (bool, error)
 	FindRoleARNs(roleType string, version string) ([]string, error)
+	FindRoleARNsClassic(roleType string, version string) ([]string, error)
 	FindPolicyARN(operator Operator, version string) (string, error)
 	ListUserRoles() ([]Role, error)
 	ListOCMRoles() ([]Role, error)
 	ListAccountRoles(version string) ([]Role, error)
-	ListOperatorRoles(version string) (map[string][]Role, error)
+	ListOperatorRoles(version string, clusterID string) (map[string][]OperatorRoleDetail, error)
+	ListOidcProviders(targetClusterId string) ([]OidcProviderOutput, error)
 	GetRoleByARN(roleARN string) (*iam.Role, error)
-	HasCompatibleVersionTags(iamTags []*iam.Tag, version string) (bool, error)
 	DeleteOperatorRole(roles string, managedPolicies bool) error
 	GetOperatorRolesFromAccountByClusterID(clusterID string, credRequests map[string]*cmv1.STSOperator) ([]string, error)
 	GetOperatorRolesFromAccountByPrefix(prefix string, credRequest map[string]*cmv1.STSOperator) ([]string, error)
@@ -182,15 +186,18 @@ type Client interface {
 	PutPublicReadObjectInS3Bucket(bucketName string, body io.ReadSeeker, key string) error
 	CreateSecretInSecretsManager(name string, secret string) (string, error)
 	DeleteSecretInSecretsManager(secretArn string) error
-	ValidateAccountRoleVersionCompatibility(
-		roleName string, roleType string, minVersion string) (bool, error)
+	ValidateAccountRoleVersionCompatibility(roleName string, roleType string, minVersion string) (bool, error)
+	GetDefaultPolicyDocument(policyArn string) (string, error)
+	GetAccountRoleByArn(roleArn string) (*Role, error)
+	GetSecurityGroupIds(vpcId string) ([]*ec2.SecurityGroup, error)
 }
 
 // ClientBuilder contains the information and logic needed to build a new AWS client.
 type ClientBuilder struct {
-	logger      *logrus.Logger
-	region      *string
-	credentials *AccessKey
+	logger              *logrus.Logger
+	region              *string
+	credentials         *AccessKey
+	useLocalCredentials bool
 }
 
 type awsClient struct {
@@ -205,6 +212,7 @@ type awsClient struct {
 	servicequotasClient servicequotasiface.ServiceQuotasAPI
 	awsSession          *session.Session
 	awsAccessKeys       *AccessKey
+	useLocalCredentials bool
 }
 
 func CreateNewClientOrExit(logger *logrus.Logger, reporter *reporter.Object) Client {
@@ -236,6 +244,7 @@ func New(
 	servicequotasClient servicequotasiface.ServiceQuotasAPI,
 	awsSession *session.Session,
 	awsAccessKeys *AccessKey,
+	useLocalCredentials bool,
 
 ) Client {
 	return &awsClient{
@@ -250,6 +259,7 @@ func New(
 		servicequotasClient,
 		awsSession,
 		awsAccessKeys,
+		useLocalCredentials,
 	}
 }
 
@@ -265,8 +275,12 @@ func (b *ClientBuilder) Region(value string) *ClientBuilder {
 }
 
 func (b *ClientBuilder) AccessKeys(value *AccessKey) *ClientBuilder {
-	// fmt.Printf("Using new access key %s\n", value.AccessKeyID)
 	b.credentials = value
+	return b
+}
+
+func (b *ClientBuilder) UseLocalCredentials(value bool) *ClientBuilder {
+	b.useLocalCredentials = value
 	return b
 }
 
@@ -393,6 +407,7 @@ func (b *ClientBuilder) Build() (Client, error) {
 		cfClient:            cloudformation.New(sess),
 		servicequotasClient: servicequotas.New(sess),
 		awsSession:          sess,
+		useLocalCredentials: b.useLocalCredentials,
 	}
 
 	_, root, err := getClientDetails(c)
@@ -415,10 +430,22 @@ func (c *awsClient) GetRegion() string {
 	return aws.StringValue(c.awsSession.Config.Region)
 }
 
-func (c *awsClient) GetSubnetIDs() ([]*ec2.Subnet, error) {
-	return c.getSubnetIDs(&ec2.DescribeSubnetsInput{})
-}
+func (c *awsClient) ListSubnets(subnetIds ...string) ([]*ec2.Subnet, error) {
 
+	if len(subnetIds) == 0 {
+		return c.getSubnetIDs(&ec2.DescribeSubnetsInput{})
+	}
+
+	var ids []*string
+
+	for i := range subnetIds {
+		ids = append(ids, &subnetIds[i])
+	}
+
+	return c.getSubnetIDs(&ec2.DescribeSubnetsInput{
+		SubnetIds: ids,
+	})
+}
 func (c *awsClient) GetSubnetAvailabilityZone(subnetID string) (string, error) {
 	res, err := c.ec2Client.DescribeSubnets(&ec2.DescribeSubnetsInput{SubnetIds: []*string{aws.String(subnetID)}})
 	if err != nil {
@@ -568,9 +595,10 @@ func (c *awsClient) getSubnetIDs(describeSubnetsInput *ec2.DescribeSubnetsInput)
 }
 
 type Creator struct {
-	ARN       string
-	AccountID string
-	IsSTS     bool
+	ARN        string
+	AccountID  string
+	IsSTS      bool
+	IsGovcloud bool
 }
 
 func (c *awsClient) GetCreator() (*Creator, error) {
@@ -595,15 +623,18 @@ func (c *awsClient) GetCreator() (*Creator, error) {
 			return nil, err
 		}
 
-		// resolveSTSRole esures a parsed valid ARN before
+		// resolveSTSRole ensures a parsed valid ARN before
 		// returning it so we don't need to parse it again
 		creatorARN = *stsRole
 	}
 
+	isGovcloud := creatorParsedARN.Partition == govPartition
+
 	return &Creator{
-		ARN:       creatorARN,
-		AccountID: creatorParsedARN.AccountID,
-		IsSTS:     isSTS(creatorParsedARN),
+		ARN:        creatorARN,
+		AccountID:  creatorParsedARN.AccountID,
+		IsSTS:      isSTS(creatorParsedARN),
+		IsGovcloud: isGovcloud,
 	}, nil
 }
 
@@ -687,6 +718,10 @@ type AccessKey struct {
 func (c *awsClient) GetAWSAccessKeys() (*AccessKey, error) {
 	if c.awsAccessKeys != nil {
 		return c.awsAccessKeys, nil
+	}
+
+	if c.useLocalCredentials {
+		return c.GetLocalAWSAccessKeys()
 	}
 
 	accessKey, err := c.UpsertAccessKey(AdminUserName)
@@ -1117,6 +1152,35 @@ func (c *awsClient) DeleteSecretInSecretsManager(secretArn string) error {
 		return err
 	}
 	return nil
+}
+
+func (c *awsClient) GetSecurityGroupIds(vpcId string) ([]*ec2.SecurityGroup, error) {
+	describeSecurityGroupsInput := &ec2.DescribeSecurityGroupsInput{
+		Filters: []*ec2.Filter{
+			{
+				Name:   aws.String("vpc-id"),
+				Values: aws.StringSlice([]string{vpcId}),
+			},
+		},
+	}
+	securityGroups := []*ec2.SecurityGroup{}
+	err := c.ec2Client.DescribeSecurityGroupsPages(describeSecurityGroupsInput,
+		func(page *ec2.DescribeSecurityGroupsOutput, lastPage bool) bool {
+			for _, sg := range page.SecurityGroups {
+				if tags.Ec2ResourceHasTag(sg.Tags, tags.RedHatManaged, strconv.FormatBool(true)) {
+					continue
+				}
+				if aws.StringValue(sg.GroupName) == "default" {
+					continue
+				}
+				securityGroups = append(securityGroups, sg)
+			}
+			return page.NextToken != nil
+		})
+	if err != nil {
+		return []*ec2.SecurityGroup{}, err
+	}
+	return securityGroups, nil
 }
 
 // CustomRetryer wraps the aws SDK's built in DefaultRetryer allowing for

@@ -159,6 +159,16 @@ func (c *ClusterClient) Addons() *AddOnInstallationsClient {
 	)
 }
 
+// Autoscaler returns the target 'autoscaler' resource.
+//
+// Reference to the resource that manages the cluster autoscaler.
+func (c *ClusterClient) Autoscaler() *AutoscalerClient {
+	return NewAutoscalerClient(
+		c.transport,
+		path.Join(c.path, "autoscaler"),
+	)
+}
+
 // Clusterdeployment returns the target 'clusterdeployment' resource.
 //
 // Reference to the resource that manages the cluster deployment.
@@ -355,6 +365,14 @@ func (c *ClusterClient) Status() *ClusterStatusClient {
 	)
 }
 
+// StsSupportJumpRole returns the target 'sts_support_jump_role' resource.
+func (c *ClusterClient) StsSupportJumpRole() *StsSupportJumpRoleClient {
+	return NewStsSupportJumpRoleClient(
+		c.transport,
+		path.Join(c.path, "sts_support_jump_role"),
+	)
+}
+
 // TuningConfigs returns the target 'tuning_configs' resource.
 //
 // Reference to the resource that manages the collection of tuning configs for this cluster.
@@ -372,6 +390,16 @@ func (c *ClusterClient) UpgradePolicies() *UpgradePoliciesClient {
 	return NewUpgradePoliciesClient(
 		c.transport,
 		path.Join(c.path, "upgrade_policies"),
+	)
+}
+
+// Vpc returns the target 'vpc' resource.
+//
+// Reference to the resource that manages the vpc resource.
+func (c *ClusterClient) Vpc() *VpcClient {
+	return NewVpcClient(
+		c.transport,
+		path.Join(c.path, "vpc"),
 	)
 }
 
@@ -498,6 +526,7 @@ type ClusterDeleteRequest struct {
 	path        string
 	query       url.Values
 	header      http.Header
+	bestEffort  *bool
 	deprovision *bool
 	dryRun      *bool
 }
@@ -518,6 +547,14 @@ func (r *ClusterDeleteRequest) Header(name string, value interface{}) *ClusterDe
 // Note: Services that do not support this feature may silently ignore this call.
 func (r *ClusterDeleteRequest) Impersonate(user string) *ClusterDeleteRequest {
 	helpers.AddImpersonationHeader(&r.header, user)
+	return r
+}
+
+// BestEffort sets the value of the 'best_effort' parameter.
+//
+// BestEffort flag is used to check if the cluster deletion should be best-effort mode or not.
+func (r *ClusterDeleteRequest) BestEffort(value bool) *ClusterDeleteRequest {
+	r.bestEffort = &value
 	return r
 }
 
@@ -549,6 +586,9 @@ func (r *ClusterDeleteRequest) Send() (result *ClusterDeleteResponse, err error)
 // SendContext sends this request, waits for the response, and returns it.
 func (r *ClusterDeleteRequest) SendContext(ctx context.Context) (result *ClusterDeleteResponse, err error) {
 	query := helpers.CopyQuery(r.query)
+	if r.bestEffort != nil {
+		helpers.AddValue(&query, "best_effort", *r.bestEffort)
+	}
 	if r.deprovision != nil {
 		helpers.AddValue(&query, "deprovision", *r.deprovision)
 	}

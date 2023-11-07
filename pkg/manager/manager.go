@@ -190,7 +190,7 @@ func (m *jobManager) updateHypershiftSupportedVersions() error {
 }
 
 func (m *jobManager) updateRosaVersions() error {
-	vs, err := m.rClient.OCMClient.GetVersions(ocm.DefaultChannelGroup)
+	vs, err := m.rClient.OCMClient.GetVersionsWithProduct(ocm.HcpProduct, ocm.DefaultChannelGroup, false)
 	if err != nil {
 		return fmt.Errorf("Failed to retrieve versions: %s", err)
 	}

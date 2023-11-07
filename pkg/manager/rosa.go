@@ -57,10 +57,10 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	}
 
 	minor := ocm.GetVersionMinor(version)
-	role := aws.AccountRoles[aws.InstallerAccountRole]
+	role := aws.HCPAccountRoles[aws.HCPInstallerRole]
 
 	// Find all installer roles in the current account using AWS resource tags
-	foundRoleARNs, err := m.rClient.AWSClient.FindRoleARNs(aws.InstallerAccountRole, minor)
+	foundRoleARNs, err := m.rClient.AWSClient.FindRoleARNs(aws.HCPInstallerRole, minor)
 	if err != nil || foundRoleARNs == nil || len(foundRoleARNs) == 0 {
 		metrics.RecordError(errorRosaAWS, m.errorMetric)
 		return nil, "", fmt.Errorf("Failed to find %s role: %s", role.Name, err)
@@ -73,19 +73,10 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 			roleARN = rARN
 		}
 	}
-	// Get role prefix
-	roleName, err := aws.GetResourceIdFromARN(roleARN)
-	if err != nil {
-		metrics.RecordError(errorRosaAWS, m.errorMetric)
-		return nil, "", fmt.Errorf("Failed to find prefix from %s account role", role.Name)
-	}
-	rolePrefix := aws.TrimRoleSuffix(roleName, fmt.Sprintf("-%s-Role", role.Name))
-	klog.Infof("Using '%s' as the role prefix", rolePrefix)
-
 	// set up other ARNs
 	var supportRoleARN, controlPlaneRoleARN, workerRoleARN string
-	for roleType, role := range aws.AccountRoles {
-		if roleType == aws.InstallerAccountRole {
+	for roleType, role := range aws.HCPAccountRoles {
+		if roleType == aws.HCPInstallerRole {
 			// Already dealt with
 			continue
 		}
@@ -99,7 +90,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 			return nil, "", fmt.Errorf("Failed to find %s role: %s", role.Name, err)
 		}
 		selectedARN := ""
-		expectedResourceIDForAccRole := strings.ToLower(fmt.Sprintf("%s-%s-Role", rolePrefix, role.Name))
+		expectedResourceIDForAccRole := strings.ToLower(fmt.Sprintf("%s-%s-Role", aws.DefaultPrefix, role.Name))
 		for _, rARN := range roleARNs {
 			resourceId, err := aws.GetResourceIdFromARN(rARN)
 			if err != nil {
@@ -117,13 +108,13 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 			return nil, "", fmt.Errorf("No %s account roles found.", role.Name)
 		}
 		switch roleType {
-		case aws.InstallerAccountRole:
+		case aws.HCPInstallerRole:
 			roleARN = selectedARN
-		case aws.SupportAccountRole:
+		case aws.HCPSupportRole:
 			supportRoleARN = selectedARN
 		case aws.ControlPlaneAccountRole:
 			controlPlaneRoleARN = selectedARN
-		case aws.WorkerAccountRole:
+		case aws.HCPWorkerRole:
 			workerRoleARN = selectedARN
 		}
 	}
@@ -175,7 +166,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 		metrics.RecordError(errorRosaAWS, m.errorMetric)
 		return nil, "", fmt.Errorf("Error getting region: %v", err)
 	}
-	dMachineCIDR, dPodCIDR, dServiceCIDR, hostPrefix, computeMachineType := m.rClient.OCMClient.GetDefaultClusterFlavors("")
+	dMachineCIDR, dPodCIDR, dServiceCIDR, hostPrefix, _, computeMachineType := m.rClient.OCMClient.GetDefaultClusterFlavors("")
 	var machineCIDR, serviceCIDR, podCIDR net.IPNet
 	if dMachineCIDR != nil {
 		machineCIDR = *dMachineCIDR
@@ -191,7 +182,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	m.rosaSubnets.Lock.RLock()
 	defer m.rosaSubnets.Lock.RUnlock()
 	// set subnets and identify correct availability zone for private subnet(s)
-	subnets, err := m.rClient.AWSClient.GetSubnetIDs()
+	subnets, err := m.rClient.AWSClient.ListSubnets()
 	if err != nil {
 		metrics.RecordError(errorRosaAWS, m.errorMetric)
 		return nil, "", fmt.Errorf("Failed to get the list of subnets: %s", err)
@@ -252,6 +243,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 			utils.ChannelTag:               slackChannel,
 			utils.ExpiryTimeTag:            base64.RawStdEncoding.EncodeToString([]byte(expiryTime)),
 		},
+		DefaultIngress: ocm.NewDefaultIngressSpec(),
 	}
 
 	klog.Infof("Cluster Definition: %+v", clusterConfig)
@@ -304,7 +296,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 
 func (m *jobManager) deleteCluster(clusterID string) error {
 	klog.Infof("Deleting cluster '%s'", clusterID)
-	_, err := m.rClient.OCMClient.DeleteCluster(clusterID, m.rClient.Creator)
+	_, err := m.rClient.OCMClient.DeleteCluster(clusterID, true, m.rClient.Creator)
 	if err != nil {
 		metrics.RecordError(errorRosaDelete, m.errorMetric)
 		return fmt.Errorf("%s", err)

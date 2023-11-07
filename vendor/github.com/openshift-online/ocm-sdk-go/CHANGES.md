@@ -3,6 +3,186 @@
 This document describes the relevant changes between releases of the OCM API
 SDK.
 
+## 0.1.377
+- Update model version v0.0.329
+  - Add get `ClusterId` to `network_verification_type` resource
+
+## 0.1.376
+- Update model version v0.0.328
+  - Add get `VPC` to `Cluster` resource
+
+## 0.1.375
+- Update model version v0.0.327
+  - Add `BestEffort` to method `Delete` in `Cluster`
+
+## 0.1.374
+- Update model version v0.0.326
+  - Add `BackplaneURL` to `Environment` type
+
+## 0.1.373
+- Update model version to v0.0.325
+  - Add `OrganizationId` to `FeatureReviewRequest` type
+
+## 0.1.372
+- Update model version to v0.0.324
+  - Add `CreatedAt` to `LogEntry` type
+  - Add `CreatedBy` to `LogEntry` type
+
+## 0.1.371
+- Update model version to v0.0.323
+  - Add `GCPMarketplaceEnabled` to `version` type
+
+## 0.1.370
+- Update model version to v0.0.322
+  - Add AdditionalComputeSecurityGroupIds to AWS type
+  - Add AdditionalSecurityGroupIds to AWS Machine Pool type
+  - Add AwsSecurityGroups to VPC type
+
+## 0.1.369
+- Update model version to v0.0.321
+  - Exposes `/api/clusters_mgmt/v1/aws_inquiries/sts_account_roles` in the SDK 
+
+## 0.1.368
+- Update model version v0.0.318
+  - Add `ImageOverrides` to `Version` type
+
+## 0.1.367
+- Windows: Update SSO CA
+- Update model version v0.0.315
+  - Add DisplayName and Description properties to `BillingModelItem`
+
+## 0.1.366
+- Update model version v0.0.314
+  - Add new resources and a type for `BillingModelItem`
+
+## 0.1.365
+- Update model version v0.0.312
+  - Added support for `AddonInstallations` endpoints for `addons_mgmt`.
+  - Updated APIs for `AddonStatus`, `AddonStatusCondition`, `AddonSubOperator` and `AddonVersion`.
+
+## 0.1.364
+- Update model version v0.0.311
+  - Add a new resource to OSL clusters/cluster_log
+
+## 0.1.363
+  - Modify SelfAccessReview to return IsOCMInternal field
+
+## 0.1.362
+  - Redact aws access and secret access keys from debug logs
+
+## 0.1.361
+- Update model version v0.0.309
+  - Modify access review response to include `is_ocm_internal` field.
+  - Add the remainder of cluster-autoscaler parameters.
+
+## 0.1.360
+- Update model version v0.0.307
+  - Move `PrivateHostedZoneID` and `PrivateHostedZoneRoleARN` to `aws_type` resource
+
+## 0.1.359
+- Update model version v0.0.306
+  - Fix upgrade related constants JSON output to align with existing values
+- Update model version v0.0.305
+  - Add `PrivateHostedZoneID` and `PrivateHostedZoneRoleARN` to `cluster_type` resource
+
+## 0.1.358
+- Update model version v0.0.304
+  - Add upgrade related constants also for `NodePoolUpgradePolicy`.
+  - Change DNS domain field names.
+
+## 0.1.357
+- Update model version v0.0.303
+  - Add upgrade related constants.
+- Update model version v0.0.302
+  - Add property `MarketplaceGCP` to `billing_model_type` in `clusters_mgmt` and `accounts_mgmt`
+  - Document `GovCloud`, `KMSLocationID` and `KMSLocationName` fields to `CloudRegion`
+  - Document `fetchRegions=true` to `cloud_providers` 
+
+## 0.1.356
+- Update model version v0.0.301
+  - Update name for `ClusterStsSupportRole` resource and type to `StsSupportJumpRole`
+
+## 0.1.355
+- Update model version v0.0.300
+  - Add `UserDefined` in dns domain resource
+
+## 0.1.354
+- Update model version v0.0.299
+  - OCM-209 | feat: Add cluster autoscaler API resources
+  - OCM-209 | feat: Add autoscaler locator in cluster resource
+
+## 0.1.353
+- Prevent connection leak in retry wrapper
+
+## 0.1.352
+- Update model version v0.0.297
+  - Add managed ingress attributes
+  - Fix `fetchLabels` and `fetchAccounts` url parameter names
+  - Add `ClusterStsSupportRole` resource and type
+
+## 0.1.351
+- Update model version v0.0.296
+  - Add json annotation to `DeleteAssociatedResources` parameter in account resource
+
+## 0.1.350
+- Update model version v0.0.294
+  - Add `DeleteAssociatedResources` locator to account resource
+- Update model version v0.0.295
+  - Update `ReservedAt` to `ReservedAtTimestamp` in dns domain type
+- Update metamodel version 0.0.59:
+  - Honor`@http` annotation for query parameters
+
+## 0.1.349
+- Update model to version v0.0.293
+  - Add label list to OSDFM cluster request payloads
+  - Replace references to labels in OSDFM cluster structs with the labels themselves
+  - Fix typos in OSDFM cluster Label struct fields
+  - Add HashedPassword field to clusters_mgmt to provide encrypted value
+  - Add cluster autoscaler structs
+
+## 0.1.348
+- Update model version v0.0.291
+  - Add Reason to access review responses
+  - Enable users to provide both hashed and plain-text passwords
+  - API model for network verification
+
+## 0.1.347
+- Update model version v0.0.290
+  - Rename `MachineTypeRootVolume` to `RootVolume`
+  - Put `RootVolume` in `ClusterNodes`
+  - add contracts to cloud accounts (#765)
+
+## 0.1.346
+- Update model version v0.0.289
+  - Add Load balancer type to Ingress model
+  - remove unused API endpoints
+
+## 0.1.345
+- Update model version v0.0.288
+  - Add `DNSDomains` resource to the `root_resource`.
+  - Complete OSD FM api for SDK usage.
+
+## 0.1.344
+- Update model version v0.0.287
+  - Add Htpasswd to Cluster
+
+## 0.1.343
+- Update model version v0.0.286
+  - Add MachineTypeRootVolume to MachinePool
+
+## 0.1.342
+- Update model version v0.0.285
+  - Changed DNS Domain from Class to a Struct.
+  - Change dns domain type to class and remove ID.
+
+## 0.1.341
+- Update model version v0.0.282
+  - Changing parameter name from HttpTokensState to Ec2MetadataHttpTokens
+
+## 0.1.340
+- Update model version v0.0.281
+  - Add `RootVolume` of type `MachineTypeRootVolume` to `MachineType` type.
+
 ## 0.1.339
 - Update model version v0.0.280
   - Add `HttpTokensState` to `AWS` resource.
@@ -89,7 +269,7 @@ SDK.
 ## 0.1.320
 - Update to model v0.0.261
   - Add `commonAnnotations` and `commonLabels` to addons
-- Update to Addon structs and openapi.json for supporting 
+- Update to Addon structs and openapi.json for supporting
   - `commonAnnotations`
   - `commonLabels`
 
@@ -145,7 +325,7 @@ SDK.
 
 ## 0.1.309
 - Update to model v0.0.250
-  - Add `Addon Inquiries API` to `addons_mgmt` 
+  - Add `Addon Inquiries API` to `addons_mgmt`
 
 ## 0.1.308
 - Update to model v0.0.249
@@ -186,20 +366,20 @@ SDK.
   - Add `DeletedSubscriptions`
   - Add `AddonCluster`
   - Add `AddonStatus`
-  
+
 ## 0.1.300
 - Update PR check to include go v1.19
 - Update goimports to v0.4.0
 - Update to model v0.0.240
   - Fix `AddonConfig` on `AddonConfigType` resource model.
 
-## 0.1.299 
+## 0.1.299
 - Update to model 0.0.239
   - Fixes for `NodePoolAutoScaling` and `AWSNodePool`.
 
 ## 0.1.298
 - Update to model 0.0.238
-  - `NodePool` fixes. 
+  - `NodePool` fixes.
 
 ## 0.1.297
 - Update to model 0.0.237
