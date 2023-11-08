@@ -296,7 +296,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 
 func (m *jobManager) deleteCluster(clusterID string) error {
 	klog.Infof("Deleting cluster '%s'", clusterID)
-	_, err := m.rClient.OCMClient.DeleteCluster(clusterID, true, m.rClient.Creator)
+	_, err := m.rClient.OCMClient.DeleteCluster(clusterID, false, m.rClient.Creator)
 	if err != nil {
 		metrics.RecordError(errorRosaDelete, m.errorMetric)
 		return fmt.Errorf("%s", err)
