@@ -780,7 +780,7 @@ github.com/openshift/library-go/pkg/oauth/oauthdiscovery
 github.com/openshift/oc/pkg/helpers/term
 github.com/openshift/oc/pkg/helpers/tokencmd
 github.com/openshift/oc/pkg/version
-# github.com/openshift/rosa v1.2.29
+# github.com/openshift/rosa v1.2.30
 ## explicit; go 1.20
 github.com/openshift/rosa/assets
 github.com/openshift/rosa/pkg/arguments
