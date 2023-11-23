@@ -244,7 +244,7 @@ func CatalogBuild(client *slack.Client, jobManager manager.JobManager, event *sl
 
 func Build(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	userName := GetUserName(client, event.User)
-	from, err := ParseImageInput(properties.StringParam("pullrequest", ""))
+	from, err := ParseImageInput(properties.StringParam("image_or_version_and_prs", ""))
 	if err != nil {
 		return err.Error()
 	}

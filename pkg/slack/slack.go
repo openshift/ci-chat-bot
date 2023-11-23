@@ -129,8 +129,8 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Example:     "test e2e 4.15 vsphere",
 			Handler:     Test,
 		}),
-		parser.NewBotCommand("build <pullrequest>", &parser.CommandDefinition{
-			Description: "Create a new release image from one or more pull requests. The successful build location will be sent to you when it completes and then preserved for 12 hours.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
+		parser.NewBotCommand("build <image_or_version_and_prs>", &parser.CommandDefinition{
+			Description: "Create a new release image from one or more pull requests and an optional base image. The successful build location will be sent to you when it completes and then preserved for 12 hours. To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
 			Example:     "build openshift/operator-framework-olm#68,operator-framework/operator-marketplace#396",
 			Handler:     Build,
 		}),
@@ -154,7 +154,7 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Handler:     Lookup,
 		}),
 		parser.NewBotCommand("catalog build <pullrequest> <bundle_name>", &parser.CommandDefinition{
-			Description: "Create an operator, bundle, and catalof from a pull request. The successful build location will be sent to you when it completes and then preserved for 12 hours.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
+			Description: "Create an operator, bundle, and catalog from a pull request. The successful build location will be sent to you when it completes and then preserved for 12 hours.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
 			Example:     "catalog build openshift/aws-efs-csi-driver-operator#75 aws-efs-csi-driver-operator-bundle",
 			Handler:     CatalogBuild,
 		}),
