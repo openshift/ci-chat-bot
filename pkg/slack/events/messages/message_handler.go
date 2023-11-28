@@ -84,26 +84,51 @@ func postResponse(client *slack.Client, event *slackevents.MessageEvent, respons
 }
 
 func help(client *slack.Client, event *slackevents.MessageEvent, botCommands []parser.BotCommand) {
-	helpMessage := " "
-	helpMessage += "help" + " - " + fmt.Sprintf("_%s_", "help") + "\n"
+	helpMessage := ""
 	for _, command := range botCommands {
 		tokens := command.Tokenize()
+
+		// # <command>
+		helpMessage += "> *"
 		for _, token := range tokens {
-			if token.IsParameter() {
-				helpMessage += fmt.Sprintf("`%s`", token.Word) + " "
-			} else {
-				helpMessage += fmt.Sprintf("`%s`", token.Word) + " "
+			if !token.IsParameter() {
+				helpMessage += token.Word + " "
 			}
 		}
-		if len(command.Definition().Description) > 0 {
-			helpMessage += "\n\t" + fmt.Sprintf("_%s_", command.Definition().Description)
+		helpMessage += "*\n"
+
+		// ## Usage
+		// ```
+		// usage
+		// ```
+		helpMessage += "*Usage*\n"
+		helpMessage += "```\n"
+		for _, token := range tokens {
+			helpMessage += token.Word + " "
 		}
-		helpMessage += "\n"
+		helpMessage += "```\n"
+
+		// ## Description
+		// description...
+		if len(command.Definition().Description) > 0 {
+			helpMessage += "*Description*\n"
+			helpMessage += command.Definition().Description
+			helpMessage += "\n"
+		}
+
+		// ## Example
+		// ```
+		// example
+		// ```
 		if len(command.Definition().Example) > 0 {
-			helpMessage += fmt.Sprintf(">_*Example:* %s_", command.Definition().Example) + "\n"
+			helpMessage += "*Example*\n"
+			helpMessage += "```\n"
+			helpMessage += command.Definition().Example
+			helpMessage += "```\n"
 		}
 	}
 	// Adding pointer to our FAQ...
+	helpMessage += "*Additional Links*\n"
 	helpMessage += "Please check out our <https://github.com/openshift/ci-chat-bot/blob/master/docs/FAQ.md|Frequently Asked Questions> for more information.\n"
 	helpMessage += "You can also reach out to us in <https://redhat-internal.slack.com/archives/CNHC2DK2M|#forum-ocp-crt> for more information.\n"
 	_, _, err := client.PostMessage(event.Channel, slack.MsgOptionText(helpMessage, false))
