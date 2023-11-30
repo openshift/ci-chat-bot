@@ -3,6 +3,45 @@
 This document describes the relevant changes between releases of the OCM API
 SDK.
 
+## 0.1.385
+- Update model version to v0.0.338
+  - Add `ProductTechnologyPreviews` and `ProductMinimalVersions` endpoints
+
+## 0.1.384
+- Updated client for `KubeletConfig` to align `post` and `update` function signatures
+
+## 0.1.383
+- Update model version to v0.0.336
+  - Added `security` field to Cluster Service GCP field
+
+## 0.1.382
+- Update model version to v0.0.335
+  - Add `doc_references` field in `LogEntry`
+  - Add tags to subnet network verification resource
+
+- Update model version to v0.0.334
+  - Add Search method to status_board status_updates model
+
+## 0.1.381
+- Update model version to v0.0.333
+  - Add `/api/clusters_mgmt/v1/clusters/{id}/kubelet_config` endpoint
+  - Add `KubeletConfig` struct
+  - Update `Cluster` struct to be able to optionally embed the `KubeletConfig` struct
+
+## 0.1.380
+- Update model version v0.0.332
+  - Add `AdditionalInfraSecurityGroupIds` to `AWS` type
+  - Add `AdditionalControlPlaneSecurityGroupIds` to `AWS` type
+- Update model version v0.0.331
+  - Add `Search` method to `status_board` `products_resource`, `applications_resource`, and `services_resource models`
+
+## 0.1.379
+- Require Go 1.21
+
+## 0.1.378
+- Update model version v0.0.330
+  - Add `Update` method to `HypershiftConfig` resource
+
 ## 0.1.377
 - Update model version v0.0.329
   - Add get `ClusterId` to `network_verification_type` resource

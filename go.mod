@@ -22,7 +22,7 @@ require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/onsi/ginkgo/v2 v2.11.0
 	github.com/onsi/gomega v1.27.8
-	github.com/openshift-online/ocm-sdk-go v0.1.377
+	github.com/openshift-online/ocm-sdk-go v0.1.385
 	github.com/openshift/api v0.0.0-20230703134140-1c2204a0195c
 	github.com/openshift/build-machinery-go v0.0.0-20220913142420-e25cf57ea46d
 	github.com/openshift/ci-tools v0.0.0-20230728112639-46a68513e5c5
@@ -202,7 +202,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/openshift/rosa v1.2.30
+	github.com/openshift/rosa v1.2.31
 	github.com/operator-framework/api v0.17.6
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pkg/errors v0.9.1 // indirect
