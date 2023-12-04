@@ -231,6 +231,8 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 		WorkerRoleARN:       workerRoleARN,
 		Mode:                aws.ModeAuto,
 		ComputeNodes:        2,
+		OidcConfigId:        m.rosaOidcConfigId,
+		BillingAccount:      m.rosaBillingAccount,
 		SubnetIds:           m.rosaSubnets.Subnets.UnsortedList(),
 		AvailabilityZones:   availabilityZones.UnsortedList(),
 		MultiAZ:             true, // required for Hypershift, even if we only configured 1 AZ
