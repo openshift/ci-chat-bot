@@ -3,10 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/go-logr/logr"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
 	"strings"
 	"time"
 
@@ -110,6 +112,9 @@ func run() error {
 		ConfigResolver:    "http://config.ci.openshift.org/config",
 		KubernetesOptions: prowflagutil.KubernetesOptions{NOInClusterConfigDefault: true},
 	}
+
+	// Initialize a standard logger for k8s controller-runtime
+	ctrlruntimelog.SetLogger(logr.New(ctrlruntimelog.NullLogSink{}))
 
 	pflag.StringVar(&opt.ConfigResolver, "config-resolver", opt.ConfigResolver, "A URL pointing to a config resolver for retrieving ci-operator config. You may pass a location on disk with file://<abs_path_to_ci_operator_config>")
 	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
