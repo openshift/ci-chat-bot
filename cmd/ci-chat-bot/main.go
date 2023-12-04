@@ -69,6 +69,8 @@ type options struct {
 
 	rosaClusterLimit       int
 	rosaSubnetListPath     string
+	rosaOIDCConfigId       string
+	rosaBillingAccount     string
 	overrideLaunchLabel    string
 	overrideRosaSecretName string
 
@@ -121,6 +123,8 @@ func run() error {
 	pflag.StringVar(&opt.overrideRosaSecretName, "override-rosa-secret-name", "", "Override the default secret name for rosa cluster tracking. Used for local debugging.")
 	pflag.IntVar(&opt.rosaClusterLimit, "rosa-cluster-limit", 15, "Maximum number of ROSA clusters that can exist at the same time. Set to 0 for no limit.")
 	pflag.StringVar(&opt.rosaSubnetListPath, "rosa-subnetlist-path", "", "Path to list of comma-separated subnets to use for ROSA hosted clusters.")
+	pflag.StringVar(&opt.rosaOIDCConfigId, "rosa-oidcConfigId-path", "", "Path to the OIDC configuration ID")
+	pflag.StringVar(&opt.rosaBillingAccount, "rosa-billingAccount-path", "", "Path to the Billing Account ID.")
 
 	opt.prowconfig.AddFlags(emptyFlags)
 	opt.GitHubOptions.AddFlags(emptyFlags)
@@ -254,6 +258,16 @@ func run() error {
 	rosaSubnets := manager.RosaSubnets{}
 	go manageRosaSubnetList(opt.rosaSubnetListPath, &rosaSubnets)
 
+	rosaOidcConfigId, err := os.ReadFile(opt.rosaOIDCConfigId)
+	if err != nil {
+		klog.Errorf("Failed to read %s: %v", opt.rosaOIDCConfigId, err)
+	}
+
+	rosaBillingAccount, err := os.ReadFile(opt.rosaBillingAccount)
+	if err != nil {
+		klog.Errorf("Failed to read %s: %v", opt.rosaOIDCConfigId, err)
+	}
+
 	jobManager := manager.NewJobManager(
 		configAgent,
 		resolver,
@@ -270,6 +284,8 @@ func run() error {
 		&rosaSubnets,
 		opt.rosaClusterLimit,
 		clusterBotMetrics.ErrorRate,
+		strings.ReplaceAll(string(rosaOidcConfigId), "\n", ""),
+		strings.ReplaceAll(string(rosaBillingAccount), "\n", ""),
 	)
 	if err := jobManager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %w", err)

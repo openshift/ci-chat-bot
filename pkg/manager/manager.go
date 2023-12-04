@@ -123,6 +123,8 @@ func NewJobManager(
 	rosaSubnetList *RosaSubnets,
 	rosaClusterLimit int,
 	errorRate *prometheus.CounterVec,
+	rosaOidcConfigId string,
+	rosaBillingAccount string,
 ) *jobManager {
 	m := &jobManager{
 		requests:         make(map[string]*JobRequest),
@@ -150,6 +152,8 @@ func NewJobManager(
 		defaultRosaAge:      6 * time.Hour,
 		rosaSubnets:         rosaSubnetList,
 		rosaClusterLimit:    rosaClusterLimit,
+		rosaOidcConfigId:    rosaOidcConfigId,
+		rosaBillingAccount:  rosaBillingAccount,
 		errorMetric:         errorRate,
 	}
 	m.muJob.running = make(map[string]struct{})
