@@ -265,7 +265,7 @@ func run() error {
 
 	rosaBillingAccount, err := os.ReadFile(opt.rosaBillingAccount)
 	if err != nil {
-		klog.Errorf("Failed to read %s: %v", opt.rosaOIDCConfigId, err)
+		klog.Errorf("Failed to read %s: %v", opt.rosaBillingAccount, err)
 	}
 
 	jobManager := manager.NewJobManager(
