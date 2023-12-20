@@ -727,8 +727,12 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 				if i == 0 && len(job.Inputs) > 1 {
 					targetConfig.PromotionConfiguration = &citools.PromotionConfiguration{
-						Name:              "stable-initial",
-						Namespace:         "$(NAMESPACE)",
+						Targets: []citools.PromotionTarget{
+							{
+								Name:      "stable-initial",
+								Namespace: "$(NAMESPACE)",
+							},
+						},
 						RegistryOverride:  registryHost,
 						DisableBuildCache: true,
 					}
@@ -750,8 +754,12 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 					}
 				} else {
 					targetConfig.PromotionConfiguration = &citools.PromotionConfiguration{
-						Name:              "stable",
-						Namespace:         "$(NAMESPACE)",
+						Targets: []citools.PromotionTarget{
+							{
+								Name:      "stable",
+								Namespace: "$(NAMESPACE)",
+							},
+						},
 						RegistryOverride:  registryHost,
 						DisableBuildCache: true,
 					}
