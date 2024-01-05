@@ -35,6 +35,7 @@ var gitMetrics = struct {
 	ensureFreshPrimaryDuration *prometheus.HistogramVec
 	fetchByShaDuration         *prometheus.HistogramVec
 	secondaryCloneDuration     *prometheus.HistogramVec
+	sparseCheckoutDuration     prometheus.Histogram
 }{
 	ensureFreshPrimaryDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "git_ensure_fresh_primary_duration",
@@ -53,9 +54,14 @@ var gitMetrics = struct {
 	secondaryCloneDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "git_secondary_clone_duration",
 		Help:    "Histogram of seconds spent creating the secondary clone, by org and repo.",
-		Buckets: []float64{0.5, 1, 2, 5, 10, 20, 30, 45, 60},
+		Buckets: []float64{0.5, 1, 2, 5, 10, 20, 30, 45, 60, 90},
 	}, []string{
 		"org", "repo",
+	}),
+	sparseCheckoutDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "sparse_checkout_duration",
+		Help:    "Histogram of seconds spent performing sparse checkout for a repository",
+		Buckets: []float64{0.5, 1, 2, 5, 10, 20, 30, 45, 60, 90},
 	}),
 }
 
@@ -63,6 +69,7 @@ func init() {
 	prometheus.MustRegister(gitMetrics.ensureFreshPrimaryDuration)
 	prometheus.MustRegister(gitMetrics.fetchByShaDuration)
 	prometheus.MustRegister(gitMetrics.secondaryCloneDuration)
+	prometheus.MustRegister(gitMetrics.sparseCheckoutDuration)
 }
 
 // ClientFactory knows how to create clientFactory for repos
@@ -141,6 +148,10 @@ type RepoOpts struct {
 	// already exists, it is not fetched to save network costs. If NeededCommits
 	// is set, we do not call RemoteUpdate() for the primary clone (git cache).
 	NeededCommits sets.Set[string]
+	// BranchesToRetarget contains a map of branch names mapped to SHAs. These
+	// branch name and SHA pairs will be fed into RetargetBranch in the git v2
+	// client, to update the current HEAD of each branch.
+	BranchesToRetarget map[string]string
 }
 
 // Apply allows to use a ClientFactoryOpts as Opt
@@ -241,7 +252,7 @@ func NewClientFactory(opts ...ClientFactoryOpt) (ClientFactory, error) {
 	} else {
 		remote = &httpResolverFactory{
 			host:     o.Host,
-			http:     *o.UseInsecureHTTP,
+			http:     o.UseInsecureHTTP != nil && *o.UseInsecureHTTP,
 			username: o.Username,
 			token:    o.Token,
 		}
@@ -380,16 +391,20 @@ func (c *clientFactory) ClientForWithRepoOpts(org, repo string, repoOpts RepoOpt
 
 	// First create or update the primary clone (in "cacheDir").
 	timeBeforeEnsureFreshPrimary := time.Now()
-	c.ensureFreshPrimary(cacheDir, cacheClientCacher, repoOpts, org, repo)
-	gitMetrics.ensureFreshPrimaryDuration.WithLabelValues(org, repo).Observe((float64(time.Since(timeBeforeEnsureFreshPrimary).Seconds())))
+	err = c.ensureFreshPrimary(cacheDir, cacheClientCacher, repoOpts, org, repo)
+	if err != nil {
+		c.logger.WithFields(logrus.Fields{"org": org, "repo": repo, "dir": cacheDir}).Errorf("Error encountered while refreshing primary clone: %s", err.Error())
+	} else {
+		gitMetrics.ensureFreshPrimaryDuration.WithLabelValues(org, repo).Observe(time.Since(timeBeforeEnsureFreshPrimary).Seconds())
+	}
 
 	// Initialize the new derivative repo (secondary clone) from the primary
 	// clone. This is a local clone operation.
 	timeBeforeSecondaryClone := time.Now()
-	if err := repoClientCloner.CloneWithRepoOpts(cacheDir, repoOpts); err != nil {
+	if err = repoClientCloner.CloneWithRepoOpts(cacheDir, repoOpts); err != nil {
 		return nil, err
 	}
-	gitMetrics.secondaryCloneDuration.WithLabelValues(org, repo).Observe((float64(time.Since(timeBeforeSecondaryClone).Seconds())))
+	gitMetrics.secondaryCloneDuration.WithLabelValues(org, repo).Observe(time.Since(timeBeforeSecondaryClone).Seconds())
 
 	return repoClient, nil
 }
@@ -417,7 +432,18 @@ func (c *clientFactory) ensureFreshPrimary(
 		if err := cacheClientCacher.FetchCommits(repoOpts.NeededCommits.UnsortedList()); err != nil {
 			return err
 		}
-		gitMetrics.fetchByShaDuration.WithLabelValues(org, repo).Observe((float64(time.Since(timeBeforeFetchBySha).Seconds())))
+		gitMetrics.fetchByShaDuration.WithLabelValues(org, repo).Observe(time.Since(timeBeforeFetchBySha).Seconds())
+
+		// Retarget branches. That is, make them point to a new SHA, so that the
+		// branches can get updated, even though we only fetch by SHA above.
+		//
+		// Because the branches never get used directly here, it's OK if this
+		// operation fails.
+		for branch, sha := range repoOpts.BranchesToRetarget {
+			if err := cacheClientCacher.RetargetBranch(branch, sha); err != nil {
+				c.logger.WithFields(logrus.Fields{"org": org, "repo": repo, "dir": cacheDir, "branch": branch}).WithError(err).Debug("failed to retarget branch")
+			}
+		}
 	}
 
 	return nil
