@@ -47,16 +47,7 @@ var inrepoconfigRepoOpts = git.RepoOpts{
 	// Technically we only need inRepoConfigDirName (".prow") because the
 	// default "cone mode" of sparse checkouts already include files at the
 	// toplevel (which would include ".prow.yaml").
-	//
-	// TODO (listx): The version of git shipped in kubekins-e2e (itself
-	// derived from the bootstrap image) uses git version 2.30.2, which does
-	// not populate files at the toplevel. So we have to also set a sparse
-	// checkout of ".prow.yaml". Later when that image is updated, we can
-	// remove the use of inRepoConfigFileName (".prow.yaml"), so that the
-	// unit tests in CI can pass. As for the Prow components themselves,
-	// they use a different version of Git based on alpine (see .ko.yaml in
-	// the root).
-	SparseCheckoutDirs: []string{inRepoConfigDirName, inRepoConfigFileName},
+	SparseCheckoutDirs: []string{inRepoConfigDirName},
 	// The sparse checkout would avoid creating another copy of Git objects
 	// from the mirror clone into the secondary clone.
 	ShareObjectsWithPrimaryClone: true,
@@ -105,7 +96,7 @@ type ProwYAML struct {
 
 // ProwYAMLGetter is used to retrieve a ProwYAML. Tests should provide
 // their own implementation and set that on the Config.
-type ProwYAMLGetter func(c *Config, gc git.ClientFactory, identifier, baseSHA string, headSHAs ...string) (*ProwYAML, error)
+type ProwYAMLGetter func(c *Config, gc git.ClientFactory, identifier, baseBranch, baseSHA string, headSHAs ...string) (*ProwYAML, error)
 
 // Verify prowYAMLGetterWithDefaults and prowYAMLGetter are both of type
 // ProwYAMLGetter.
@@ -120,9 +111,9 @@ var _ ProwYAMLGetter = prowYAMLGetter
 // is going over the network to Moonraker or is done locally with the local
 // InRepoConfigCache (LRU cache)).
 type InRepoConfigGetter interface {
-	GetInRepoConfig(identifier string, baseSHAGetter RefGetter, headSHAGetters ...RefGetter) (*ProwYAML, error)
-	GetPresubmits(identifier string, baseSHAGetter RefGetter, headSHAGetters ...RefGetter) ([]Presubmit, error)
-	GetPostsubmits(identifier string, baseSHAGetter RefGetter, headSHAGetters ...RefGetter) ([]Postsubmit, error)
+	GetInRepoConfig(identifier, baseBranch string, baseSHAGetter RefGetter, headSHAGetters ...RefGetter) (*ProwYAML, error)
+	GetPresubmits(identifier, baseBranch string, baseSHAGetter RefGetter, headSHAGetters ...RefGetter) ([]Presubmit, error)
+	GetPostsubmits(identifier, baseBranch string, baseSHAGetter RefGetter, headSHAGetters ...RefGetter) ([]Postsubmit, error)
 }
 
 // prowYAMLGetter is like prowYAMLGetterWithDefaults, but without default values
@@ -135,6 +126,7 @@ func prowYAMLGetter(
 	c *Config,
 	gc git.ClientFactory,
 	identifier string,
+	baseBranch string,
 	baseSHA string,
 	headSHAs ...string) (*ProwYAML, error) {
 
@@ -156,6 +148,9 @@ func prowYAMLGetter(
 	// change was a fast-forward merge. So we need to dedupe it with sets.
 	repoOpts.NeededCommits = sets.New(baseSHA)
 	repoOpts.NeededCommits.Insert(headSHAs...)
+	if baseBranch != "" {
+		repoOpts.BranchesToRetarget = map[string]string{baseBranch: baseSHA}
+	}
 	repo, err := gc.ClientForWithRepoOpts(orgRepo.Org, orgRepo.Repo, repoOpts)
 	inrepoconfigMetrics.gitCloneDuration.WithLabelValues(orgRepo.Org, orgRepo.Repo).Observe((float64(time.Since(timeBeforeClone).Seconds())))
 	if err != nil {
@@ -274,10 +269,11 @@ func prowYAMLGetterWithDefaults(
 	c *Config,
 	gc git.ClientFactory,
 	identifier string,
+	baseBranch string,
 	baseSHA string,
 	headSHAs ...string) (*ProwYAML, error) {
 
-	prowYAML, err := prowYAMLGetter(c, gc, identifier, baseSHA, headSHAs...)
+	prowYAML, err := prowYAMLGetter(c, gc, identifier, baseBranch, baseSHA, headSHAs...)
 	if err != nil {
 		return nil, err
 	}
