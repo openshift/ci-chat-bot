@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/openshift/ci-tools/pkg/api/utils"
 )
 
 // IsComplete returns an error if at least one of Org, Repo, Branch members is
@@ -143,7 +145,7 @@ func BuildCacheFor(metadata Metadata) ImageStreamTagReference {
 }
 
 func ImageVersionLabel(fromTag PipelineImageStreamTagReference) string {
-	return fmt.Sprintf("io.openshift.ci.from.%s", fromTag)
+	return utils.Trim63(fmt.Sprintf("io.openshift.ci.from.%s", fromTag))
 }
 
 var testPathRegex = regexp.MustCompile(`(?P<org>[^/]+)/(?P<repo>[^@]+)@(?P<branch>[^:]+):(?P<test>.+)`)

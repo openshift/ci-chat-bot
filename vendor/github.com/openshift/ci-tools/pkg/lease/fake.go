@@ -13,11 +13,11 @@ import (
 
 type fakeClient struct {
 	owner    string
-	failures sets.String
+	failures sets.Set[string]
 	calls    *[]string
 }
 
-func NewFakeClient(owner, url string, retries int, failures sets.String, calls *[]string) Client {
+func NewFakeClient(owner, url string, retries int, failures sets.Set[string], calls *[]string) Client {
 	if calls == nil {
 		calls = &[]string{}
 	}

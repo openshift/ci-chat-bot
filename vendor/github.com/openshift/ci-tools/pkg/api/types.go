@@ -40,26 +40,65 @@ type ReleaseBuildConfiguration struct {
 	// contains the output of this command. This allows reuse of binary artifacts
 	// across other steps. If empty, no "bin" image will be created.
 	BinaryBuildCommands string `json:"binary_build_commands,omitempty"`
+
+	// BinaryBuildCommandsList entries will create a "bin" image based on "src" that
+	// contains the output of this command. This allows reuse of binary artifacts
+	// across other steps. If empty, no "bin" image will be created.
+	// Mutually exclusive with BinaryBuildCommands
+	// DO NOT set this in the config
+	BinaryBuildCommandsList []RefCommands `json:"binary_build_commands_list,omitempty"`
+
 	// TestBinaryBuildCommands will create a "test-bin" image based on "src" that
 	// contains the output of this command. This allows reuse of binary artifacts
 	// across other steps. If empty, no "test-bin" image will be created.
 	TestBinaryBuildCommands string `json:"test_binary_build_commands,omitempty"`
+
+	// TestBinaryBuildCommandsList entries will create a "test-bin" image based on "src" that
+	// contains the output of this command. This allows reuse of binary artifacts
+	// across other steps. If empty, no "test-bin" image will be created.
+	// Mutually exclusive with TestBinaryBuildCommands
+	// DO NOT set this in the config
+	TestBinaryBuildCommandsList []RefCommands `json:"test_binary_build_commands_list,omitempty"`
 
 	// RpmBuildCommands will create an "rpms" image from "bin" (or "src", if no
 	// binary build commands were specified) that contains the output of this
 	// command. The created RPMs will then be served via HTTP to the "base" image
 	// via an injected rpm.repo in the standard location at /etc/yum.repos.d.
 	RpmBuildCommands string `json:"rpm_build_commands,omitempty"`
+
+	// RpmBuildCommandsList entries will create an "rpms" image from "bin" (or "src", if no
+	// binary build commands were specified) that contains the output of this
+	// command. The created RPMs will then be served via HTTP to the "base" image
+	// via an injected rpm.repo in the standard location at /etc/yum.repos.d.
+	// Mutually exclusive with RpmBuildCommands
+	// DO NOT set this in the config
+	RpmBuildCommandsList []RefCommands `json:"rpm_build_commands_list,omitempty"`
+
 	// RpmBuildLocation is where RPms are deposited after being built. If
 	// unset, this will default under the repository root to
 	// _output/local/releases/rpms/.
 	RpmBuildLocation string `json:"rpm_build_location,omitempty"`
+
+	// RpmBuildLocationList entries are where RPms are deposited after being built. If
+	// unset, this will default under the repository root to
+	// _output/local/releases/rpms/.
+	// Mutually exclusive with RpmBuildLocation
+	// DO NOT set this in the config
+	RpmBuildLocationList []RefLocation `json:"rpm_build_location_list,omitempty"`
 
 	// CanonicalGoRepository is a directory path that represents
 	// the desired location of the contents of this repository in
 	// Go. If specified the location of the repository we are
 	// cloning from is ignored.
 	CanonicalGoRepository *string `json:"canonical_go_repository,omitempty"`
+
+	// CanonicalGoRepositoryList is a directory path that represents
+	// the desired location of the contents of this repository in
+	// Go. If specified the location of the repository we are
+	// cloning from is ignored.
+	// Mutually exclusive with CanonicalGoRepository
+	// DO NOT set this in the config
+	CanonicalGoRepositoryList []RefRepository `json:"canonical_go_repository_list,omitempty"`
 
 	// Images describes the images that are built
 	// baseImage the project as part of the release
@@ -90,6 +129,24 @@ type ReleaseBuildConfiguration struct {
 	// input types. The special name '*' may be used to set default
 	// requests and limits.
 	Resources ResourceConfiguration `json:"resources,omitempty"`
+}
+
+// RefCommands pairs a ref (in org/repo format) with commands
+type RefCommands struct {
+	Ref      string `json:"ref"`
+	Commands string `json:"commands"`
+}
+
+// RefLocation pairs a ref (in org/repo format) with a location
+type RefLocation struct {
+	Ref      string `json:"ref"`
+	Location string `json:"location"`
+}
+
+// RefRepository pairs a ref (in org/repo format) with a repository
+type RefRepository struct {
+	Ref        string `json:"ref"`
+	Repository string `json:"repository"`
 }
 
 // Metadata describes the source repo for which a config is written
@@ -131,13 +188,12 @@ func (config ReleaseBuildConfiguration) IsPipelineImage(name string) bool {
 	if config.IsBaseImage(name) {
 		return true
 	}
-	switch name {
-	case string(PipelineImageStreamTagReferenceRoot),
-		string(PipelineImageStreamTagReferenceSource),
-		string(PipelineImageStreamTagReferenceBinaries),
-		string(PipelineImageStreamTagReferenceTestBinaries),
-		string(PipelineImageStreamTagReferenceRPMs),
-		string(PipelineImageStreamTagReferenceBundleSource):
+	if strings.HasPrefix(name, string(PipelineImageStreamTagReferenceRoot)) ||
+		strings.HasPrefix(name, string(PipelineImageStreamTagReferenceSource)) ||
+		strings.HasPrefix(name, string(PipelineImageStreamTagReferenceBinaries)) ||
+		strings.HasPrefix(name, string(PipelineImageStreamTagReferenceTestBinaries)) ||
+		strings.HasPrefix(name, string(PipelineImageStreamTagReferenceRPMs)) ||
+		strings.HasPrefix(name, string(PipelineImageStreamTagReferenceBundleSource)) {
 		return true
 	}
 	if IsIndexImage(name) {
@@ -210,6 +266,13 @@ type InputConfiguration struct {
 	// the pipeline will caches on. The one way is to take the reference
 	// from an image stream, and the other from a dockerfile.
 	BuildRootImage *BuildRootImageConfiguration `json:"build_root,omitempty"`
+
+	// BuildRootImages entries support two ways to get the image that
+	// the pipeline will caches on. The one way is to take the reference
+	// from an image stream, and the other from a dockerfile.
+	// Mutually exclusive with BuildRootImage
+	// DO NOT set this in the config
+	BuildRootImages map[string]BuildRootImageConfiguration `json:"build_roots,omitempty"`
 
 	// ReleaseTagConfiguration determines how the
 	// full release is assembled.
@@ -430,6 +493,70 @@ func (config ReleaseConfiguration) TargetName() string {
 // config should be published to. The release tag configuration
 // defines the inputs, while this defines the outputs.
 type PromotionConfiguration struct {
+	// Targets configure a set of images to be pushed to
+	// a registry.
+	Targets []PromotionTarget `json:"to,omitempty"`
+
+	// Namespace identifies the namespace to which the built
+	// artifacts will be published to.
+	// Deprecated, prefer to set promotion.targets[0].namespace
+	Namespace string `json:"namespace,omitempty"`
+
+	// Name is an optional image stream name to use that
+	// contains all component tags. If specified, tag is
+	// ignored.
+	// Deprecated, prefer to set promotion.targets[0].name
+	Name string `json:"name,omitempty"`
+
+	// Tag is the ImageStreamTag tagged in for each
+	// build image's ImageStream.
+	// Deprecated, prefer to set promotion.targets[0].tag
+	Tag string `json:"tag,omitempty"`
+
+	// TagByCommit determines if an image should be tagged by the
+	// git commit that was used to build it. If Tag is also set,
+	// this will cause both a floating tag and commit-specific tags
+	// to be promoted.
+	// Deprecated, prefer to set promotion.targets[0].tag_by_commit
+	TagByCommit bool `json:"tag_by_commit,omitempty"`
+
+	// ExcludedImages are image names that will not be promoted.
+	// Exclusions are made before additional_images are included.
+	// Use exclusions when you want to build images for testing
+	// but not promote them afterwards.
+	// Deprecated, prefer to set promotion.targets[0].excluded_images
+	ExcludedImages []string `json:"excluded_images,omitempty"`
+
+	// AdditionalImages is a mapping of images to promote. The
+	// images will be taken from the pipeline image stream. The
+	// key is the name to promote as and the value is the source
+	// name. If you specify a tag that does not exist as the source
+	// the destination tag will not be created.
+	// Deprecated, prefer to set promotion.targets[0].additional_images
+	AdditionalImages map[string]string `json:"additional_images,omitempty"`
+
+	// Disabled will no-op succeed instead of running the actual
+	// promotion step. This is useful when two branches need to
+	// promote to the same output imagestream on a cut-over but
+	// never concurrently, and you want to have promotion config
+	// in the ci-operator configuration files all the time.
+	// Deprecated, prefer to set promotion.targets[0].disabled
+	Disabled bool `json:"disabled,omitempty"`
+
+	// RegistryOverride is an override for the registry domain to
+	// which we will mirror images. This is an advanced option and
+	// should *not* be used in common test workflows. The CI chat
+	// bot uses this option to facilitate image sharing.
+	RegistryOverride string `json:"registry_override,omitempty"`
+
+	// DisableBuildCache stops us from uploading the build cache.
+	// This is useful (only) for CI chat bot invocations where
+	// promotion does not imply output artifacts are being created
+	// for posterity.
+	DisableBuildCache bool `json:"disable_build_cache,omitempty"`
+}
+
+type PromotionTarget struct {
 	// Namespace identifies the namespace to which the built
 	// artifacts will be published to.
 	Namespace string `json:"namespace"`
@@ -468,18 +595,6 @@ type PromotionConfiguration struct {
 	// never concurrently, and you want to have promotion config
 	// in the ci-operator configuration files all the time.
 	Disabled bool `json:"disabled,omitempty"`
-
-	// RegistryOverride is an override for the registry domain to
-	// which we will mirror images. This is an advanced option and
-	// should *not* be used in common test workflows. The CI chat
-	// bot uses this option to facilitate image sharing.
-	RegistryOverride string `json:"registry_override,omitempty"`
-
-	// DisableBuildCache stops us from uploading the build cache.
-	// This is useful (only) for CI chat bot invocations where
-	// promotion does not imply output artifacts are being created
-	// for posterity.
-	DisableBuildCache bool `json:"disable_build_cache,omitempty"`
 }
 
 // StepConfiguration holds one step configuration.
@@ -519,7 +634,7 @@ func (config InputImageTagStepConfiguration) Matches(other InputImage) bool {
 
 func (config InputImageTagStepConfiguration) FormattedSources() string {
 	var formattedSources []string
-	tests := sets.String{}
+	tests := sets.Set[string]{}
 	for _, source := range config.Sources {
 		switch source.SourceType {
 		case ImageStreamSourceTest:
@@ -534,7 +649,7 @@ func (config InputImageTagStepConfiguration) FormattedSources() string {
 	}
 
 	if len(tests) > 0 {
-		formattedSources = append(formattedSources, fmt.Sprintf("test steps: %s", strings.Join(tests.List(), ",")))
+		formattedSources = append(formattedSources, fmt.Sprintf("test steps: %s", strings.Join(sets.List(tests), ",")))
 
 	}
 
@@ -549,6 +664,9 @@ func (config *InputImageTagStepConfiguration) AddSources(sources ...ImageStreamS
 type InputImage struct {
 	BaseImage ImageStreamTagReference         `json:"base_image"`
 	To        PipelineImageStreamTagReference `json:"to,omitempty"`
+
+	// Ref is an optional string linking to the extra_ref in "org.repo" format that this belongs to
+	Ref string `json:"ref,omitempty"`
 }
 
 type ImageStreamSourceType string
@@ -595,6 +713,9 @@ type PipelineImageCacheStepConfiguration struct {
 	// the repository root to create the cached
 	// content.
 	Commands string `json:"commands"`
+
+	// Ref is an optional string linking to the extra_ref in "org.repo" format that this belongs to
+	Ref string `json:"ref,omitempty"`
 }
 
 func (config PipelineImageCacheStepConfiguration) TargetName() string {
@@ -605,14 +726,15 @@ func (config PipelineImageCacheStepConfiguration) TargetName() string {
 type Cluster string
 
 const (
-	ClusterAPPCI   Cluster = "app.ci"
-	ClusterBuild01 Cluster = "build01"
-	ClusterBuild02 Cluster = "build02"
-	ClusterBuild03 Cluster = "build03"
-	ClusterVSphere Cluster = "vsphere"
-	ClusterARM01   Cluster = "arm01"
-	ClusterHive    Cluster = "hive"
-	ClusterMulti01 Cluster = "multi01"
+	ClusterAPPCI     Cluster = "app.ci"
+	ClusterBuild01   Cluster = "build01"
+	ClusterBuild02   Cluster = "build02"
+	ClusterBuild03   Cluster = "build03"
+	ClusterBuild09   Cluster = "build09"
+	ClusterVSphere02 Cluster = "vsphere02"
+	ClusterARM01     Cluster = "arm01"
+	ClusterHive      Cluster = "hive"
+	ClusterMulti01   Cluster = "multi01"
 )
 
 // TestStepConfiguration describes a step that runs a
@@ -673,6 +795,10 @@ type TestStepConfiguration struct {
 
 	// RunIfChanged is a regex that will result in the test only running if something that matches it was changed.
 	RunIfChanged string `json:"run_if_changed,omitempty"`
+
+	// PipelineRunIfChanged is a regex that will result in the test only running in second
+	// stage of the pipeline run if something that matches it was changed.
+	PipelineRunIfChanged string `json:"pipeline_run_if_changed,omitempty"`
 
 	// Optional indicates that the job's status context, that is generated from the corresponding test, should not be required for merge.
 	Optional bool `json:"optional,omitempty"`
@@ -854,6 +980,8 @@ type Observer struct {
 	// GracePeriod is how long the we will wait after sending SIGINT to send
 	// SIGKILL when aborting this observer.
 	GracePeriod *prowv1.Duration `json:"grace_period,omitempty"`
+	// Environment has the values of parameters for the observer.
+	Environment []StepParameter `json:"env,omitempty"`
 }
 
 // Observers is a configuration for which observer pods should and should not
@@ -1128,12 +1256,14 @@ const (
 	ClusterProfileAWSChinaQE            ClusterProfile = "aws-china-qe"
 	ClusterProfileAWSGovCloudQE         ClusterProfile = "aws-usgov-qe"
 	ClusterProfileAWSSC2SQE             ClusterProfile = "aws-sc2s-qe"
+	ClusterProfileAWSSCPQE              ClusterProfile = "aws-scp-qe"
 	ClusterProfileAWS1QE                ClusterProfile = "aws-1-qe"
 	ClusterProfileAWSSdQE               ClusterProfile = "aws-sd-qe"
 	ClusterProfileAWSPerfScale          ClusterProfile = "aws-perfscale"
 	ClusterProfileAWSPerfQE             ClusterProfile = "aws-perf-qe"
 	ClusterProfileAWSPerfScaleQE        ClusterProfile = "aws-perfscale-qe"
 	ClusterProfileAWSPerfScaleLRCQE     ClusterProfile = "aws-perfscale-lrc-qe"
+	ClusterProfileAWSChaos              ClusterProfile = "aws-chaos"
 	ClusterProfileAWSGluster            ClusterProfile = "aws-gluster"
 	ClusterProfileAWSManagedCSPIQE      ClusterProfile = "aws-managed-cspi-qe"
 	ClusterProfileAWSOSDMSP             ClusterProfile = "aws-osd-msp"
@@ -1141,6 +1271,13 @@ const (
 	ClusterProfileAWSINTEROPQE          ClusterProfile = "aws-interop-qe"
 	ClusterProfileAWSLocalZones         ClusterProfile = "aws-local-zones"
 	ClusterProfileAWSTerraformQE        ClusterProfile = "aws-terraform-qe"
+	ClusterProfileAWSPipelinesPerf      ClusterProfile = "aws-pipelines-performance"
+	ClusterProfileAWSRHTAPQE            ClusterProfile = "aws-rhtap-qe"
+	ClusterProfileAWSRHTAPPerformance   ClusterProfile = "aws-rhtap-performance"
+	ClusterProfileAWSRHDHPerf           ClusterProfile = "aws-rhdh-performance"
+	ClusterProfileAWSTelco              ClusterProfile = "aws-telco"
+	ClusterProfileAWSOpendatahub        ClusterProfile = "aws-opendatahub"
+	ClusterProfileAWSDevfile            ClusterProfile = "aws-devfile"
 	ClusterProfileAlibabaCloud          ClusterProfile = "alibabacloud"
 	ClusterProfileAlibabaCloudQE        ClusterProfile = "alibabacloud-qe"
 	ClusterProfileAlibabaCloudCNQE      ClusterProfile = "alibabacloud-cn-qe"
@@ -1154,13 +1291,14 @@ const (
 	ClusterProfileAzureMag              ClusterProfile = "azuremag"
 	ClusterProfileAzureQE               ClusterProfile = "azure-qe"
 	ClusterProfileAzureArm64QE          ClusterProfile = "azure-arm64-qe"
-	ClusterProfileAzureMarketPlaceQE    ClusterProfile = "azure-marketplace-qe"
 	ClusterProfileAzureMagQE            ClusterProfile = "azuremag-qe"
 	ClusterProfileEquinixOcpMetal       ClusterProfile = "equinix-ocp-metal"
 	ClusterProfileEquinixOcpMetalQE     ClusterProfile = "equinix-ocp-metal-qe"
 	ClusterProfileFleetManagerQE        ClusterProfile = "fleet-manager-qe"
 	ClusterProfileGCPQE                 ClusterProfile = "gcp-qe"
+	ClusterProfileGCPArm64              ClusterProfile = "gcp-arm64"
 	ClusterProfileGCP                   ClusterProfile = "gcp"
+	ClusterProfileGCP3                  ClusterProfile = "gcp-3"
 	ClusterProfileGCP40                 ClusterProfile = "gcp-40"
 	ClusterProfileGCPHA                 ClusterProfile = "gcp-ha"
 	ClusterProfileGCPCRIO               ClusterProfile = "gcp-crio"
@@ -1169,20 +1307,27 @@ const (
 	ClusterProfileGCPLoggingJSONFile    ClusterProfile = "gcp-logging-json-file"
 	ClusterProfileGCPLoggingCRIO        ClusterProfile = "gcp-logging-crio"
 	ClusterProfileGCP2                  ClusterProfile = "gcp-openshift-gce-devel-ci-2"
+	ClusterProfileGCPOpendatahub        ClusterProfile = "gcp-opendatahub"
+	ClusterProfileGCPTelco              ClusterProfile = "gcp-telco"
 	ClusterProfileIBMCloud              ClusterProfile = "ibmcloud"
+	ClusterProfileIBMCloudCSPIQE        ClusterProfile = "ibmcloud-cspi-qe"
 	ClusterProfileIBMCloudQE            ClusterProfile = "ibmcloud-qe"
+	ClusterProfileIBMCloudQE2           ClusterProfile = "ibmcloud-qe-2"
 	ClusterProfileIBMCloudMultiPpc64le  ClusterProfile = "ibmcloud-multi-ppc64le"
 	ClusterProfileIBMCloudMultiS390x    ClusterProfile = "ibmcloud-multi-s390x"
 	ClusterProfilePOWERVS1              ClusterProfile = "powervs-1"
 	ClusterProfilePOWERVS2              ClusterProfile = "powervs-2"
+	ClusterProfilePOWERVS3              ClusterProfile = "powervs-3"
+	ClusterProfilePOWERVS4              ClusterProfile = "powervs-4"
 	ClusterProfileLibvirtPpc64le        ClusterProfile = "libvirt-ppc64le"
 	ClusterProfileLibvirtS390x          ClusterProfile = "libvirt-s390x"
+	ClusterProfileLibvirtS390xAmd64     ClusterProfile = "libvirt-s390x-amd64"
 	ClusterProfileNutanix               ClusterProfile = "nutanix"
 	ClusterProfileNutanixQE             ClusterProfile = "nutanix-qe"
 	ClusterProfileNutanixQEDis          ClusterProfile = "nutanix-qe-dis"
 	ClusterProfileOpenStack             ClusterProfile = "openstack"
 	ClusterProfileOpenStackHwoffload    ClusterProfile = "openstack-hwoffload"
-	ClusterProfileOpenStackKuryr        ClusterProfile = "openstack-kuryr"
+	ClusterProfileOpenStackIBMOSP       ClusterProfile = "openstack-ibm-osp"
 	ClusterProfileOpenStackNFV          ClusterProfile = "openstack-nfv"
 	ClusterProfileOpenStackMechaCentral ClusterProfile = "openstack-vh-mecha-central"
 	ClusterProfileOpenStackMechaAz0     ClusterProfile = "openstack-vh-mecha-az0"
@@ -1194,15 +1339,11 @@ const (
 	ClusterProfilePacket                ClusterProfile = "packet"
 	ClusterProfilePacketAssisted        ClusterProfile = "packet-assisted"
 	ClusterProfilePacketSNO             ClusterProfile = "packet-sno"
-	ClusterProfileVSphere               ClusterProfile = "vsphere"
-	ClusterProfileVSphere8              ClusterProfile = "vsphere-8"
+	ClusterProfileVSphere2              ClusterProfile = "vsphere-2"
 	ClusterProfileVSphere8Vpn           ClusterProfile = "vsphere-8-vpn"
-	ClusterProfileVSphereDis            ClusterProfile = "vsphere-dis"
-	ClusterProfileVSphereClusterbot     ClusterProfile = "vsphere-clusterbot"
-	ClusterProfileVSphereIBM7           ClusterProfile = "vsphere-ibm-7"
-	ClusterProfileVSpherePlatformNone   ClusterProfile = "vsphere-platform-none"
-	ClusterProfileVSphereMultizone      ClusterProfile = "vsphere-multizone"
-	ClusterProfileVSphereConnected      ClusterProfile = "vsphere-connected"
+	ClusterProfileVSphereDis2           ClusterProfile = "vsphere-dis-2"
+	ClusterProfileVSphereMultizone2     ClusterProfile = "vsphere-multizone-2"
+	ClusterProfileVSphereConnected2     ClusterProfile = "vsphere-connected-2"
 	ClusterProfileKubevirt              ClusterProfile = "kubevirt"
 	ClusterProfileAWSCPaaS              ClusterProfile = "aws-cpaas"
 	ClusterProfileOSDEphemeral          ClusterProfile = "osd-ephemeral"
@@ -1213,6 +1354,12 @@ const (
 	ClusterProfileAWSVirtualization     ClusterProfile = "aws-virtualization"
 	ClusterProfileAzureVirtualization   ClusterProfile = "azure-virtualization"
 	ClusterProfileOCIAssisted           ClusterProfile = "oci-assisted"
+	ClusterProfileHypershiftPowerVS     ClusterProfile = "hypershift-powervs"
+	ClusterProfileHypershiftPowerVSCB   ClusterProfile = "hypershift-powervs-cb"
+	ClusterProfileOSSM                  ClusterProfile = "ossm-aws"
+	ClusterProfileMedik8sAWS            ClusterProfile = "medik8s-aws"
+	ClusterProfileGitOpsAWS             ClusterProfile = "gitops-aws"
+	ClusterProfileCheAWS                ClusterProfile = "che-aws"
 )
 
 // ClusterProfiles are all valid cluster profiles
@@ -1232,6 +1379,7 @@ func ClusterProfiles() []ClusterProfile {
 		ClusterProfileAWSPerfQE,
 		ClusterProfileAWSPerfScaleQE,
 		ClusterProfileAWSPerfScaleLRCQE,
+		ClusterProfileAWSChaos,
 		ClusterProfileAWSChinaQE,
 		ClusterProfileAWSGluster,
 		ClusterProfileAWSManagedCSPIQE,
@@ -1241,10 +1389,18 @@ func ClusterProfiles() []ClusterProfile {
 		ClusterProfileAWS1QE,
 		ClusterProfileAWSSdQE,
 		ClusterProfileAWSSC2SQE,
+		ClusterProfileAWSSCPQE,
 		ClusterProfileAWSOutpost,
 		ClusterProfileAWSINTEROPQE,
 		ClusterProfileAWSLocalZones,
 		ClusterProfileAWSTerraformQE,
+		ClusterProfileAWSPipelinesPerf,
+		ClusterProfileAWSRHTAPQE,
+		ClusterProfileAWSRHTAPPerformance,
+		ClusterProfileAWSRHDHPerf,
+		ClusterProfileAWSTelco,
+		ClusterProfileAWSOpendatahub,
+		ClusterProfileAWSDevfile,
 		ClusterProfileAlibabaCloud,
 		ClusterProfileAlibabaCloudQE,
 		ClusterProfileAlibabaCloudCNQE,
@@ -1256,7 +1412,6 @@ func ClusterProfiles() []ClusterProfile {
 		ClusterProfileAzureMag,
 		ClusterProfileAzureMagQE,
 		ClusterProfileAzureQE,
-		ClusterProfileAzureMarketPlaceQE,
 		ClusterProfileAzureStack,
 		ClusterProfileAzureStackQE,
 		ClusterProfileEquinixOcpMetal,
@@ -1264,6 +1419,7 @@ func ClusterProfiles() []ClusterProfile {
 		ClusterProfileFleetManagerQE,
 		ClusterProfileGCP,
 		ClusterProfileGCP2,
+		ClusterProfileGCP3,
 		ClusterProfileGCP40,
 		ClusterProfileGCPCRIO,
 		ClusterProfileGCPHA,
@@ -1272,26 +1428,34 @@ func ClusterProfiles() []ClusterProfile {
 		ClusterProfileGCPLoggingJSONFile,
 		ClusterProfileGCPLoggingJournald,
 		ClusterProfileGCPQE,
+		ClusterProfileGCPArm64,
 		ClusterProfileGCPVirtualization,
+		ClusterProfileGCPOpendatahub,
+		ClusterProfileGCPTelco,
 		ClusterProfileAWSVirtualization,
 		ClusterProfileAzureVirtualization,
 		ClusterProfileHyperShift,
 		ClusterProfileIBMCloud,
+		ClusterProfileIBMCloudCSPIQE,
 		ClusterProfileIBMCloudQE,
+		ClusterProfileIBMCloudQE2,
 		ClusterProfileIBMCloudMultiPpc64le,
 		ClusterProfileIBMCloudMultiS390x,
 		ClusterProfilePOWERVS1,
 		ClusterProfilePOWERVS2,
+		ClusterProfilePOWERVS3,
+		ClusterProfilePOWERVS4,
 		ClusterProfileKubevirt,
 		ClusterProfileLibvirtPpc64le,
 		ClusterProfileLibvirtS390x,
+		ClusterProfileLibvirtS390xAmd64,
 		ClusterProfileNutanix,
 		ClusterProfileNutanixQE,
 		ClusterProfileNutanixQEDis,
 		ClusterProfileOSDEphemeral,
 		ClusterProfileOpenStack,
 		ClusterProfileOpenStackHwoffload,
-		ClusterProfileOpenStackKuryr,
+		ClusterProfileOpenStackIBMOSP,
 		ClusterProfileOpenStackMechaAz0,
 		ClusterProfileOpenStackMechaCentral,
 		ClusterProfileOpenStackNFV,
@@ -1303,17 +1467,25 @@ func ClusterProfiles() []ClusterProfile {
 		ClusterProfilePacket,
 		ClusterProfilePacketAssisted,
 		ClusterProfilePacketSNO,
-		ClusterProfileVSphere,
-		ClusterProfileVSphere8,
+
+		ClusterProfileVSphere2,
 		ClusterProfileVSphere8Vpn,
-		ClusterProfileVSphereClusterbot,
-		ClusterProfileVSphereDis,
-		ClusterProfileVSphereIBM7,
-		ClusterProfileVSphereMultizone,
-		ClusterProfileVSphereConnected,
-		ClusterProfileVSpherePlatformNone,
+		ClusterProfileVSphereDis2,
+		ClusterProfileVSphereMultizone2,
+		ClusterProfileVSphereConnected2,
+
 		ClusterProfileOCIAssisted,
+		ClusterProfileHypershiftPowerVS,
+		ClusterProfileHypershiftPowerVSCB,
+		ClusterProfileOSSM,
+		ClusterProfileMedik8sAWS,
+		ClusterProfileGitOpsAWS,
+		ClusterProfileCheAWS,
 	}
+}
+
+func (p ClusterProfile) Name() string {
+	return string(p)
 }
 
 // ClusterType maps profiles to the type string used by tests.
@@ -1342,7 +1514,19 @@ func (p ClusterProfile) ClusterType() string {
 		ClusterProfileAWSPerfQE,
 		ClusterProfileAWSPerfScaleQE,
 		ClusterProfileAWSPerfScaleLRCQE,
-		ClusterProfileAWSTerraformQE:
+		ClusterProfileAWSChaos,
+		ClusterProfileAWSTerraformQE,
+		ClusterProfileAWSPipelinesPerf,
+		ClusterProfileAWSRHTAPQE,
+		ClusterProfileAWSRHTAPPerformance,
+		ClusterProfileAWSRHDHPerf,
+		ClusterProfileOSSM,
+		ClusterProfileAWSOpendatahub,
+		ClusterProfileAWSDevfile,
+		ClusterProfileAWSTelco,
+		ClusterProfileMedik8sAWS,
+		ClusterProfileGitOpsAWS,
+		ClusterProfileCheAWS:
 		return string(CloudAWS)
 	case
 		ClusterProfileAlibabaCloud,
@@ -1359,6 +1543,8 @@ func (p ClusterProfile) ClusterType() string {
 		return "aws-usgov"
 	case ClusterProfileAWSSC2SQE:
 		return "aws-sc2s"
+	case ClusterProfileAWSSCPQE:
+		return "aws-scp"
 	case ClusterProfileAWSOSDMSP:
 		return "aws-osd-msp"
 	case
@@ -1366,7 +1552,6 @@ func (p ClusterProfile) ClusterType() string {
 		ClusterProfileAzure4,
 		ClusterProfileAzureArc,
 		ClusterProfileAzureQE,
-		ClusterProfileAzureMarketPlaceQE,
 		ClusterProfileAzureVirtualization:
 		return "azure4"
 	case
@@ -1387,7 +1572,9 @@ func (p ClusterProfile) ClusterType() string {
 		return "equinix-ocp-metal"
 	case
 		ClusterProfileGCPQE,
+		ClusterProfileGCPArm64,
 		ClusterProfileGCP,
+		ClusterProfileGCP3,
 		ClusterProfileGCP40,
 		ClusterProfileGCPHA,
 		ClusterProfileGCPCRIO,
@@ -1396,11 +1583,15 @@ func (p ClusterProfile) ClusterType() string {
 		ClusterProfileGCPLoggingJSONFile,
 		ClusterProfileGCPLoggingCRIO,
 		ClusterProfileGCP2,
-		ClusterProfileGCPVirtualization:
+		ClusterProfileGCPVirtualization,
+		ClusterProfileGCPOpendatahub,
+		ClusterProfileGCPTelco:
 		return string(CloudGCP)
 	case
 		ClusterProfileIBMCloud,
-		ClusterProfileIBMCloudQE:
+		ClusterProfileIBMCloudCSPIQE,
+		ClusterProfileIBMCloudQE,
+		ClusterProfileIBMCloudQE2:
 		return "ibmcloud"
 	case ClusterProfileIBMCloudMultiPpc64le:
 		return "ibmcloud-multi-ppc64le"
@@ -1410,22 +1601,27 @@ func (p ClusterProfile) ClusterType() string {
 		return "powervs-1"
 	case ClusterProfilePOWERVS2:
 		return "powervs-2"
+	case ClusterProfilePOWERVS3:
+		return "powervs-3"
+	case ClusterProfilePOWERVS4:
+		return "powervs-4"
 	case ClusterProfileLibvirtPpc64le:
 		return "libvirt-ppc64le"
 	case ClusterProfileLibvirtS390x:
 		return "libvirt-s390x"
-	case ClusterProfileNutanix:
+	case ClusterProfileLibvirtS390xAmd64:
+		return "libvirt-s390x-amd64"
+	case
+		ClusterProfileNutanix,
+		ClusterProfileNutanixQE,
+		ClusterProfileNutanixQEDis:
 		return "nutanix"
-	case ClusterProfileNutanixQE:
-		return "nutanix-qe"
-	case ClusterProfileNutanixQEDis:
-		return "nutanix-qe-dis"
 	case ClusterProfileOpenStack:
 		return "openstack"
 	case ClusterProfileOpenStackHwoffload:
 		return "openstack-hwoffload"
-	case ClusterProfileOpenStackKuryr:
-		return "openstack-kuryr"
+	case ClusterProfileOpenStackIBMOSP:
+		return "openstack-ibm-osp"
 	case ClusterProfileOpenStackNFV:
 		return "openstack-nfv"
 	case ClusterProfileOpenStackMechaCentral:
@@ -1441,15 +1637,12 @@ func (p ClusterProfile) ClusterType() string {
 	case ClusterProfileOpenStackOpVexxhost:
 		return "openstack-operators-vexxhost"
 	case
-		ClusterProfileVSphere,
-		ClusterProfileVSphere8,
+		ClusterProfileVSphere2,
+		ClusterProfileVSphereMultizone2,
+		ClusterProfileVSphereDis2,
 		ClusterProfileVSphere8Vpn,
-		ClusterProfileVSphereDis,
-		ClusterProfileVSphereClusterbot,
-		ClusterProfileVSphereIBM7,
-		ClusterProfileVSpherePlatformNone,
-		ClusterProfileVSphereConnected,
-		ClusterProfileVSphereMultizone:
+		ClusterProfileVSphereConnected2:
+
 		return "vsphere"
 	case ClusterProfileOvirt:
 		return "ovirt"
@@ -1468,6 +1661,10 @@ func (p ClusterProfile) ClusterType() string {
 		return "hypershift"
 	case ClusterProfileOCIAssisted:
 		return "oci-edge"
+	case ClusterProfileHypershiftPowerVS:
+		return "hypershift-powervs"
+	case ClusterProfileHypershiftPowerVSCB:
+		return "hypershift-powervs-cb"
 	default:
 		return ""
 	}
@@ -1501,6 +1698,8 @@ func (p ClusterProfile) LeaseType() string {
 		return "aws-cspi-qe-quota-slice"
 	case ClusterProfileAWSPerfQE:
 		return "aws-perf-qe-quota-slice"
+	case ClusterProfileAWSChaos:
+		return "aws-chaos-quota-slice"
 	case ClusterProfileAWSPerfScale:
 		return "aws-perfscale-quota-slice"
 	case ClusterProfileAWSPerfScaleQE:
@@ -1513,6 +1712,8 @@ func (p ClusterProfile) LeaseType() string {
 		return "aws-usgov-qe-quota-slice"
 	case ClusterProfileAWSSC2SQE:
 		return "aws-sc2s-qe-quota-slice"
+	case ClusterProfileAWSSCPQE:
+		return "aws-scp-qe-quota-slice"
 	case ClusterProfileAWSINTEROPQE:
 		return "aws-interop-qe-quota-slice"
 	case ClusterProfileAWSVirtualization:
@@ -1521,6 +1722,20 @@ func (p ClusterProfile) LeaseType() string {
 		return "aws-local-zones-quota-slice"
 	case ClusterProfileAWSTerraformQE:
 		return "aws-terraform-qe-quota-slice"
+	case ClusterProfileAWSPipelinesPerf:
+		return "aws-pipelines-performance-quota-slice"
+	case ClusterProfileAWSRHTAPQE:
+		return "aws-rhtap-qe-quota-slice"
+	case ClusterProfileAWSRHTAPPerformance:
+		return "aws-rhtap-performance-quota-slice"
+	case ClusterProfileAWSRHDHPerf:
+		return "aws-rhdh-performance-quota-slice"
+	case ClusterProfileAWSTelco:
+		return "aws-telco-quota-slice"
+	case ClusterProfileAWSOpendatahub:
+		return "aws-opendatahub-quota-slice"
+	case ClusterProfileAWSDevfile:
+		return "aws-devfile-quota-slice"
 	case ClusterProfileAlibabaCloud:
 		return "alibabacloud-quota-slice"
 	case ClusterProfileAlibabaCloudQE:
@@ -1549,8 +1764,6 @@ func (p ClusterProfile) LeaseType() string {
 		return "azuremag-qe-quota-slice"
 	case ClusterProfileAzureArm64QE:
 		return "azure-arm64-qe-quota-slice"
-	case ClusterProfileAzureMarketPlaceQE:
-		return "azure-marketplace-qe-quota-slice"
 	case ClusterProfileAzureVirtualization:
 		return "azure-virtualization-quota-slice"
 	case ClusterProfileEquinixOcpMetal:
@@ -1561,6 +1774,8 @@ func (p ClusterProfile) LeaseType() string {
 		return "fleet-manager-qe-quota-slice"
 	case ClusterProfileGCPQE:
 		return "gcp-qe-quota-slice"
+	case ClusterProfileGCPArm64:
+		return "gcp-arm64-quota-slice"
 	case
 		ClusterProfileGCP,
 		ClusterProfileGCP40,
@@ -1573,12 +1788,22 @@ func (p ClusterProfile) LeaseType() string {
 		return "gcp-quota-slice"
 	case ClusterProfileGCP2:
 		return "gcp-openshift-gce-devel-ci-2-quota-slice"
+	case ClusterProfileGCP3:
+		return "gcp-3-quota-slice"
 	case ClusterProfileGCPVirtualization:
 		return "gcp-virtualization-quota-slice"
+	case ClusterProfileGCPOpendatahub:
+		return "gcp-opendatahub-quota-slice"
+	case ClusterProfileGCPTelco:
+		return "gcp-telco-quota-slice"
 	case ClusterProfileIBMCloud:
 		return "ibmcloud-quota-slice"
+	case ClusterProfileIBMCloudCSPIQE:
+		return "ibmcloud-cspi-qe-quota-slice"
 	case ClusterProfileIBMCloudQE:
 		return "ibmcloud-qe-quota-slice"
+	case ClusterProfileIBMCloudQE2:
+		return "ibmcloud-qe-2-quota-slice"
 	case ClusterProfileIBMCloudMultiPpc64le:
 		return "ibmcloud-multi-ppc64le-quota-slice"
 	case ClusterProfileIBMCloudMultiS390x:
@@ -1587,10 +1812,16 @@ func (p ClusterProfile) LeaseType() string {
 		return "powervs-1-quota-slice"
 	case ClusterProfilePOWERVS2:
 		return "powervs-2-quota-slice"
+	case ClusterProfilePOWERVS3:
+		return "powervs-3-quota-slice"
+	case ClusterProfilePOWERVS4:
+		return "powervs-4-quota-slice"
 	case ClusterProfileLibvirtPpc64le:
 		return "libvirt-ppc64le-quota-slice"
 	case ClusterProfileLibvirtS390x:
 		return "libvirt-s390x-quota-slice"
+	case ClusterProfileLibvirtS390xAmd64:
+		return "libvirt-s390x-amd64-quota-slice"
 	case ClusterProfileNutanix:
 		return "nutanix-quota-slice"
 	case ClusterProfileNutanixQE:
@@ -1601,8 +1832,8 @@ func (p ClusterProfile) LeaseType() string {
 		return "openstack-quota-slice"
 	case ClusterProfileOpenStackHwoffload:
 		return "openstack-hwoffload-quota-slice"
-	case ClusterProfileOpenStackKuryr:
-		return "openstack-kuryr-quota-slice"
+	case ClusterProfileOpenStackIBMOSP:
+		return "openstack-ibm-osp-quota-slice"
 	case ClusterProfileOpenStackNFV:
 		return "openstack-nfv-quota-slice"
 	case ClusterProfileOpenStackMechaCentral:
@@ -1625,24 +1856,16 @@ func (p ClusterProfile) LeaseType() string {
 		ClusterProfilePacketAssisted,
 		ClusterProfilePacketSNO:
 		return "packet-edge-quota-slice"
-	case ClusterProfileVSphere:
-		return "vsphere-quota-slice"
-	case ClusterProfileVSphereIBM7:
-		return "vsphere-ibm-7-quota-slice"
-	case ClusterProfileVSphere8:
-		return "vsphere-8-quota-slice"
 	case ClusterProfileVSphere8Vpn:
 		return "vsphere-8-vpn-quota-slice"
-	case ClusterProfileVSphereDis:
-		return "vsphere-dis-quota-slice"
-	case ClusterProfileVSphereClusterbot:
-		return "vsphere-clusterbot-quota-slice"
-	case ClusterProfileVSpherePlatformNone:
-		return "vsphere-platform-none-quota-slice"
-	case ClusterProfileVSphereMultizone:
-		return "vsphere-multizone-quota-slice"
-	case ClusterProfileVSphereConnected:
-		return "vsphere-connected-quota-slice"
+	case ClusterProfileVSphere2:
+		return "vsphere-2-quota-slice"
+	case ClusterProfileVSphereDis2:
+		return "vsphere-dis-2-quota-slice"
+	case ClusterProfileVSphereMultizone2:
+		return "vsphere-multizone-2-quota-slice"
+	case ClusterProfileVSphereConnected2:
+		return "vsphere-connected-2-quota-slice"
 	case ClusterProfileKubevirt:
 		return "kubevirt-quota-slice"
 	case ClusterProfileAWSCPaaS:
@@ -1657,6 +1880,18 @@ func (p ClusterProfile) LeaseType() string {
 		return "hypershift-quota-slice"
 	case ClusterProfileOCIAssisted:
 		return "oci-edge-quota-slice"
+	case ClusterProfileHypershiftPowerVS:
+		return "hypershift-powervs-quota-slice"
+	case ClusterProfileHypershiftPowerVSCB:
+		return "hypershift-powervs-cb-quota-slice"
+	case ClusterProfileOSSM:
+		return "ossm-aws-quota-slice"
+	case ClusterProfileMedik8sAWS:
+		return "medik8s-aws-quota-slice"
+	case ClusterProfileGitOpsAWS:
+		return "gitops-aws-quota-slice"
+	case ClusterProfileCheAWS:
+		return "che-aws-quota-slice"
 	default:
 		return ""
 	}
@@ -1674,6 +1909,7 @@ func (p ClusterProfile) ConfigMap() string {
 		ClusterProfileAzure,
 		ClusterProfileGCP,
 		ClusterProfileGCP2,
+		ClusterProfileGCP3,
 		ClusterProfileGCP40,
 		ClusterProfileGCPCRIO,
 		ClusterProfileGCPHA,
@@ -1706,13 +1942,12 @@ func (p ClusterProfile) Secret() string {
 		ClusterProfileGCPLoggingCRIO,
 		ClusterProfileGCPLoggingJSONFile,
 		ClusterProfileGCPLoggingJournald,
-		ClusterProfileVSphere8,
-		ClusterProfileVSphereClusterbot,
-		ClusterProfileVSphereDis,
-		ClusterProfileVSphereConnected,
-		ClusterProfileVSphereIBM7,
-		ClusterProfileVSphereMultizone,
-		ClusterProfileVSpherePlatformNone:
+		ClusterProfileVSphere2,
+		ClusterProfileVSphereDis2,
+		ClusterProfileVSphereMultizone2,
+		ClusterProfileVSphereConnected2,
+		ClusterProfileVSphere8Vpn:
+
 		name = p.ClusterType()
 	default:
 		name = string(p)
@@ -1723,7 +1958,7 @@ func (p ClusterProfile) Secret() string {
 // LeaseTypeFromClusterType maps cluster types to lease types
 func LeaseTypeFromClusterType(t string) (string, error) {
 	switch t {
-	case "aws", "aws-arm64", "aws-c2s", "aws-china", "aws-usgov", "aws-sc2s", "aws-osd-msp", "aws-outpost", "aws-local-zones", "alibaba", "azure-2", "azure4", "azure-arc", "azure-arm64", "azurestack", "azuremag", "equinix-ocp-metal", "gcp", "libvirt-ppc64le", "libvirt-s390x", "ibmcloud-multi-ppc64le", "ibmcloud-multi-s390x", "nutanix", "nutanix-qe", "nutanix-qe-dis", "openstack", "openstack-osuosl", "openstack-vexxhost", "openstack-ppc64le", "vsphere", "ovirt", "packet", "packet-edge", "powervs-1", "powervs-2", "kubevirt", "aws-cpaas", "osd-ephemeral", "gcp-virtualization", "aws-virtualization", "azure-virtualization":
+	case "aws", "aws-arm64", "aws-c2s", "aws-china", "aws-usgov", "aws-sc2s", "aws-osd-msp", "aws-outpost", "aws-local-zones", "aws-opendatahub", "alibaba", "azure-2", "azure4", "azure-arc", "azure-arm64", "azurestack", "azuremag", "equinix-ocp-metal", "gcp", "gcp-arm64", "gcp-opendatahub", "libvirt-ppc64le", "libvirt-s390x", "ibmcloud-multi-ppc64le", "ibmcloud-multi-s390x", "nutanix", "nutanix-qe", "nutanix-qe-dis", "openstack", "openstack-osuosl", "openstack-vexxhost", "openstack-ppc64le", "vsphere", "ovirt", "packet", "packet-edge", "powervs-1", "powervs-2", "powervs-3", "powervs-4", "kubevirt", "aws-cpaas", "osd-ephemeral", "gcp-virtualization", "aws-virtualization", "azure-virtualization", "hypershift-powervs", "hypershift-powervs-cb":
 		return t + "-quota-slice", nil
 	default:
 		return "", fmt.Errorf("invalid cluster type %q", t)
@@ -1865,6 +2100,9 @@ type SourceStepConfiguration struct {
 	// ClonerefsPath is the path in the above image where the
 	// clonerefs tool is placed
 	ClonerefsPath string `json:"clonerefs_path"`
+
+	// Ref is an optional string linking to the extra_ref in "org.repo" format that this belongs to
+	Ref string `json:"ref,omitempty"`
 }
 
 func (config SourceStepConfiguration) TargetName() string {
@@ -1908,6 +2146,8 @@ type Bundle struct {
 	// Skip building the index image for this bundle. Default to false.
 	// This field works only for named bundles, i.e., "as" is not empty.
 	SkipBuildingIndex bool `json:"skip_building_index,omitempty"`
+	// Optional indicates that the job's status context, that is generated from the corresponding test, should not be required for merge.
+	Optional bool `json:"optional,omitempty"`
 }
 
 // IndexGeneratorStepConfiguration describes a step that creates an index database and
@@ -2000,6 +2240,9 @@ type ProjectDirectoryImageBuildStepConfiguration struct {
 	// promoted unless explicitly targeted. Use for builds which
 	// are invoked only when testing certain parts of the repo.
 	Optional bool `json:"optional,omitempty"`
+
+	// Ref is an optional string linking to the extra_ref in "org.repo" format that this belongs to
+	Ref string `json:"ref,omitempty"`
 }
 
 func (config ProjectDirectoryImageBuildStepConfiguration) TargetName() string {
@@ -2028,6 +2271,9 @@ type ProjectDirectoryImageBuildInputs struct {
 	// BuildArgs contains build arguments that will be resolved in the Dockerfile.
 	// See https://docs.docker.com/engine/reference/builder/#/arg for more details.
 	BuildArgs []BuildArg `json:"build_args,omitempty"`
+
+	// Ref is an optional string linking to the extra_ref in "org.repo" format that this belongs to
+	Ref string `json:"ref,omitempty"`
 }
 
 type BuildArg struct {
@@ -2088,9 +2334,15 @@ func (config RPMImageInjectionStepConfiguration) TargetName() string {
 // a server from an image with RPMs and exposes it to the web.
 type RPMServeStepConfiguration struct {
 	From PipelineImageStreamTagReference `json:"from"`
+
+	// Ref is an optional string linking to the extra_ref in "org.repo" format that this belongs to
+	Ref string `json:"ref,omitempty"`
 }
 
 func (config RPMServeStepConfiguration) TargetName() string {
+	if config.Ref != "" {
+		return fmt.Sprintf("[serve:rpms-%s]", config.Ref)
+	}
 	return "[serve:rpms]"
 }
 
@@ -2161,4 +2413,19 @@ func GetAvailableArchitectures() []string {
 		architectures = append(architectures, string(arch))
 	}
 	return architectures
+}
+
+type ClusterProfilesList []ClusterProfileDetails
+
+type ClusterProfileDetails struct {
+	Profile     ClusterProfile         `yaml:"profile"`
+	Owners      []ClusterProfileOwners `yaml:"owners,omitempty"`
+	ClusterType string                 `yaml:"cluster_type,omitempty"`
+	LeaseType   string                 `yaml:"lease_type,omitempty"`
+	Secret      string                 `yaml:"secret,omitempty"`
+}
+
+type ClusterProfileOwners struct {
+	Org   string   `yaml:"org"`
+	Repos []string `yaml:"repos,omitempty"`
 }

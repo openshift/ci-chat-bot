@@ -390,7 +390,7 @@ func BuildPartialGraph(steps []Step, names []string) (StepGraph, error) {
 func (g StepGraph) TopologicalSort() (OrderedStepList, []error) {
 	var ret OrderedStepList
 	var satisfied []StepLink
-	if err := iterateDAG(g, nil, sets.NewString(), func(*StepNode) {}); err != nil {
+	if err := iterateDAG(g, nil, sets.New[string](), func(*StepNode) {}); err != nil {
 		return nil, err
 	}
 	seen := make(map[Step]struct{})
@@ -416,9 +416,9 @@ func (g StepGraph) TopologicalSort() (OrderedStepList, []error) {
 			changed = true
 		}
 		if !changed && len(waiting) > 0 {
-			errMessages := sets.String{}
+			errMessages := sets.Set[string]{}
 			for _, node := range waiting {
-				missing := sets.String{}
+				missing := sets.Set[string]{}
 				for _, link := range node.Step.Requires() {
 					if !HasAllLinks([]StepLink{link}, satisfied) {
 						if msg := link.UnsatisfiableError(); msg != "" {
@@ -429,11 +429,11 @@ func (g StepGraph) TopologicalSort() (OrderedStepList, []error) {
 					}
 				}
 				// De-Duplicate errors
-				errMessages.Insert(fmt.Sprintf("step %s is missing dependencies: %s", node.Step.Name(), strings.Join(missing.List(), ", ")))
+				errMessages.Insert(fmt.Sprintf("step %s is missing dependencies: %s", node.Step.Name(), strings.Join(sets.List(missing), ", ")))
 			}
 			ret := make([]error, 0, errMessages.Len()+1)
 			ret = append(ret, errors.New("steps are missing dependencies"))
-			for _, message := range errMessages.List() {
+			for _, message := range sets.List(errMessages) {
 				ret = append(ret, errors.New(message))
 			}
 			return nil, ret
@@ -444,7 +444,7 @@ func (g StepGraph) TopologicalSort() (OrderedStepList, []error) {
 }
 
 // iterateDAG applies a function to every node of a DAG, detecting cycles.
-func iterateDAG(graph StepGraph, path []string, inPath sets.String, f func(*StepNode)) (ret []error) {
+func iterateDAG(graph StepGraph, path []string, inPath sets.Set[string], f func(*StepNode)) (ret []error) {
 	for _, node := range graph {
 		name := node.Step.Name()
 		if inPath.Has(name) {
@@ -461,10 +461,10 @@ func iterateDAG(graph StepGraph, path []string, inPath sets.String, f func(*Step
 
 // IterateAllEdges applies an operation to every node in the graph once.
 func (g StepGraph) IterateAllEdges(f func(*StepNode)) {
-	iterateAllEdges(g, sets.NewString(), f)
+	iterateAllEdges(g, sets.New[string](), f)
 }
 
-func iterateAllEdges(nodes []*StepNode, alreadyIterated sets.String, f func(*StepNode)) {
+func iterateAllEdges(nodes []*StepNode, alreadyIterated sets.Set[string], f func(*StepNode)) {
 	for _, node := range nodes {
 		if alreadyIterated.Has(node.Step.Name()) {
 			continue
