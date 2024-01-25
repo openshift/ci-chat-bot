@@ -33,8 +33,6 @@ import (
 
 var RosaClusterSecretName = "ci-chat-bot-rosa-clusters"
 
-const adminUsername = "cluster-admin"
-
 func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel string, duration time.Duration) (*clustermgmtv1.Cluster, string, error) {
 	clusterName, err := generateRandomString(15, true)
 	if err != nil {
@@ -354,12 +352,12 @@ func (m *jobManager) addClusterAuthAndWait(cluster *clustermgmtv1.Cluster, ready
 	}
 	clientConfig := rest.Config{
 		Host:     cluster.API().URL(),
-		Username: adminUsername,
+		Username: m.rosaClusterAdminUsername,
 		Password: password,
 	}
 	authReady := false
 	for i := 0; i < 10; i++ {
-		if _, err := tokencmd.RequestToken(&clientConfig, nil, adminUsername, password); err != nil {
+		if _, err := tokencmd.RequestToken(&clientConfig, nil, m.rosaClusterAdminUsername, password); err != nil {
 			if k8serrors.IsUnauthorized(err) || errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) {
 				klog.Infof("Cluster auth for %s not ready yet", cluster.ID())
 				time.Sleep(time.Minute)
@@ -403,22 +401,22 @@ func (m *jobManager) addClusterAuth(clusterID string) (string, bool, error) {
 	}
 
 	// Add cluster-admin user to the cluster-admins group
-	klog.Infof("Adding '%s' user to cluster '%s'", adminUsername, clusterID)
-	user, err := clustermgmtv1.NewUser().ID(adminUsername).Build()
+	klog.Infof("Adding '%s' user to cluster '%s'", m.rosaClusterAdminUsername, clusterID)
+	user, err := clustermgmtv1.NewUser().ID(m.rosaClusterAdminUsername).Build()
 	if err != nil {
 		metrics.RecordError(errorRosaGetIDP, m.errorMetric)
-		return "", false, fmt.Errorf("Failed to create user '%s' for cluster '%s'", adminUsername, clusterID)
+		return "", false, fmt.Errorf("Failed to create user '%s' for cluster '%s'", m.rosaClusterAdminUsername, clusterID)
 	}
 
 	_, err = m.rClient.OCMClient.CreateUser(clusterID, "cluster-admins", user)
 	if err != nil {
 		metrics.RecordError(errorRosaCreateUser, m.errorMetric)
-		return "", false, fmt.Errorf("Failed to add user '%s' to cluster '%s': %s", adminUsername, clusterID, err)
+		return "", false, fmt.Errorf("Failed to add user '%s' to cluster '%s': %s", m.rosaClusterAdminUsername, clusterID, err)
 	}
 
 	klog.Infof("Adding 'htpasswd' idp to cluster '%s'", clusterID)
 	htpasswdIDP := clustermgmtv1.NewHTPasswdIdentityProvider().Users(clustermgmtv1.NewHTPasswdUserList().Items(
-		CreateHTPasswdUserBuilder(adminUsername, password),
+		CreateHTPasswdUserBuilder(m.rosaClusterAdminUsername, password),
 	))
 	newIDP, err := clustermgmtv1.NewIdentityProvider().
 		Type(clustermgmtv1.IdentityProviderTypeHtpasswd).
