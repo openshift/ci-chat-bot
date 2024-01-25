@@ -15,6 +15,9 @@ const (
 	GCSUploadCredentialsSecret          = "gce-sa-credentials-gcs-publisher"
 	GCSUploadCredentialsSecretMountPath = "/secrets/gcs"
 
+	ManifestToolLocalPusherSecret          = "manifest-tool-local-pusher"
+	ManifestToolLocalPusherSecretMountPath = "/secrets/manifest-tool"
+
 	ReleaseAnnotationSoftDelete = "release.openshift.io/soft-delete"
 
 	// DPTPRequesterLabel is the label on a Kubernates CR whose value indicates the automated tool that requests the CR
@@ -70,13 +73,13 @@ const (
 )
 
 var (
-	clusterNames = sets.NewString(
+	clusterNames = sets.New[string](
 		string(ClusterAPPCI),
 		string(ClusterARM01),
 		string(ClusterBuild01),
 		string(ClusterBuild02),
 		string(ClusterBuild03),
-		string(ClusterVSphere),
+		string(ClusterVSphere02),
 	)
 )
 

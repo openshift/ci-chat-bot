@@ -1,7 +1,6 @@
 package api
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -39,7 +38,7 @@ func SaveArtifact(censor secretutil.Censorer, relPath string, data []byte) error
 		logrus.WithError(err).Warn("Unable to create artifact directory.")
 		return err
 	}
-	if err := ioutil.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0644); err != nil {
 		logrus.WithError(err).Errorf("Failed to write %s", relPath)
 		return err
 	}
