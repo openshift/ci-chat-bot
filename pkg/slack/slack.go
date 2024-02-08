@@ -139,6 +139,11 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Example:     "workflow-launch openshift-e2e-gcp-windows-node 4.15 gcp",
 			Handler:     WorkflowLaunch,
 		}),
+		parser.NewBotCommand("workflow-test <name> <image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
+			Description: "Start the test using the requested workflow from an image or release or built PRs. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org.",
+			Example:     "workflow-test openshift-e2e-gcp 4.15",
+			Handler:     WorkflowTest,
+		}),
 		parser.NewBotCommand("workflow-upgrade <name> <from_image_or_version_or_prs> <to_image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
 			Description: "Run a custom upgrade using the requested workflow from an image or release or built PRs to a specified version/image/pr from https://amd64.ocp.releases.ci.openshift.org. ",
 			Example:     "workflow-upgrade openshift-upgrade-azure-ovn 4.14 4.15 azure",

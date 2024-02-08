@@ -78,6 +78,7 @@ const (
 	JobTypeTest            = "test"
 	JobTypeUpgrade         = "upgrade"
 	JobTypeWorkflowLaunch  = "workflow-launch"
+	JobTypeWorkflowTest    = "workflow-test"
 	JobTypeWorkflowUpgrade = "workflow-upgrade"
 )
 
@@ -1412,6 +1413,14 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 			return nil, fmt.Errorf("platform must be set when launching clusters")
 		}
 		job.Mode = JobTypeWorkflowLaunch
+	case JobTypeWorkflowTest:
+		if req.Architecture != "amd64" {
+			return nil, fmt.Errorf("workflow launches are not currently supported for non-amd64 releases")
+		}
+		if len(jobInputs) != 1 {
+			return nil, fmt.Errorf("launching a cluster requires one image, version, or pull request")
+		}
+		job.Mode = JobTypeWorkflowTest
 	default:
 		return nil, fmt.Errorf("unexpected job type: %q", req.Type)
 	}
@@ -1443,6 +1452,8 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 		prefix = "launch"
 	case JobTypeTest:
 		prefix = "e2e"
+	case JobTypeWorkflowTest:
+		prefix = "workflow-e2e"
 	case JobTypeUpgrade:
 		prefix = "upgrade"
 	default:
@@ -1469,6 +1480,9 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 func configContainsVariant(params map[string]string, platform, unresolvedConfig, jobType string) (bool, string, error) {
 	if jobType == JobTypeWorkflowLaunch {
 		return true, "launch", nil
+	}
+	if jobType == JobTypeWorkflowTest {
+		return true, "e2e-test", nil
 	}
 	name, err := multistageNameFromParams(params, platform, jobType)
 	if err != nil {
@@ -1569,6 +1583,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(withRelease))
 		}
 	}
+
 	if prowJob == nil {
 		architectureLabel := req.Architecture
 		// multiarch image launches use amd64 jobs
