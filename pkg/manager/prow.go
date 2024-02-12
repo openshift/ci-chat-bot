@@ -437,12 +437,13 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	_, targetName, _ := configContainsVariant(job.JobParams, job.Platform, sourceEnv.Value, job.Mode)
 
 	// For workflows, we configure the tests we run; for others, we need to load and modify the tests
-	if job.Mode == JobTypeWorkflowLaunch || job.Mode == JobTypeWorkflowUpgrade {
+	if job.Mode == JobTypeWorkflowLaunch || job.Mode == JobTypeWorkflowUpgrade || job.Mode == JobTypeWorkflowTest {
 		// use "launch" test name to identify proper cluster profile
 		var profile citools.ClusterProfile
 		for _, test := range sourceConfig.Tests {
 			if test.As == "launch" {
 				profile = test.MultiStageTestConfiguration.ClusterProfile
+				break
 			}
 		}
 		environment := citools.TestEnvironment{}

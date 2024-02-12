@@ -322,6 +322,50 @@ func WorkflowLaunch(client *slack.Client, jobManager manager.JobManager, event *
 	return msg
 }
 
+func WorkflowTest(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	workflowConfig := jobManager.GetWorkflowConfig()
+	userName := GetUserName(client, event.User)
+	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
+	if err != nil {
+		return err.Error()
+	}
+	if len(from) == 0 {
+		return "you must specify what will be tested"
+	}
+
+	name := properties.StringParam("name", "")
+	if len(name) == 0 {
+		return fmt.Sprintf("you must specify the name of a workflow: %s", strings.Join(CodeSlice(manager.SupportedTests), ", "))
+	}
+	platform, architecture, err := GetPlatformArchFromWorkflowConfig(workflowConfig, name)
+	if err != nil {
+		return err.Error()
+	}
+
+	params := properties.StringParam("parameters", "")
+	jobParams, err := BuildJobParams(params)
+	if err != nil {
+		return err.Error()
+	}
+
+	msg, err := jobManager.LaunchJobForUser(&manager.JobRequest{
+		OriginalMessage: event.Text,
+		User:            event.User,
+		UserName:        userName,
+		Inputs:          [][]string{from},
+		Type:            manager.JobTypeWorkflowTest,
+		Channel:         event.Channel,
+		Platform:        platform,
+		JobParams:       jobParams,
+		Architecture:    architecture,
+		WorkflowName:    name,
+	})
+	if err != nil {
+		return err.Error()
+	}
+	return msg
+}
+
 func WorkflowUpgrade(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	workflowConfig := jobManager.GetWorkflowConfig()
 	userName := GetUserName(client, event.User)

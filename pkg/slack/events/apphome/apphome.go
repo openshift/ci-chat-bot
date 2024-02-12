@@ -2,6 +2,7 @@ package apphome
 
 import (
 	"encoding/json"
+
 	"github.com/openshift/ci-chat-bot/pkg/slack/events"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
@@ -106,6 +107,24 @@ const homeJson = `
 				},
 				"value": "workflow_launch",
 				"action_id": "workflow_launch",
+				"style": "primary"
+			}
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "Start the test using the requested workflow from an image,release or built PRs"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "Workflow-Test",
+					"emoji": true
+				},
+				"value": "workflow_test",
+				"action_id": "workflow_test",
 				"style": "primary"
 			}
 		},

@@ -3,9 +3,10 @@ package prow
 import (
 	"bytes"
 	"fmt"
+	"strings"
+
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	"k8s.io/test-infra/prow/pjutil"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

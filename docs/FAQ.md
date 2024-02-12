@@ -49,8 +49,17 @@
 
    The workflow config file also supports setting base_images for workflows that may require special base images to run as well as an architecture field that will support configuring the CPU architecture for openshift to run on once non-amd64 architectures are supported by the ci-chat-bot (https://github.com/openshift/ci-chat-bot/blob/master/prow.go#L190).
 
+## workflow_test
+1. **What is `workflow_test`?**
 
-2. **How can I make a workflow runnable by the `workflow-launch` command**
+   Similar to `workflow_launch`, but preserves `test` stage in the workflow. This is useful to run a particular workflow for a set of pull-requests or with varied parameters.
+
+   The definition of the command is as follows:
+
+   `workflow-test {workflow_name} {image_or_version_or_prs} {parameters}`
+
+
+2. **How can I make a workflow runnable by `workflow-*` commands**
 
    1. Make a PR editing the
       [workflows-config.yaml](https://github.com/openshift/release/blob/master/core-services/ci-chat-bot/workflows-config.yaml)
@@ -81,5 +90,3 @@ clusters:
     - `http_proxy=145.40.68.183:8213 https_proxy=145.40.68.183:8213 curl -L https://console-openshift-console.apps.ostest.test.metalkube.org/ -v`
     - `curl -kvx http://145.40.68.183:8213 https://console-openshift-console.apps.ostest.test.metalkube.org/dashboards`
     - `export http_proxy=145.40.68.183:8213 && export https_proxy=145.40.68.183:8213 && oc login -u kubeadmin -p <password> https://api.ostest.test.metalkube.org:6443`
-
-
