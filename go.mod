@@ -24,7 +24,7 @@ require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/onsi/ginkgo/v2 v2.11.0
 	github.com/onsi/gomega v1.27.8
-	github.com/openshift-online/ocm-sdk-go v0.1.385
+	github.com/openshift-online/ocm-sdk-go v0.1.391
 	github.com/openshift/api v0.0.0-20230703134140-1c2204a0195c
 	github.com/openshift/build-machinery-go v0.0.0-20220913142420-e25cf57ea46d
 	github.com/openshift/ci-tools v0.0.0-20240105180842-bd97192360e0
@@ -58,6 +58,9 @@ require (
 	github.com/antlr/antlr4/runtime/Go/antlr v1.4.10 // indirect
 	github.com/apcera/gssapi v0.0.0-00010101000000-000000000000 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
+	github.com/aws/aws-sdk-go-v2 v1.24.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/iam v1.27.1 // indirect
+	github.com/aws/smithy-go v1.19.0 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/briandowns/spinner v1.11.1 // indirect
@@ -102,13 +105,13 @@ require (
 	github.com/mattn/go-isatty v0.0.18 // indirect
 	github.com/mattn/go-sqlite3 v1.14.16 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
-	github.com/microcosm-cc/bluemonday v1.0.23 // indirect
+	github.com/microcosm-cc/bluemonday v1.0.26 // indirect
 	github.com/moby/locker v1.0.1 // indirect
 	github.com/moby/sys/mountinfo v0.6.2 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0-rc3 // indirect
 	github.com/opencontainers/runc v1.1.5 // indirect
-	github.com/openshift-online/ocm-common v0.0.0-20231026143539-5ff0909b6fae // indirect
+	github.com/openshift-online/ocm-common v0.0.0-20240117125843-51555c93fbd5 // indirect
 	github.com/openshift/library-go v0.0.0-20230411150541-a704a5774e20 // indirect
 	github.com/otiai10/copy v1.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
@@ -204,7 +207,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/openshift/rosa v1.2.31
+	github.com/openshift/rosa v1.2.34
 	github.com/operator-framework/api v0.17.6
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pkg/errors v0.9.1 // indirect

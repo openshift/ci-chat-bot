@@ -2,9 +2,10 @@ package ocm
 
 import (
 	"fmt"
-	"github.com/openshift-online/ocm-common/pkg"
 	"strconv"
 	"time"
+
+	commonUtils "github.com/openshift-online/ocm-common/pkg/utils"
 )
 
 func IntValidator(val interface{}) error {
@@ -59,7 +60,7 @@ func PercentageValidator(val interface{}) error {
 		return nil
 	}
 
-	number, err := strconv.ParseFloat(fmt.Sprintf("%v", val), pkg.MaxByteSize)
+	number, err := strconv.ParseFloat(fmt.Sprintf("%v", val), commonUtils.MaxByteSize)
 	if err != nil {
 		return fmt.Errorf("Failed parsing '%v' into a floating-point number.", val)
 	}

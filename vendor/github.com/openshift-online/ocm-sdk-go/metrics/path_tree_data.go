@@ -53,6 +53,7 @@ var pathTreeData = `{
         },
         "labels": null,
         "notify": null,
+        "notify_details": null,
         "organizations": {
           "-": {
             "labels": {
@@ -169,6 +170,7 @@ var pathTreeData = `{
           "sts_account_roles": null,
           "sts_credential_requests": null,
           "sts_policies": null,
+          "validate_credentials": null,
           "vpcs": null
         },
         "cloud_providers": {
@@ -313,6 +315,7 @@ var pathTreeData = `{
         "gcp_inquiries": {
           "encryption_keys": null,
           "key_rings": null,
+          "machine_types": null,
           "regions": null,
           "vpcs": null
         },

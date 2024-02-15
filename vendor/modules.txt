@@ -176,6 +176,30 @@ github.com/aws/aws-sdk-go/service/sso/ssoiface
 github.com/aws/aws-sdk-go/service/ssooidc
 github.com/aws/aws-sdk-go/service/sts
 github.com/aws/aws-sdk-go/service/sts/stsiface
+# github.com/aws/aws-sdk-go-v2 v1.24.1
+## explicit; go 1.19
+github.com/aws/aws-sdk-go-v2/aws
+github.com/aws/aws-sdk-go-v2/aws/arn
+github.com/aws/aws-sdk-go-v2/internal/rand
+github.com/aws/aws-sdk-go-v2/internal/sdk
+github.com/aws/aws-sdk-go-v2/internal/sync/singleflight
+# github.com/aws/aws-sdk-go-v2/service/iam v1.27.1
+## explicit; go 1.19
+github.com/aws/aws-sdk-go-v2/service/iam/types
+# github.com/aws/smithy-go v1.19.0
+## explicit; go 1.19
+github.com/aws/smithy-go
+github.com/aws/smithy-go/auth
+github.com/aws/smithy-go/auth/bearer
+github.com/aws/smithy-go/context
+github.com/aws/smithy-go/document
+github.com/aws/smithy-go/internal/sync/singleflight
+github.com/aws/smithy-go/logging
+github.com/aws/smithy-go/middleware
+github.com/aws/smithy-go/ptr
+github.com/aws/smithy-go/time
+github.com/aws/smithy-go/transport/http
+github.com/aws/smithy-go/transport/http/internal/io
 # github.com/aymerick/douceur v0.2.0
 ## explicit
 github.com/aymerick/douceur/css
@@ -633,8 +657,8 @@ github.com/matttproud/golang_protobuf_extensions/pbutil
 # github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d
 ## explicit
 github.com/mgutz/ansi
-# github.com/microcosm-cc/bluemonday v1.0.23
-## explicit; go 1.19
+# github.com/microcosm-cc/bluemonday v1.0.26
+## explicit; go 1.21
 github.com/microcosm-cc/bluemonday
 github.com/microcosm-cc/bluemonday/css
 # github.com/moby/locker v1.0.1
@@ -697,12 +721,15 @@ github.com/opencontainers/image-spec/specs-go/v1
 # github.com/opencontainers/runc v1.1.5
 ## explicit; go 1.16
 github.com/opencontainers/runc/libcontainer/user
-# github.com/openshift-online/ocm-common v0.0.0-20231026143539-5ff0909b6fae
+# github.com/openshift-online/ocm-common v0.0.0-20240117125843-51555c93fbd5
 ## explicit; go 1.19
-github.com/openshift-online/ocm-common/pkg
+github.com/openshift-online/ocm-common/pkg/aws/consts
+github.com/openshift-online/ocm-common/pkg/aws/utils
 github.com/openshift-online/ocm-common/pkg/aws/validations
+github.com/openshift-online/ocm-common/pkg/ocm/consts
 github.com/openshift-online/ocm-common/pkg/ocm/validations
-# github.com/openshift-online/ocm-sdk-go v0.1.385
+github.com/openshift-online/ocm-common/pkg/utils
+# github.com/openshift-online/ocm-sdk-go v0.1.391
 ## explicit; go 1.21
 github.com/openshift-online/ocm-sdk-go
 github.com/openshift-online/ocm-sdk-go/accountsmgmt
@@ -781,7 +808,7 @@ github.com/openshift/library-go/pkg/oauth/oauthdiscovery
 github.com/openshift/oc/pkg/helpers/term
 github.com/openshift/oc/pkg/helpers/tokencmd
 github.com/openshift/oc/pkg/version
-# github.com/openshift/rosa v1.2.31
+# github.com/openshift/rosa v1.2.34
 ## explicit; go 1.20
 github.com/openshift/rosa/assets
 github.com/openshift/rosa/pkg/arguments
