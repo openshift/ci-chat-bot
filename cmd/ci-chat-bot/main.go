@@ -111,8 +111,9 @@ func run() error {
 			ConfigPathFlagName:    "prow-config",
 			JobConfigPathFlagName: "job-config",
 		},
-		ConfigResolver:    "http://config.ci.openshift.org/config",
-		KubernetesOptions: prowflagutil.KubernetesOptions{NOInClusterConfigDefault: true},
+		ConfigResolver:           "http://config.ci.openshift.org/config",
+		KubernetesOptions:        prowflagutil.KubernetesOptions{NOInClusterConfigDefault: true},
+		rosaClusterAdminUsername: "cluster-admin",
 	}
 
 	// Initialize a standard logger for k8s controller-runtime
