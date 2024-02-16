@@ -123,6 +123,7 @@ func NewJobManager(
 	rosaSecretClient typedcorev1.SecretInterface,
 	rosaSubnetList *RosaSubnets,
 	rosaClusterLimit int,
+	rosaClusterAdminUsername string,
 	errorRate *prometheus.CounterVec,
 	rosaOidcConfigId string,
 	rosaBillingAccount string,
@@ -146,16 +147,17 @@ func NewJobManager(
 
 		lClient: lClient,
 
-		hiveConfigMapClient: hiveConfigMapClient,
-		rosaSecretClient:    rosaSecretClient,
-		rClient:             rosaClient,
-		maxRosaAge:          6 * time.Hour,
-		defaultRosaAge:      6 * time.Hour,
-		rosaSubnets:         rosaSubnetList,
-		rosaClusterLimit:    rosaClusterLimit,
-		rosaOidcConfigId:    rosaOidcConfigId,
-		rosaBillingAccount:  rosaBillingAccount,
-		errorMetric:         errorRate,
+		hiveConfigMapClient:      hiveConfigMapClient,
+		rosaSecretClient:         rosaSecretClient,
+		rClient:                  rosaClient,
+		maxRosaAge:               6 * time.Hour,
+		defaultRosaAge:           6 * time.Hour,
+		rosaSubnets:              rosaSubnetList,
+		rosaClusterLimit:         rosaClusterLimit,
+		rosaClusterAdminUsername: rosaClusterAdminUsername,
+		rosaOidcConfigId:         rosaOidcConfigId,
+		rosaBillingAccount:       rosaBillingAccount,
+		errorMetric:              errorRate,
 	}
 	m.muJob.running = make(map[string]struct{})
 	initializeErrorMetrics(m.errorMetric)

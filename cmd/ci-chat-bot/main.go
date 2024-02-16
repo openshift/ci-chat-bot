@@ -3,14 +3,15 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/go-logr/logr"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
-	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
 	"strings"
 	"time"
+
+	"github.com/go-logr/logr"
+	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/adrg/xdg"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
@@ -69,12 +70,13 @@ type options struct {
 	leaseServerCredentialsFile string
 	leaseClient                manager.LeaseClient
 
-	rosaClusterLimit       int
-	rosaSubnetListPath     string
-	rosaOIDCConfigId       string
-	rosaBillingAccount     string
-	overrideLaunchLabel    string
-	overrideRosaSecretName string
+	rosaClusterLimit         int
+	rosaClusterAdminUsername string
+	rosaSubnetListPath       string
+	rosaOIDCConfigId         string
+	rosaBillingAccount       string
+	overrideLaunchLabel      string
+	overrideRosaSecretName   string
 
 	jiraOptions prowflagutil.JiraOptions
 }
@@ -109,8 +111,9 @@ func run() error {
 			ConfigPathFlagName:    "prow-config",
 			JobConfigPathFlagName: "job-config",
 		},
-		ConfigResolver:    "http://config.ci.openshift.org/config",
-		KubernetesOptions: prowflagutil.KubernetesOptions{NOInClusterConfigDefault: true},
+		ConfigResolver:           "http://config.ci.openshift.org/config",
+		KubernetesOptions:        prowflagutil.KubernetesOptions{NOInClusterConfigDefault: true},
+		rosaClusterAdminUsername: "cluster-admin",
 	}
 
 	// Initialize a standard logger for k8s controller-runtime
@@ -127,6 +130,7 @@ func run() error {
 	pflag.StringVar(&opt.overrideLaunchLabel, "override-launch-label", "", "Override the default launch label for jobs. Used for local debugging.")
 	pflag.StringVar(&opt.overrideRosaSecretName, "override-rosa-secret-name", "", "Override the default secret name for rosa cluster tracking. Used for local debugging.")
 	pflag.IntVar(&opt.rosaClusterLimit, "rosa-cluster-limit", 15, "Maximum number of ROSA clusters that can exist at the same time. Set to 0 for no limit.")
+	pflag.StringVar(&opt.rosaClusterAdminUsername, "rosa-cluster-admin-username", "cluster-admin", "Admin username of a ROSA cluster")
 	pflag.StringVar(&opt.rosaSubnetListPath, "rosa-subnetlist-path", "", "Path to list of comma-separated subnets to use for ROSA hosted clusters.")
 	pflag.StringVar(&opt.rosaOIDCConfigId, "rosa-oidcConfigId-path", "", "Path to the OIDC configuration ID")
 	pflag.StringVar(&opt.rosaBillingAccount, "rosa-billingAccount-path", "", "Path to the Billing Account ID.")
@@ -288,6 +292,7 @@ func run() error {
 		rosaSecretClient,
 		&rosaSubnets,
 		opt.rosaClusterLimit,
+		opt.rosaClusterAdminUsername,
 		clusterBotMetrics.ErrorRate,
 		strings.ReplaceAll(string(rosaOidcConfigId), "\n", ""),
 		strings.ReplaceAll(string(rosaBillingAccount), "\n", ""),
