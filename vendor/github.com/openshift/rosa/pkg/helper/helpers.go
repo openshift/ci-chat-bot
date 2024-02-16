@@ -12,6 +12,8 @@ import (
 
 	"github.com/briandowns/spinner"
 	"github.com/google/uuid"
+	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
+
 	"github.com/openshift/rosa/pkg/reporter"
 )
 
@@ -71,11 +73,9 @@ func RankMapStringInt(values map[string]int) []string {
 		ranked[i] = kv.Key
 	}
 	sort.Slice(ranked, func(i, j int) bool {
-		if ranked[i] == ranked[j] {
-			l1, l2 := len(ranked[i]), len(ranked[j])
-			if l1 != l2 {
-				return l1 > l2
-			}
+		l1, l2 := len(ranked[i]), len(ranked[j])
+		if l1 != l2 {
+			return l1 > l2
 		}
 		return ranked[i] > ranked[j]
 	})
@@ -239,4 +239,22 @@ func KeysByValue(m map[string]string, value string) []string {
 		}
 	}
 	return keys
+}
+
+func ChunkSlice[T any](slice []T, chunkSize int) [][]T {
+	var chunks [][]T
+	for i := 0; i < len(slice); i += chunkSize {
+		end := i + chunkSize
+		if end > len(slice) {
+			end = len(slice)
+		}
+
+		chunks = append(chunks, slice[i:end])
+	}
+
+	return chunks
+}
+
+func IsBYOVPC(cluster *cmv1.Cluster) bool {
+	return len(cluster.AWS().SubnetIDs()) > 0
 }

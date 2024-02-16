@@ -28,8 +28,10 @@ import (
 	"github.com/ghodss/yaml"
 	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	msv1 "github.com/openshift-online/ocm-sdk-go/servicemgmt/v1"
-	"github.com/openshift/rosa/pkg/aws"
+
 	"gitlab.com/c0b/go-ordered-json"
+
+	"github.com/openshift/rosa/pkg/aws"
 )
 
 // When ocm-sdk-go encounters an empty resource list, it marshals it as a
@@ -121,6 +123,10 @@ func Print(resource interface{}) error {
 	case "[]*v1.User":
 		if users, ok := resource.([]*cmv1.User); ok {
 			cmv1.MarshalUserList(users, &b)
+		}
+	case "*v1.SubnetNetworkVerification":
+		if subnetNetworkVerification, ok := resource.(*cmv1.SubnetNetworkVerification); ok {
+			cmv1.MarshalSubnetNetworkVerification(subnetNetworkVerification, &b)
 		}
 	case "[]aws.Role", "[]aws.OidcProviderOutput":
 		{

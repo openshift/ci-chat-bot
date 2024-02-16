@@ -50,16 +50,17 @@ import (
 	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/aws/aws-sdk-go/service/sts/stsiface"
 	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
-	"github.com/openshift/rosa/pkg/fedramp"
-	"github.com/openshift/rosa/pkg/reporter"
 	"github.com/sirupsen/logrus"
 	"github.com/zgalor/weberr"
 
 	"github.com/openshift/rosa/pkg/aws/profile"
 	regionflag "github.com/openshift/rosa/pkg/aws/region"
 	"github.com/openshift/rosa/pkg/aws/tags"
+	"github.com/openshift/rosa/pkg/fedramp"
+	"github.com/openshift/rosa/pkg/helper"
 	"github.com/openshift/rosa/pkg/info"
 	"github.com/openshift/rosa/pkg/logging"
+	"github.com/openshift/rosa/pkg/reporter"
 )
 
 // Name of the AWS user that will be used to create all the resources of the cluster:
@@ -74,6 +75,8 @@ const (
 	Attached      = "attached"
 
 	govPartition = "aws-us-gov"
+
+	awsMaxFilterLength = 200
 )
 
 // addROSAVersionToUserAgent is a named handler that will add ROSA CLI
@@ -130,7 +133,10 @@ type Client interface {
 	ListOidcProviders(targetClusterId string) ([]OidcProviderOutput, error)
 	GetRoleByARN(roleARN string) (*iam.Role, error)
 	DeleteOperatorRole(roles string, managedPolicies bool) error
-	GetOperatorRolesFromAccountByClusterID(clusterID string, credRequests map[string]*cmv1.STSOperator) ([]string, error)
+	GetOperatorRolesFromAccountByClusterID(
+		clusterID string,
+		credRequests map[string]*cmv1.STSOperator,
+	) ([]string, error)
 	GetOperatorRolesFromAccountByPrefix(prefix string, credRequest map[string]*cmv1.STSOperator) ([]string, error)
 	GetPolicies(roles []string) (map[string][]string, error)
 	GetAccountRolesForCurrentEnv(env string, accountID string) ([]Role, error)
@@ -191,6 +197,7 @@ type Client interface {
 	GetDefaultPolicyDocument(policyArn string) (string, error)
 	GetAccountRoleByArn(roleArn string) (*Role, error)
 	GetSecurityGroupIds(vpcId string) ([]*ec2.SecurityGroup, error)
+	FetchPublicSubnetMap(subnets []*ec2.Subnet) (map[string]bool, error)
 }
 
 // ClientBuilder contains the information and logic needed to build a new AWS client.
@@ -429,6 +436,57 @@ func (c *awsClient) GetIAMCredentials() (credentials.Value, error) {
 
 func (c *awsClient) GetRegion() string {
 	return aws.StringValue(c.awsSession.Config.Region)
+}
+
+func (c *awsClient) FetchPublicSubnetMap(subnets []*ec2.Subnet) (map[string]bool, error) {
+	mapSubnetIdToPublic := map[string]bool{}
+	if len(subnets) == 0 {
+		return mapSubnetIdToPublic, nil
+	}
+	// AWS has a limit of 200 filters per query so it needs to be broken up in chunks
+	chunks := helper.ChunkSlice(subnets, awsMaxFilterLength)
+
+	for _, curChunk := range chunks {
+		subnetIds := []*string{}
+		for _, subnet := range curChunk {
+			subnetIds = append(subnetIds, subnet.SubnetId)
+		}
+		routeTablesResp, err := c.ec2Client.DescribeRouteTables(&ec2.DescribeRouteTablesInput{
+			Filters: []*ec2.Filter{
+				{
+					Name:   aws.String("association.subnet-id"),
+					Values: subnetIds,
+				},
+			},
+		})
+		if err != nil {
+			return mapSubnetIdToPublic, err
+		}
+		if routeTablesResp == nil {
+			return mapSubnetIdToPublic, fmt.Errorf(
+				"No route table found for associated subnets '%s'",
+				helper.SliceToSortedString(aws.StringValueSlice(subnetIds)),
+			)
+		}
+		for _, routes := range routeTablesResp.RouteTables {
+			for _, association := range routes.Associations {
+				subnetAssociation := aws.StringValue(association.SubnetId)
+				mapSubnetIdToPublic[subnetAssociation] = false
+				for _, route := range routes.Routes {
+					if strings.HasPrefix(aws.StringValue(route.GatewayId), "igw") {
+						// There is no direct way in the AWS API to determine if a subnet is public or private.
+						// A public subnet is one which has an internet gateway route
+						// we look for the gatewayId and make sure it has the prefix of igw to differentiate
+						// from the default in-subnet route which is called "local"
+						// or other virtual gateway (starting with vgv)
+						// or vpc peering connections (starting with pcx).
+						mapSubnetIdToPublic[subnetAssociation] = true
+					}
+				}
+			}
+		}
+	}
+	return mapSubnetIdToPublic, nil
 }
 
 func (c *awsClient) ListSubnets(subnetIds ...string) ([]*ec2.Subnet, error) {

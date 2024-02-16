@@ -3,6 +3,32 @@
 This document describes the relevant changes between releases of the OCM API
 SDK.
 
+## 0.1.391
+- Update model version v0.0.345
+  - Add `validate_credentials` resource to `AwsInquiries`
+- Update model version v0.0.344
+  - Add the /notify_details endpoint to the SDK
+
+## 0.1.390
+- Update model version v0.0.343
+  -  Add `Platform`to `subnet_network_verification_type` resource
+
+## 0.1.389
+- Update model version v0.0.342
+  -  Add `Search` and `Order` methods to List `/api/clusters_mgmt/v1/clusters/{id}/node_pools`
+
+## 0.1.388
+- Update model version v0.0.341
+  -  Add DELETE /api/addons_mgmt/v1/clusters/{id}/addons endpoint
+
+## 0.1.387
+- Update model version v0.0.340
+  - Add get `Platform` to `network_verification_type` resource
+
+## 0.1.386
+- Update model version to v0.0.339
+  - Add `MachineTypes` to `GCPInquiriesClient` endpoints
+
 ## 0.1.385
 - Update model version to v0.0.338
   - Add `ProductTechnologyPreviews` and `ProductMinimalVersions` endpoints

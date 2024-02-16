@@ -28,10 +28,10 @@ func (c *Client) GetVerifyNetworkSubnet(id string) (*cmv1.SubnetNetworkVerificat
 }
 
 func (c *Client) VerifyNetworkSubnets(awsAccountId string, region string,
-	subnets []string) ([]*cmv1.SubnetNetworkVerification, error) {
+	subnets []string, tags map[string]string, platform cmv1.Platform) ([]*cmv1.SubnetNetworkVerification, error) {
 
-	body, _ := cmv1.NewNetworkVerification().CloudProviderData(cmv1.NewCloudProviderData().
-		AWS(cmv1.NewAWS().STS(cmv1.NewSTS().RoleARN(awsAccountId))).
+	body, _ := cmv1.NewNetworkVerification().Platform(platform).CloudProviderData(cmv1.NewCloudProviderData().
+		AWS(cmv1.NewAWS().STS(cmv1.NewSTS().RoleARN(awsAccountId)).Tags(tags)).
 		Subnets(subnets...).
 		Region(cmv1.NewCloudRegion().ID(region))).
 		Build()
@@ -45,8 +45,10 @@ func (c *Client) VerifyNetworkSubnets(awsAccountId string, region string,
 	return response.Body().Items(), nil
 }
 
-func (c *Client) VerifyNetworkSubnetsByCluster(clusterId string) ([]*cmv1.SubnetNetworkVerification, error) {
-	body, _ := cmv1.NewNetworkVerification().ClusterId(clusterId).Build()
+func (c *Client) VerifyNetworkSubnetsByCluster(clusterId string, tags map[string]string) (
+	[]*cmv1.SubnetNetworkVerification, error) {
+	body, _ := cmv1.NewNetworkVerification().ClusterId(clusterId).CloudProviderData(
+		cmv1.NewCloudProviderData().AWS(cmv1.NewAWS().Tags(tags))).Build()
 	response, err := c.ocm.ClustersMgmt().V1().NetworkVerifications().Add().
 		Body(body).
 		Send()
