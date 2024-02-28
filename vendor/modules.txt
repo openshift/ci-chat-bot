@@ -1686,7 +1686,7 @@ k8s.io/kube-openapi/pkg/validation/spec
 k8s.io/kube-openapi/pkg/validation/strfmt
 k8s.io/kube-openapi/pkg/validation/strfmt/bson
 k8s.io/kube-openapi/pkg/validation/validate
-# k8s.io/test-infra v0.0.0-20240105113847-982870e0dea7
+# k8s.io/test-infra v0.0.0-20240228183513-e297b9ca05f2
 ## explicit; go 1.21
 k8s.io/test-infra/ghproxy/ghcache
 k8s.io/test-infra/ghproxy/ghmetrics

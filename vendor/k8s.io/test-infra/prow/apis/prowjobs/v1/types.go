@@ -350,19 +350,7 @@ func (rac *RerunAuthConfig) IsAllowAnyone() bool {
 }
 
 type ReporterConfig struct {
-	ResultStore *ResultStoreReporter `json:"resultstore,omitempty"`
-	Slack       *SlackReporterConfig `json:"slack,omitempty"`
-}
-
-// TODO: This config is used only for alpha testing and will
-// likely move to ProwJobDefaults for flexibility.
-type ResultStoreReporter struct {
-	// Specifies the ResultStore InvocationAttributes.ProjectId, used
-	// for various quota and GUI access control purposes.
-	// In practice, it is generally the same as the Google Cloud
-	// Project ID or number of the job's GCS storage bucket.
-	// Required to write job results to ResultStore.
-	ProjectID string `json:"project_id,omitempty"`
+	Slack *SlackReporterConfig `json:"slack,omitempty"`
 }
 
 type SlackReporterConfig struct {
@@ -452,7 +440,19 @@ func (d *Duration) MarshalJSON() ([]byte, error) {
 // ProwJobDefault is used for Prowjob fields we want to set as defaults
 // in Prow config
 type ProwJobDefault struct {
-	TenantID string `json:"tenant_id,omitempty"`
+	ResultStoreConfig *ResultStoreConfig `json:"resultstore_config,omitempty"`
+	TenantID          string             `json:"tenant_id,omitempty"`
+}
+
+// ResultStoreConfig specifies parameters for uploading results to
+// the ResultStore service.
+type ResultStoreConfig struct {
+	// ProjectID specifies the ResultStore InvocationAttributes.ProjectID, used
+	// for various quota and GUI access control purposes.
+	// In practice, it is generally the same as the Google Cloud Project ID or
+	// number of the job's GCS storage bucket.
+	// Required to upload results to ResultStore.
+	ProjectID string `json:"project_id,omitempty"`
 }
 
 // DecorationConfig specifies how to augment pods.
@@ -493,6 +493,9 @@ type DecorationConfig struct {
 	// that the cloning process can trust.
 	// Create with ssh-keyscan [-t rsa] host
 	SSHHostFingerprints []string `json:"ssh_host_fingerprints,omitempty"`
+	// BloblessFetch tells Prow to avoid fetching objects when cloning using
+	// the --filter=blob:none flag.
+	BloblessFetch *bool `json:"blobless_fetch,omitempty"`
 	// SkipCloning determines if we should clone source code in the
 	// initcontainers for jobs that specify refs
 	SkipCloning *bool `json:"skip_cloning,omitempty"`
@@ -680,6 +683,9 @@ func (d *ProwJobDefault) ApplyDefault(def *ProwJobDefault) *ProwJobDefault {
 	if d == nil || def == nil {
 		return &merged
 	}
+	if merged.ResultStoreConfig == nil {
+		merged.ResultStoreConfig = def.ResultStoreConfig
+	}
 	if merged.TenantID == "" {
 		merged.TenantID = def.TenantID
 	}
@@ -784,6 +790,10 @@ func (d *DecorationConfig) ApplyDefault(def *DecorationConfig) *DecorationConfig
 
 	if merged.FsGroup == nil {
 		merged.FsGroup = def.FsGroup
+	}
+
+	if merged.BloblessFetch == nil {
+		merged.BloblessFetch = def.BloblessFetch
 	}
 	return &merged
 }
@@ -910,6 +920,12 @@ type GCSConfiguration struct {
 	// LocalOutputDir specifies a directory where files should be copied INSTEAD of uploading to blob storage.
 	// This option is useful for testing jobs that use the pod-utilities without actually uploading.
 	LocalOutputDir string `json:"local_output_dir,omitempty"`
+	// CompressFileTypes specify file types that should be gzipped prior to upload.
+	// Matching files will be compressed prior to upload, and the content-encoding on these files will be set to gzip.
+	// GCS will transcode these gzipped files transparently when viewing. See: https://cloud.google.com/storage/docs/transcoding
+	// Example: "txt", "json"
+	// Use "*" for all
+	CompressFileTypes []string `json:"compress_file_types,omitempty"`
 }
 
 // ApplyDefault applies the defaults for GCSConfiguration decorations. If a field has a zero value,
@@ -958,6 +974,9 @@ func (g *GCSConfiguration) ApplyDefault(def *GCSConfiguration) *GCSConfiguration
 
 	if merged.LocalOutputDir == "" {
 		merged.LocalOutputDir = def.LocalOutputDir
+	}
+	if merged.CompressFileTypes == nil {
+		merged.CompressFileTypes = def.CompressFileTypes
 	}
 	return &merged
 }
@@ -1144,6 +1163,10 @@ type Refs struct {
 	// Multiheaded repos may need to not make this call.
 	// The git fetch <remote> <BaseRef> call occurs regardless.
 	SkipFetchHead bool `json:"skip_fetch_head,omitempty"`
+	// BloblessFetch tells prow to avoid fetching objects when cloning
+	// using the --filter=blob:none flag. If unspecified, defaults to
+	// DecorationConfig.BloblessFetch.
+	BloblessFetch *bool `json:"blobless_fetch,omitempty"`
 }
 
 func (r Refs) String() string {
