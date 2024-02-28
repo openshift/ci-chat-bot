@@ -81,21 +81,21 @@ func NewBot(botToken, botSigningSecret string, graceperiod time.Duration, port i
 func (b *Bot) SupportedCommands() []parser.BotCommand {
 	return []parser.BotCommand{
 		parser.NewBotCommand("launch <image_or_version_or_prs> <options>", &parser.CommandDefinition{
-			Description: fmt.Sprintf("Launch an OpenShift cluster using a known image, version, or PR(s). You may omit both arguments. Arguments can be specified as any number of comma-delimited values. Use `nightly` for the latest OCP build, `ci` for the the latest CI build, provide a version directly from any listed on https://amd64.ocp.releases.ci.openshift.org, a stream name (4.15.0-0.ci, 4.15.0-0.nightly, etc), a major/minor `X.Y` to load the \"next stable\" version, from nightly, for that version (`4.15`), `<org>/<repo>#<pr>` to launch from any combination of PRs, or an image for the first argument. Options is a comma-delimited list of variations including platform (%s), architecture (%s), and variant (%s).",
+			Description: fmt.Sprintf("Launch an OpenShift cluster using a known image, version, or PR(s). You may omit both arguments. Arguments can be specified as any number of comma-delimited values. Use `nightly` for the latest OCP build, `ci` for the the latest CI build, provide a version directly from any listed on https://amd64.ocp.releases.ci.openshift.org, a stream name (4.16.0-0.ci, 4.16.0-0.nightly, etc), a major/minor `X.Y` to load the \"next stable\" version, from nightly, for that version (`4.16`), `<org>/<repo>#<pr>` to launch from any combination of PRs, or an image for the first argument. Options is a comma-delimited list of variations including platform (%s), architecture (%s), and variant (%s).",
 				strings.Join(CodeSlice(manager.SupportedPlatforms), ", "),
 				strings.Join(CodeSlice(manager.SupportedArchitectures), ", "),
 				strings.Join(CodeSlice(manager.SupportedParameters), ", ")),
-			Example: "launch 4.15,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
+			Example: "launch 4.16,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
 			Handler: LaunchCluster,
 		}),
 		parser.NewBotCommand("rosa create <version> <duration>", &parser.CommandDefinition{
 			Description: "Launch an cluster in ROSA. Only GA Openshift versions are supported at the moment.",
-			Example:     "rosa create 4.15 3h",
+			Example:     "rosa create 4.16 3h",
 			Handler:     RosaCreate,
 		}),
 		parser.NewBotCommand("rosa lookup <version>", &parser.CommandDefinition{
 			Description: "Find openshift version(s) with provided prefix that is supported in ROSA.",
-			Example:     "rosa lookup 4.15",
+			Example:     "rosa lookup 4.16",
 			Handler:     RosaLookup,
 		}),
 		parser.NewBotCommand("rosa describe <cluster>", &parser.CommandDefinition{
@@ -121,12 +121,12 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		}),
 		parser.NewBotCommand("test upgrade <from> <to> <options>", &parser.CommandDefinition{
 			Description: fmt.Sprintf("Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org. You may change the upgrade test by passing `test=NAME` in options with one of %s", strings.Join(CodeSlice(manager.SupportedUpgradeTests), ", ")),
-			Example:     "test upgrade 4.14 4.15 aws",
+			Example:     "test upgrade 4.15 4.16 aws",
 			Handler:     TestUpgrade,
 		}),
 		parser.NewBotCommand("test <name> <image_or_version_or_prs> <options>", &parser.CommandDefinition{
 			Description: fmt.Sprintf("Run the requested test suite from an image or release or built PRs. Supported test suites are %s. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org. ", strings.Join(CodeSlice(manager.SupportedTests), ", ")),
-			Example:     "test e2e 4.15 vsphere",
+			Example:     "test e2e 4.16 vsphere",
 			Handler:     Test,
 		}),
 		parser.NewBotCommand("build <pullrequest>", &parser.CommandDefinition{
@@ -136,17 +136,17 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		}),
 		parser.NewBotCommand("workflow-launch <name> <image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
 			Description: "Launch a cluster using the requested workflow from an image or release or built PRs. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org.",
-			Example:     "workflow-launch openshift-e2e-gcp-windows-node 4.15 gcp",
+			Example:     "workflow-launch openshift-e2e-gcp-windows-node 4.16 gcp",
 			Handler:     WorkflowLaunch,
 		}),
 		parser.NewBotCommand("workflow-test <name> <image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
 			Description: "Start the test using the requested workflow from an image or release or built PRs. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org.",
-			Example:     "workflow-test openshift-e2e-gcp 4.15",
+			Example:     "workflow-test openshift-e2e-gcp 4.16",
 			Handler:     WorkflowTest,
 		}),
 		parser.NewBotCommand("workflow-upgrade <name> <from_image_or_version_or_prs> <to_image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
 			Description: "Run a custom upgrade using the requested workflow from an image or release or built PRs to a specified version/image/pr from https://amd64.ocp.releases.ci.openshift.org. ",
-			Example:     "workflow-upgrade openshift-upgrade-azure-ovn 4.14 4.15 azure",
+			Example:     "workflow-upgrade openshift-upgrade-azure-ovn 4.15 4.16 azure",
 			Handler:     WorkflowUpgrade,
 		}),
 		parser.NewBotCommand("version", &parser.CommandDefinition{
@@ -155,7 +155,7 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		}),
 		parser.NewBotCommand("lookup <image_or_version_or_prs> <architecture>", &parser.CommandDefinition{
 			Description: "Get info about a version.",
-			Example:     "lookup 4.15 arm64",
+			Example:     "lookup 4.16 arm64",
 			Handler:     Lookup,
 		}),
 		parser.NewBotCommand("catalog build <pullrequest> <bundle_name>", &parser.CommandDefinition{

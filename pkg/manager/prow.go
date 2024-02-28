@@ -585,7 +585,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 					Product:      "ocp",
 				},
 				Stream:  "nightly",
-				Version: "4.15",
+				Version: "4.16",
 			},
 		}
 	}
