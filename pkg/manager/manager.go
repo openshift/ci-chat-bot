@@ -908,8 +908,8 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		// the release-controller cannot assemble multi-arch release, so we must use the `art-latest` streams instead of `release-multi`
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "release-multi", ArchSuffix: "-multi"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4-dev-preview-multi", ArchSuffix: "-multi"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.16-art-latest-multi", ArchSuffix: "-multi"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.15-art-latest-multi", ArchSuffix: "-multi"})
-		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.14-art-latest-multi", ArchSuffix: "-multi"})
 	default:
 		return "", "", "", fmt.Errorf("Unsupported architecture: %s", architecture)
 	}
@@ -1179,7 +1179,7 @@ func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]Job
 					return nil, defaultedVersion, fmt.Errorf("only one image or version may be specified in a list of installs")
 				}
 				if architecture == "arm64" && (len(runImage) == 0 || len(version) == 0) {
-					return nil, defaultedVersion, fmt.Errorf("only version numbers (like: 4.11.0) may be used for arm64 based clusters")
+					return nil, defaultedVersion, fmt.Errorf("only version numbers (like: 4.16.0) may be used for arm64 based clusters")
 				}
 				jobInput.Image = image
 				jobInput.Version = version
@@ -1750,7 +1750,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		msg = fmt.Sprintf("%s This has the advantage of much faster startup times and lower costs.", msg)
 		msg = fmt.Sprintf("%s However, if you are testing specific functionality relating to the control plane in the release version you provided or you require", msg)
 		msg = fmt.Sprintf("%s multiple worker nodes, please end abort this launch with `done` and launch a cluster using another platform such as `aws` or `gcp`", msg)
-		msg = fmt.Sprintf("%s (e.g. `launch 4.15 aws`).\n\n", msg)
+		msg = fmt.Sprintf("%s (e.g. `launch 4.16 aws`).\n\n", msg)
 	}
 
 	if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
