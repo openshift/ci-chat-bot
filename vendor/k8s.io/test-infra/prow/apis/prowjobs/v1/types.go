@@ -53,7 +53,9 @@ type ProwJobState string
 
 // Various job states.
 const (
-	// TriggeredState means the job has been created but not yet scheduled.
+	// SchedulingState means the job has been created and it is waiting to be scheduled.
+	SchedulingState ProwJobState = "scheduling"
+	// TriggeredState means the job has been scheduled but it is not running yet.
 	TriggeredState ProwJobState = "triggered"
 	// PendingState means the job is currently running and we are waiting for it to finish.
 	PendingState ProwJobState = "pending"
@@ -1046,7 +1048,7 @@ type ProwJobStatus struct {
 	PendingTime *metav1.Time `json:"pendingTime,omitempty"`
 	// CompletionTime is the timestamp for when the job goes to a final state
 	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
-	// +kubebuilder:validation:Enum=triggered;pending;success;failure;aborted;error
+	// +kubebuilder:validation:Enum=scheduling;triggered;pending;success;failure;aborted;error
 	// +kubebuilder:validation:Required
 	State       ProwJobState `json:"state,omitempty"`
 	Description string       `json:"description,omitempty"`
