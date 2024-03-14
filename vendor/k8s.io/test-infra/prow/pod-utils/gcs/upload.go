@@ -23,6 +23,7 @@ import (
 	"io"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"mime"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -65,12 +66,18 @@ func Upload(ctx context.Context, bucket, gcsCredentialsFile, s3CredentialsFile s
 		return fmt.Errorf("new opener: %w", err)
 	}
 	dtw := func(dest string) dataWriter {
-		compressFileTypeSet := sets.NewString(compressFileTypes...)
-		ext := strings.TrimPrefix(filepath.Ext(dest), ".")
-		compress := compressFileTypeSet.Has("*") || compressFileTypeSet.Has(ext)
-		return &openerObjectWriter{Opener: opener, Context: ctx, Bucket: parsedBucket.String(), Dest: dest, compress: compress}
+		compressFileType := shouldCompressFileType(dest, sets.New[string](compressFileTypes...))
+		return &openerObjectWriter{Opener: opener, Context: ctx, Bucket: parsedBucket.String(), Dest: dest, compressFileType: compressFileType}
 	}
 	return upload(dtw, uploadTargets)
+}
+
+func shouldCompressFileType(dest string, compressFileTypes sets.Set[string]) bool {
+	ext := strings.TrimPrefix(filepath.Ext(dest), ".")
+	if ext == "gz" || ext == "gzip" {
+		return false
+	}
+	return compressFileTypes.Has("*") || compressFileTypes.Has(ext)
 }
 
 // LocalExport copies all of the data in the uploadTargets map to local files in parallel. The map
@@ -223,28 +230,42 @@ type dataWriter interface {
 	io.WriteCloser
 	fullUploadPath() string
 	ApplyWriterOptions(opts pkgio.WriterOptions)
-	compressData() bool
 }
 
 type openerObjectWriter struct {
 	pkgio.Opener
-	Context  context.Context
-	Bucket   string
-	Dest     string
-	compress bool
-	opts     []pkgio.WriterOptions
-	writer   pkgio.Writer
-	closers  []pkgio.Closer
+	Context          context.Context
+	Bucket           string
+	Dest             string
+	compressFileType bool
+	opts             []pkgio.WriterOptions
+	writer           pkgio.Writer
+	closers          []pkgio.Closer
 }
 
 func (w *openerObjectWriter) Write(p []byte) (n int, err error) {
 	if w.writer == nil {
+		largerThanOneKB := len(p) > 1024
+		shouldCompressFile := w.compressFileType && largerThanOneKB && http.DetectContentType(p) != "application/x-gzip"
+		if shouldCompressFile {
+			path := w.fullUploadPath()
+			ext := filepath.Ext(path)
+			mediaType := mime.TypeByExtension(ext)
+			if mediaType == "" {
+				mediaType = "text/plain; charset=utf-8"
+			}
+			ce := "gzip"
+			w.opts = append(w.opts, pkgio.WriterOptions{
+				ContentType:     &mediaType,
+				ContentEncoding: &ce,
+			})
+		}
 		var storageWriter pkgio.WriteCloser
 		storageWriter, err = w.Opener.Writer(w.Context, w.fullUploadPath(), w.opts...)
 		if err != nil {
 			return 0, err
 		}
-		if w.compress {
+		if shouldCompressFile {
 			zipWriter := gzip.NewWriter(storageWriter)
 			w.writer = zipWriter
 			w.closers = append(w.closers, zipWriter)
@@ -279,24 +300,9 @@ func (w *openerObjectWriter) Close() error {
 }
 
 func (w *openerObjectWriter) ApplyWriterOptions(opts pkgio.WriterOptions) {
-	if w.compressData() {
-		path := w.fullUploadPath()
-		ext := filepath.Ext(path)
-		mediaType := mime.TypeByExtension(ext)
-		if mediaType == "" {
-			mediaType = "text/plain; charset=utf-8"
-		}
-		opts.ContentType = &mediaType
-		ce := "gzip"
-		opts.ContentEncoding = &ce
-	}
 	w.opts = append(w.opts, opts)
 }
 
 func (w *openerObjectWriter) fullUploadPath() string {
 	return fmt.Sprintf("%s/%s", w.Bucket, w.Dest)
-}
-
-func (w *openerObjectWriter) compressData() bool {
-	return w.compress
 }
