@@ -1,13 +1,17 @@
 FROM registry.ci.openshift.org/ocp/ubi-python-311:9
 LABEL maintainer="brawilli@redhat.com"
 
+USER 0
+
+RUN dnf install -y jq
+
+USER 1001
+
 COPY --chown=1001:0 ./hack/requirements.txt ./hack/rosa-cleanup.py .
 
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 RUN curl -s -L https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/rosa/1.2.34/rosa-linux.tar.gz | tar -xvz -C /opt/app-root/bin --no-same-owner
-
-USER 1001
 
 ENTRYPOINT [ "python" ]
 
