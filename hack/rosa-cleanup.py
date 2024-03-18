@@ -1,22 +1,27 @@
 #!/usr/bin/env python
 
 import argparse
+import hashlib
 import json
 import logging
 import subprocess
 
 import boto3
+import sys
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('rosaCleanup')
 logger.setLevel(logging.INFO)
+
+DEFAULT_AWS_ACCOUNT_ID_DIGEST = "ea883d7c898c2bf7cfe007260194c999ba88d570182bcbccac610177b10d7d19"
+DEFAULT_OCM_ORG_EXTERNAL_ID_DIGEST = "c12416a2086ae609a81785b339d967ccabd444fefc7d180fdad998b7e4442314"
 
 
 def get_rosa_clusters():
     result = subprocess.run(['rosa', 'list', 'clusters', '-o', 'json'], capture_output=True)
     result.check_returncode()
     clusters = json.loads(result.stdout)
-    logger.debug(f'Found {len(clusters)} ROSA Clusters')
+    logger.info(f'Found {len(clusters)} ROSA Clusters')
     return clusters
 
 
@@ -106,7 +111,7 @@ def get_aws_paginated_resources(client, operation_name, response_key, **paginato
         if response_key in page:
             resources.extend(page[response_key])
 
-    logger.debug(f'Retrieved: {len(resources)} {response_key} resources')
+    logger.info(f'Retrieved: {len(resources)} {response_key} resources')
     return resources
 
 
@@ -118,7 +123,7 @@ def get_ec2_instances(client):
         if 'Instances' in reservation:
             instances.extend(reservation['Instances'])
 
-    logger.debug(f'Retrieved: {len(instances)} EC2 Instances')
+    logger.info(f'Retrieved: {len(instances)} EC2 Instances')
     return instances
 
 
@@ -131,7 +136,7 @@ def get_iam_identity_providers(client):
             if 'Arn' in item:
                 providers.update({item['Arn']: get_aws_paginated_resources(client, 'list_open_id_connect_provider_tags', 'Tags', OpenIDConnectProviderArn=item['Arn'])})
 
-    logger.debug(f'Retrieved: {len(providers)} IAM Identity Providers')
+    logger.info(f'Retrieved: {len(providers)} IAM Identity Providers')
     return providers
 
 
@@ -144,20 +149,51 @@ def get_s3_buckets(client):
             if 'Name' in item:
                 buckets.append(item['Name'])
 
-    logger.debug(f'Retrieved: {len(buckets)} S3 Buckets')
+    logger.info(f'Retrieved: {len(buckets)} S3 Buckets')
     return buckets
+
+
+def validate_cloud_account(account_name, parameters, name, command, digest):
+    # If user specifies their own Account override, then they are responsible for their own actions...
+    if name in parameters and parameters[name] is not None and len(parameters[name]) > 0:
+        logger.warning(f'Using {account_name}: {parameters[name]}')
+    else:
+        # Verify our "default" Account is correct
+        external_id = subprocess.check_output(command, shell=True, text=True).strip()
+        external_id_sha256 = hashlib.sha256(external_id.encode("utf-8")).hexdigest()
+        if external_id_sha256 != digest:
+            logger.error(f'{account_name} mismatch detected!  Please verify your environment and try again!')
+            sys.exit(-1)
+
+
+def pre_flight_check(params):
+    validate_cloud_account('OCM Organization External ID',
+                           params,
+                           'external_id',
+                           "rosa whoami --output json | jq -r '.[\"OCM Organization External ID\"]'",
+                           DEFAULT_OCM_ORG_EXTERNAL_ID_DIGEST)
+
+    validate_cloud_account('AWS Account ID',
+                           params,
+                           'account_id',
+                           'aws sts get-caller-identity | jq -r .Account',
+                           DEFAULT_AWS_ACCOUNT_ID_DIGEST)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ROSA Cleanup')
 
     config_group = parser.add_argument_group('Configuration Options')
-    parser.add_argument('--execute', help='Specify to persist changes on the cluster', action='store_true')
+    parser.add_argument('--execute', help='Specify to persist changes on the cluster.', action='store_true')
     config_group.add_argument('-v', '--verbose', help='Enable verbose output.', action='store_true')
 
     aws_group = parser.add_argument_group('AWS Configuration Options')
+    aws_group.add_argument('-a', '--account-id', help='Override default AWS Account ID.', default=None)
     aws_group.add_argument('-r', '--region', help='Region to run in (default is "us-east-1").', default='us-east-1')
     aws_group.add_argument('-p', '--profile', help='AWS Profile configuration to run (default is "default").', default='default')
+
+    ocm_group = parser.add_argument_group('OCM Configuration Options')
+    ocm_group.add_argument('-e', '--external-id', help='Override default OCM Organization External ID.', default=None)
 
     args = vars(parser.parse_args())
 
@@ -165,6 +201,9 @@ if __name__ == '__main__':
         logger.setLevel(logging.DEBUG)
 
     # logger.info(json.dumps(args, indent=4, default=str))
+
+    # Validate our cloud accounts
+    pre_flight_check(args)
 
     logger.debug('Setting AWS profile to: %s', args['profile'])
     logger.debug('Setting region to: %s', args['region'])
