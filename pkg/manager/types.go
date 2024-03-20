@@ -110,6 +110,13 @@ var rosaSyncTimeMetric = prometheus.NewHistogram(
 	},
 )
 
+var rosaClustersMetric = prometheus.NewGauge(
+	prometheus.GaugeOpts{
+		Name: "ci_chat_bot_rosa_cluster_count",
+		Help: "cluster bot number of rosa clusters",
+	},
+)
+
 type EnvVar struct {
 	name      string
 	value     string

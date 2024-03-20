@@ -57,6 +57,7 @@ func init() {
 	prometheus.MustRegister(rosaConsoleTimeMetric)
 	prometheus.MustRegister(rosaReadyToConsoleTimeMetric)
 	prometheus.MustRegister(rosaSyncTimeMetric)
+	prometheus.MustRegister(rosaClustersMetric)
 }
 
 const (
@@ -275,7 +276,7 @@ func paramsToString(params map[string]string) string {
 
 func (m *jobManager) rosaSync() error {
 	start := time.Now()
-	// wrap Observe function into inline function so that time.Since doesn't get immediately evauluated
+	// wrap Observe function into inline function so that time.Since doesn't get immediately evaluated
 	defer func() { rosaSyncTimeMetric.Observe(time.Since(start).Seconds()) }()
 	klog.Infof("Getting ROSA clusters")
 	clusterList, err := m.rClient.OCMClient.GetAllClusters(m.rClient.Creator)
@@ -284,6 +285,7 @@ func (m *jobManager) rosaSync() error {
 		klog.Warningf("Failed to get clusters: %v", err)
 	}
 	klog.Infof("Found %d rosa clusters", len(clusterList))
+	rosaClustersMetric.Set(float64(len(clusterList)))
 
 	m.rosaClusters.lock.RLock()
 	defer m.rosaClusters.lock.RUnlock()
