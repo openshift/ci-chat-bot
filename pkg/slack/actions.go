@@ -418,6 +418,21 @@ func WorkflowUpgrade(client *slack.Client, jobManager manager.JobManager, event 
 	return msg
 }
 
+func ExecuteOC(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	cluster, password := jobManager.GetROSACluster(event.User)
+	if cluster != nil {
+		ExecuteOCOnRosa(client, cluster, password, event.Text)
+		return ""
+	}
+	job, err := jobManager.GetLaunchJob(event.User)
+	if err != nil {
+		return err.Error()
+	}
+	job.RequestedChannel = event.Channel
+	ExecuteOCOnJob(client, job, event.Text)
+	return ""
+}
+
 func RosaCreate(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	from, err := ParseImageInput(properties.StringParam("version", ""))
 	if err != nil {

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -14,7 +16,11 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
+	"github.com/openshift/oc/pkg/helpers/tokencmd"
 	"github.com/slack-go/slack"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/klog"
 	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 )
@@ -163,6 +169,11 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Example:     "catalog build openshift/aws-efs-csi-driver-operator#75 aws-efs-csi-driver-operator-bundle",
 			Handler:     CatalogBuild,
 		}),
+		parser.NewBotCommand("oc <command> <parameters>", &parser.CommandDefinition{
+			Description: "Execute readonly oc commands",
+			Example:     "oc get nodes",
+			Handler:     ExecuteOC,
+		}),
 	}
 }
 
@@ -250,6 +261,148 @@ func BuildJobParams(params string) (map[string]string, error) {
 		jobParams[split[0]] = split[1]
 	}
 	return jobParams, nil
+}
+
+func ExecuteOCOnJob(client *slack.Client, job *manager.Job, command string) {
+	if job.Mode != manager.JobTypeLaunch && job.Mode != manager.JobTypeWorkflowLaunch {
+		message := "invalid job type to execute oc commands, please run a cluster using launch or workflow-launch"
+		_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
+		if err != nil {
+			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+		}
+	}
+
+	if len(job.Credentials) == 0 {
+		message := "cluster is still starting or failed to launch"
+		_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
+		if err != nil {
+			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+		}
+	}
+
+	if !strings.HasPrefix(command, "oc get") {
+		message := "oc get is the only allowed command"
+		_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
+		if err != nil {
+			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+		}
+	}
+
+	f, err := os.CreateTemp("/tmp", "")
+	if err != nil {
+		return
+	}
+	defer os.Remove(f.Name())
+	f.Write([]byte(job.Credentials)) // nolint:errcheck
+
+	parsed := strings.Split(command, " ")
+	parsed = append(parsed, fmt.Sprintf("--kubeconfig=%s", f.Name()))
+	cmd := exec.Command("oc", parsed[1:]...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		message := fmt.Sprintf("oc command execution error %v", err)
+		_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
+		if err != nil {
+			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+		}
+	}
+
+	message := "```\n"
+	message += string(output)
+	message += "\n```\n"
+
+	_, _, err = client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
+	if err != nil {
+		klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+	}
+}
+
+func ExecuteOCOnRosa(client *slack.Client, cluster *clustermgmtv1.Cluster, password string, command string) {
+	channel := cluster.AWS().Tags()[utils.ChannelTag]
+	if cluster.State() != clustermgmtv1.ClusterStateReady {
+		message := fmt.Sprintf("your cluster (name: `%s`, id: `%s`) is not in ready state to execute oc commands", cluster.Name(), cluster.ID())
+		_, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false))
+		if err != nil {
+			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+		}
+	}
+
+	if !strings.HasPrefix(command, "oc get") {
+		message := "oc get is the only allowed command"
+		_, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false))
+		if err != nil {
+			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+		}
+	}
+
+	config := rest.Config{
+		Host:     cluster.API().URL(),
+		Username: cluster.AWS().Tags()[utils.UserTag],
+		Password: password,
+	}
+	token, err := tokencmd.RequestToken(&config, nil, cluster.AWS().Tags()[utils.UserTag], password)
+	if err != nil {
+		message := fmt.Sprintf("token retrieval error from your cluster (name: `%s`, id: `%s`) err: %v", cluster.Name(), cluster.ID(), err)
+		_, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false))
+		if err != nil {
+			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+		}
+	}
+
+	clientConfig := clientcmdapi.Config{
+		APIVersion: "v1",
+		Kind:       "Config",
+		Clusters: map[string]*clientcmdapi.Cluster{
+			config.Host: {
+				Server: config.Host,
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			cluster.AWS().Tags()[utils.UserTag]: {
+				Cluster:   config.Host,
+				Namespace: "default",
+				AuthInfo:  cluster.AWS().Tags()[utils.UserTag],
+			},
+		},
+		CurrentContext: cluster.AWS().Tags()[utils.UserTag],
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			cluster.AWS().Tags()[utils.UserTag]: {
+				Token: token,
+			},
+		},
+	}
+
+	f, err := os.CreateTemp("/tmp", "")
+	if err != nil {
+		return
+	}
+	defer os.Remove(f.Name())
+	data, err := clientcmd.Write(clientConfig)
+	if err != nil {
+		return
+	}
+	f.Write(data) // nolint:errcheck
+
+	parsed := strings.Split(command, " ")
+	parsed = append(parsed, fmt.Sprintf("--kubeconfig=%s", f.Name()))
+	cmd := exec.Command("oc", parsed[1:]...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		message := fmt.Sprintf("oc command execution error %v", err)
+		_, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false))
+		if err != nil {
+			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+		}
+	}
+
+	message := "```\n"
+	message += string(output)
+	message += "\n```\n"
+
+	_, _, err = client.PostMessage(channel, slack.MsgOptionText(message, false))
+	if err != nil {
+		klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+	}
 }
 
 func NotifyJob(client *slack.Client, job *manager.Job) {
