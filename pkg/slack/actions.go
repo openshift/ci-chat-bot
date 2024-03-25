@@ -2,6 +2,7 @@ package slack
 
 import (
 	"fmt"
+	botversion "github.com/openshift/ci-chat-bot/pkg/version"
 	"strings"
 	"time"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/pkg/version"
 )
 
 func LaunchCluster(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
@@ -275,7 +275,7 @@ func Build(client *slack.Client, jobManager manager.JobManager, event *slackeven
 }
 
 func Version(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
-	return fmt.Sprintf("Running `%s` from https://github.com/openshift/ci-chat-bot", version.Get().String())
+	return fmt.Sprintf("Running `%s` from https://github.com/openshift/ci-chat-bot", botversion.Get().String())
 }
 
 func WorkflowLaunch(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
