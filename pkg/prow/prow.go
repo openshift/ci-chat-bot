@@ -56,13 +56,17 @@ func JobForConfig(prowConfigLoader ProwConfigLoader, jobName string) (*prowapiv1
 	}
 
 	spec := prowSpecForPeriodicConfig(periodicConfig)
+	state := prowapiv1.TriggeredState
+	if prowConfig.Scheduler.Enabled {
+		state = prowapiv1.SchedulingState
+	}
 
 	pj := &prowapiv1.ProwJob{
 		TypeMeta: metav1.TypeMeta{APIVersion: "prow.k8s.io/v1", Kind: "ProwJob"},
 		Spec:     *spec,
 		Status: prowapiv1.ProwJobStatus{
 			StartTime: metav1.Now(),
-			State:     prowapiv1.TriggeredState,
+			State:     state,
 		},
 	}
 	pj = pj.DeepCopy()
