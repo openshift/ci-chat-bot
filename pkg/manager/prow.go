@@ -673,6 +673,9 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		index := 0
 		// we can only support one operator bundle build, so we need to know if other bundles may be declared here
 		operatorRepo := ""
+		if sourceConfig.BaseImages == nil {
+			sourceConfig.BaseImages = make(map[string]citools.ImageStreamTagReference)
+		}
 		for i, input := range job.Inputs {
 			for _, ref := range input.Refs {
 				configData, ok, err := m.configResolver.Resolve(ref.Org, ref.Repo, ref.BaseRef, "")
@@ -713,15 +716,10 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 					updatedImageList = append(updatedImageList, newImage)
 					// if a job is building an operator, images built from other repos may be an operand,
 					// and thus need to be accessible as a pipeline image for the bundle build
-					for pipelineTag, baseImage := range sourceConfig.BaseImages {
-						if baseImage.Tag == string(image.To) {
-							sourceConfig.BaseImages[pipelineTag] = citools.ImageStreamTagReference{
-								Name:      "stable",
-								Tag:       string(image.To),
-								Namespace: "$(NAMESPACE)",
-							}
-							break
-						}
+					sourceConfig.BaseImages[string(image.To)] = citools.ImageStreamTagReference{
+						Name:      "stable",
+						Tag:       string(image.To),
+						Namespace: "$(NAMESPACE)",
 					}
 				}
 				targetConfig.Images = updatedImageList
@@ -797,7 +795,19 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 				pathAlias := fmt.Sprintf("%d/github.com/%s/%s", index, ref.Org, ref.Repo)
 				copiedRef := ref
 				copiedRef.PathAlias = pathAlias
-				pj.Spec.ExtraRefs = append(pj.Spec.ExtraRefs, copiedRef)
+				if newOperatorRepo != "" {
+					// when the job spec is patched to only include the operator extra_ref, we need
+					// the imported git repo to be in the correct location (i.e. index 0), so we
+					// need to prepend this ref instead of append
+					pj.Spec.ExtraRefs = append([]prowapiv1.Refs{copiedRef}, pj.Spec.ExtraRefs...)
+					operatorData, err := json.MarshalIndent(JobSpec{ExtraRefs: []prowapiv1.Refs{copiedRef}}, "", "  ")
+					if err != nil {
+						return "", fmt.Errorf("unable to make operator specific extra refs for %#v: %v", ref, err)
+					}
+					prow.SetJobEnvVar(&pj.Spec, "OPERATOR_REFS", string(operatorData))
+				} else {
+					pj.Spec.ExtraRefs = append(pj.Spec.ExtraRefs, copiedRef)
+				}
 				prow.SetJobEnvVar(&pj.Spec, fmt.Sprintf("REPO_PATH_%d", index), pathAlias)
 
 				index++
@@ -970,7 +980,9 @@ func processOperatorPR(oldOperatorRepo string, sourceConfig, targetConfig *citoo
 				sourceConfig.BaseImages = make(map[string]citools.ImageStreamTagReference)
 			}
 			for name, ref := range targetConfig.BaseImages {
-				sourceConfig.BaseImages[name] = ref
+				if _, ok := sourceConfig.BaseImages[name]; !ok {
+					sourceConfig.BaseImages[name] = ref
+				}
 			}
 			// the `operator` stanza needs the built images to be in `pipeline`. This is a hacky way to acheieve that
 			for _, image := range targetConfig.Images {
@@ -1525,6 +1537,12 @@ done
 # drain the job results
 for i in ${pids[@]}; do if ! wait $i; then exit 1; fi; done
 cd ${initial_dir}
+# update job spec with operator ref changes if needed
+if [ -n "${OPERATOR_REFS-}" ]; then
+	curl -s -L https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o jq
+	chmod +x jq
+	JOB_SPEC=$(( echo $JOB_SPEC ; echo $OPERATOR_REFS ) | ./jq -s add)
+fi
 `
 
 const permissionsScript = `
@@ -1540,7 +1558,8 @@ oc policy add-role-to-group system:image-puller -n $(NAMESPACE) system:unauthent
 `
 
 type JobSpec struct {
-	Refs *prowapiv1.Refs `json:"refs"`
+	ExtraRefs []prowapiv1.Refs `json:"extra_refs,omitempty"`
+	Refs      *prowapiv1.Refs  `json:"refs,omitempty"`
 }
 
 func replaceTargetArgument(spec *corev1.PodSpec, from, to string) error {
