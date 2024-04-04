@@ -673,9 +673,6 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		index := 0
 		// we can only support one operator bundle build, so we need to know if other bundles may be declared here
 		operatorRepo := ""
-		if sourceConfig.BaseImages == nil {
-			sourceConfig.BaseImages = make(map[string]citools.ImageStreamTagReference)
-		}
 		for i, input := range job.Inputs {
 			for _, ref := range input.Refs {
 				configData, ok, err := m.configResolver.Resolve(ref.Org, ref.Repo, ref.BaseRef, "")
@@ -716,10 +713,15 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 					updatedImageList = append(updatedImageList, newImage)
 					// if a job is building an operator, images built from other repos may be an operand,
 					// and thus need to be accessible as a pipeline image for the bundle build
-					sourceConfig.BaseImages[string(image.To)] = citools.ImageStreamTagReference{
-						Name:      "stable",
-						Tag:       string(image.To),
-						Namespace: "$(NAMESPACE)",
+					for pipelineTag, baseImage := range sourceConfig.BaseImages {
+						if baseImage.Tag == string(image.To) {
+							sourceConfig.BaseImages[pipelineTag] = citools.ImageStreamTagReference{
+								Name:      "stable",
+								Tag:       string(image.To),
+								Namespace: "$(NAMESPACE)",
+							}
+							break
+						}
 					}
 				}
 				targetConfig.Images = updatedImageList
@@ -795,9 +797,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 				pathAlias := fmt.Sprintf("%d/github.com/%s/%s", index, ref.Org, ref.Repo)
 				copiedRef := ref
 				copiedRef.PathAlias = pathAlias
-				if len(pj.Spec.ExtraRefs) == 0 || newOperatorRepo != "" {
-					pj.Spec.ExtraRefs = []prowapiv1.Refs{copiedRef}
-				}
+				pj.Spec.ExtraRefs = append(pj.Spec.ExtraRefs, copiedRef)
 				prow.SetJobEnvVar(&pj.Spec, fmt.Sprintf("REPO_PATH_%d", index), pathAlias)
 
 				index++
@@ -970,9 +970,7 @@ func processOperatorPR(oldOperatorRepo string, sourceConfig, targetConfig *citoo
 				sourceConfig.BaseImages = make(map[string]citools.ImageStreamTagReference)
 			}
 			for name, ref := range targetConfig.BaseImages {
-				if _, ok := sourceConfig.BaseImages[name]; !ok {
-					sourceConfig.BaseImages[name] = ref
-				}
+				sourceConfig.BaseImages[name] = ref
 			}
 			// the `operator` stanza needs the built images to be in `pipeline`. This is a hacky way to acheieve that
 			for _, image := range targetConfig.Images {
