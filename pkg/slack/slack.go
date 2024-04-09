@@ -454,31 +454,32 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 	if len(platform) == 0 {
 		switch architecture {
 		case "amd64":
-			// for hypershift, only support normal launches
-			if jobType == manager.JobTypeInstall || jobType == manager.JobTypeLaunch {
-				// only use hypershift for supported versions
-				manager.HypershiftSupportedVersions.Mu.RLock()
-				defer manager.HypershiftSupportedVersions.Mu.RUnlock()
-				var validVersion bool
-				if len(inputs) == 1 {
-					for version := range manager.HypershiftSupportedVersions.Versions {
-						if strings.HasPrefix(inputs[0][0], version) {
-							validVersion = true
-							break
+			/*
+				// for hypershift, only support normal launches
+				if jobType == manager.JobTypeInstall || jobType == manager.JobTypeLaunch {
+					// only use hypershift for supported versions
+					manager.HypershiftSupportedVersions.Mu.RLock()
+					defer manager.HypershiftSupportedVersions.Mu.RUnlock()
+					var validVersion bool
+					if len(inputs) == 1 {
+						for version := range manager.HypershiftSupportedVersions.Versions {
+							if strings.HasPrefix(inputs[0][0], version) {
+								validVersion = true
+								break
+							}
 						}
 					}
-				}
-				if validVersion {
-					platform = "hypershift-hosted"
-				} else if manager.HypershiftSupportedVersions.Versions.Has(fmt.Sprintf("%d.%d", manager.CurrentRelease.Major, manager.CurrentRelease.Minor)) &&
-					(len(inputs) == 0 || inputs[0][0] == "nightly" || inputs[0][0] == "ci" || inputs[0][0] == "prerelease") {
-					platform = "hypershift-hosted"
-				} else {
-					platform = "aws"
-				}
-			} else {
-				platform = "aws"
-			}
+					if validVersion {
+						platform = "hypershift-hosted"
+					} else if manager.HypershiftSupportedVersions.Versions.Has(fmt.Sprintf("%d.%d", manager.CurrentRelease.Major, manager.CurrentRelease.Minor)) &&
+						(len(inputs) == 0 || inputs[0][0] == "nightly" || inputs[0][0] == "ci" || inputs[0][0] == "prerelease") {
+						platform = "hypershift-hosted"
+					} else {
+						platform = "aws"
+					}
+				} else { */
+			platform = "aws"
+			//}
 		case "arm64", "multi":
 			platform = "aws"
 		default:
