@@ -552,45 +552,55 @@ func (m *jobManager) sync() error {
 			j.State = prowapiv1.PendingState
 			j.Failure = ""
 
-			if (j.Mode == JobTypeLaunch || j.Mode == JobTypeWorkflowLaunch) && (previous != nil && !previous.Complete) {
+			if j.Mode == JobTypeLaunch || j.Mode == JobTypeWorkflowLaunch {
 				if user := j.RequestedBy; len(user) > 0 {
+					// Check if the user has an existing request.  If they do, then move on
 					if _, ok := m.requests[user]; !ok {
-						var inputStrings [][]string
-						for _, input := range inputs {
-							var current []string
-							switch {
-							case len(input.Version) > 0:
-								current = append(current, input.Version)
-							case len(input.Image) > 0:
-								current = append(current, input.Image)
-							}
-							for _, ref := range input.Refs {
-								for _, pull := range ref.Pulls {
-									current = append(current, fmt.Sprintf("%s/%s#%d", ref.Org, ref.Repo, pull.Number))
+						// If not, then most likely, the clusterbot has recently (re)started, and we need to populate the
+						// request to ensure that the user can't start a second cluster (instead of waiting for the second
+						// invocation of the sync loop to populate it accordingly).
+						// The 2 scenarios where we need to handle populating the request entry are:
+						//  * A new request (i.e. there is no "previous" job for this user)
+						//  OR
+						//  * A previous job does exist, but it hasn't reached the "Complete" state yet
+						if previous == nil || !previous.Complete {
+							var inputStrings [][]string
+							for _, input := range inputs {
+								var current []string
+								switch {
+								case len(input.Version) > 0:
+									current = append(current, input.Version)
+								case len(input.Image) > 0:
+									current = append(current, input.Image)
+								}
+								for _, ref := range input.Refs {
+									for _, pull := range ref.Pulls {
+										current = append(current, fmt.Sprintf("%s/%s#%d", ref.Org, ref.Repo, pull.Number))
+									}
+								}
+								if len(current) > 0 {
+									inputStrings = append(inputStrings, current)
 								}
 							}
-							if len(current) > 0 {
-								inputStrings = append(inputStrings, current)
+							params, err := utils.ParamsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
+							if err != nil {
+								klog.Infof("Unable to unmarshal parameters from %s: %v", job.Name, err)
+								continue
 							}
-						}
-						params, err := utils.ParamsFromAnnotation(job.Annotations["ci-chat-bot.openshift.io/jobParams"])
-						if err != nil {
-							klog.Infof("Unable to unmarshal parameters from %s: %v", job.Name, err)
-							continue
-						}
 
-						m.requests[user] = &JobRequest{
-							OriginalMessage: job.Annotations["ci-chat-bot.openshift.io/originalMessage"],
+							m.requests[user] = &JobRequest{
+								OriginalMessage: job.Annotations["ci-chat-bot.openshift.io/originalMessage"],
 
-							User:         user,
-							Name:         job.Name,
-							JobName:      job.Spec.Job,
-							Platform:     job.Annotations["ci-chat-bot.openshift.io/platform"],
-							JobParams:    params,
-							Inputs:       inputStrings,
-							RequestedAt:  job.CreationTimestamp.Time,
-							Channel:      job.Annotations["ci-chat-bot.openshift.io/channel"],
-							Architecture: architecture,
+								User:         user,
+								Name:         job.Name,
+								JobName:      job.Spec.Job,
+								Platform:     job.Annotations["ci-chat-bot.openshift.io/platform"],
+								JobParams:    params,
+								Inputs:       inputStrings,
+								RequestedAt:  job.CreationTimestamp.Time,
+								Channel:      job.Annotations["ci-chat-bot.openshift.io/channel"],
+								Architecture: architecture,
+							}
 						}
 					}
 				}
