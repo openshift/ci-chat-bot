@@ -448,12 +448,9 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 			return "", "", nil, fmt.Errorf("unrecognized option: %s", opt)
 		}
 	}
-	if len(architecture) == 0 {
-		architecture = "amd64"
-	}
 	if len(platform) == 0 {
 		switch architecture {
-		case "amd64":
+		case "", "multi":
 			// for hypershift, only support normal launches
 			if jobType == manager.JobTypeInstall || jobType == manager.JobTypeLaunch {
 				// only use hypershift for supported versions
@@ -479,11 +476,21 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 			} else {
 				platform = "aws"
 			}
-		case "arm64", "multi":
+		case "amd64", "arm64":
 			platform = "aws"
 		default:
 			return "", "", nil, fmt.Errorf("unknown architecture: %s", architecture)
 		}
+	}
+	if architecture == "" {
+		if platform == "hypershift-hosted" {
+			architecture = "multi"
+		} else {
+			architecture = "amd64"
+		}
+	}
+	if architecture != "multi" && platform == "hypershift-hosted" {
+		return "", "", nil, fmt.Errorf("The hypershift-hosted platform requires a multiarch image. See: https://docs.ci.openshift.org/docs/architecture/ci-operator/#testing-with-a-cluster-from-hypershift")
 	}
 	return platform, architecture, params, nil
 }
