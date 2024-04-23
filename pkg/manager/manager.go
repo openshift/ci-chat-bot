@@ -1054,8 +1054,11 @@ func findNewestStableImageSpecTagBySemanticMajor(is *imagev1.ImageStream, majorM
 		return nil
 	}
 	archSuffix := ""
-	if architecture == "arm64" {
+	switch architecture {
+	case "arm64":
 		archSuffix = "-arm64"
+	case "multi":
+		archSuffix = "-multi"
 	}
 	var candidates semver.Versions
 	for _, tag := range is.Spec.Tags {
