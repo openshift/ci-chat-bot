@@ -564,14 +564,14 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	sourceConfig.Releases = map[string]citools.UnresolvedRelease{
 		"initial": {
 			Integration: &citools.Integration{
-				Name:      "ocp",
-				Namespace: "$(BRANCH)",
+				Name:      "$(BRANCH)",
+				Namespace: "ocp",
 			},
 		},
 		"latest": {
 			Integration: &citools.Integration{
-				Name:               "ocp",
-				Namespace:          "$(BRANCH)",
+				Name:               "$(BRANCH)",
+				Namespace:          "ocp",
 				IncludeBuiltImages: true,
 			},
 		},
