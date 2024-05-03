@@ -219,7 +219,7 @@ func run() error {
 	rosaSecretClient := releaseClient.Secrets("ci")
 	// Config and Client to access hypershift configmaps
 	var hiveConfigMapClient corev1.ConfigMapInterface
-	if config, ok := kubeConfigs["hive"]; ok {
+	if config, ok := kubeConfigs["hosted-mgmt"]; ok {
 		hiveClient, err := corev1.NewForConfig(&config)
 		if err != nil {
 			return fmt.Errorf("unable to create hive client: %w", err)
