@@ -920,9 +920,11 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		// the release-controller cannot assemble multi-arch release, so we must use the `art-latest` streams instead of `release-multi`
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "release-multi", ArchSuffix: "-multi"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4-dev-preview-multi", ArchSuffix: "-multi"})
-		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.16-art-latest-multi", ArchSuffix: "-multi"})
-		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.15-art-latest-multi", ArchSuffix: "-multi"})
-		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4.14-art-latest-multi", ArchSuffix: "-multi"})
+		HypershiftSupportedVersions.Mu.RLock()
+		defer HypershiftSupportedVersions.Mu.RUnlock()
+		for version := range HypershiftSupportedVersions.Versions {
+			imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: fmt.Sprintf("%s-art-latest-multi", version), ArchSuffix: "-multi"})
+		}
 	default:
 		return "", "", "", fmt.Errorf("Unsupported architecture: %s", architecture)
 	}
