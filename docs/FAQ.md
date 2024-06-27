@@ -35,9 +35,9 @@
 
    `workflow-launch {workflow_name} {image_or_version_or_prs} {parameters}`
 
-   The parameters option in the slack command is a list of double-quoted environment variable settings separated by commas. For instance, if I want to launch a 4.9 cluster using the openshift-e2e-azure workflow with a compact cluster size and preserved bootstrap resources, I would run this command:
+   The parameters option in the slack command is a list of double-quoted environment variable settings separated by commas. For instance, if I want to launch a 4.17 cluster using the openshift-e2e-azure workflow with a compact cluster size and preserved bootstrap resources, I would run this command:
 
-   `workflow-launch openshift-e2e-azure 4.9 "SIZE_VARIANT=compact","OPENSHIFT_INSTALL_PRESERVE_BOOTSTRAP=1"`
+   `workflow-launch openshift-e2e-azure 4.17 "SIZE_VARIANT=compact","OPENSHIFT_INSTALL_PRESERVE_BOOTSTRAP=1"`
 
    To add a workflow to be supported by the command, the workflow must be added to the workflow config file via a PR to `openshift/release`. For most workflows, only the following will need to be added:
    ```

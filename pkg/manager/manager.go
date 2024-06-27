@@ -85,7 +85,7 @@ const (
 
 var CurrentRelease = semver.Version{
 	Major: 4,
-	Minor: 16,
+	Minor: 17,
 }
 
 var HypershiftSupportedVersions = HypershiftSupportedVersionsType{}
@@ -1197,7 +1197,7 @@ func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]Job
 					return nil, defaultedVersion, fmt.Errorf("only one image or version may be specified in a list of installs")
 				}
 				if architecture == "arm64" && (len(runImage) == 0 || len(version) == 0) {
-					return nil, defaultedVersion, fmt.Errorf("only version numbers (like: 4.16.0) may be used for arm64 based clusters")
+					return nil, defaultedVersion, fmt.Errorf("only version numbers (like: 4.17.0) may be used for arm64 based clusters")
 				}
 				jobInput.Image = image
 				jobInput.Version = version
@@ -1768,7 +1768,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		msg = fmt.Sprintf("%s This has the advantage of much faster startup times and lower costs.", msg)
 		msg = fmt.Sprintf("%s However, if you are testing specific functionality relating to the control plane in the release version you provided or you require", msg)
 		msg = fmt.Sprintf("%s multiple worker nodes, please end abort this launch with `done` and launch a cluster using another platform such as `aws` or `gcp`", msg)
-		msg = fmt.Sprintf("%s (e.g. `launch 4.16 aws`).\n\n", msg)
+		msg = fmt.Sprintf("%s (e.g. `launch 4.17 aws`).\n\n", msg)
 	}
 
 	if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
