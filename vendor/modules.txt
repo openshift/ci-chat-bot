@@ -718,8 +718,8 @@ github.com/opencontainers/go-digest
 ## explicit; go 1.18
 github.com/opencontainers/image-spec/specs-go
 github.com/opencontainers/image-spec/specs-go/v1
-# github.com/opencontainers/runc v1.1.5
-## explicit; go 1.16
+# github.com/opencontainers/runc v1.1.12
+## explicit; go 1.17
 github.com/opencontainers/runc/libcontainer/user
 # github.com/openshift-online/ocm-common v0.0.0-20240117125843-51555c93fbd5
 ## explicit; go 1.19

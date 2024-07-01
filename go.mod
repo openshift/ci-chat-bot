@@ -110,7 +110,7 @@ require (
 	github.com/moby/sys/mountinfo v0.6.2 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0-rc3 // indirect
-	github.com/opencontainers/runc v1.1.5 // indirect
+	github.com/opencontainers/runc v1.1.12 // indirect
 	github.com/openshift-online/ocm-common v0.0.0-20240117125843-51555c93fbd5 // indirect
 	github.com/openshift/library-go v0.0.0-20230411150541-a704a5774e20 // indirect
 	github.com/otiai10/copy v1.2.0 // indirect
