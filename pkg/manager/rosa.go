@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/openshift/rosa/pkg/interactive"
 	"io"
 	"math/big"
 	"net"
@@ -227,7 +228,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 		OperatorIAMRoles:    operatorIAMRoleList,
 		ControlPlaneRoleARN: controlPlaneRoleARN,
 		WorkerRoleARN:       workerRoleARN,
-		Mode:                aws.ModeAuto,
+		Mode:                interactive.ModeAuto,
 		ComputeNodes:        2,
 		OidcConfigId:        m.rosaOidcConfigId,
 		BillingAccount:      m.rosaBillingAccount,
