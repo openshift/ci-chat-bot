@@ -3,6 +3,157 @@
 This document describes the relevant changes between releases of the OCM API
 SDK.
 
+## 0.1.426
+- Update for Windows support including systemcertpool
+
+## 0.1.425
+- Update Windows certificates
+
+## 0.1.424
+- Update model version v0.0.377
+  - Change type of the `OSDiskSizeGibibytes` attribute in the `AzureNodePool` resource from String to Integer.
+
+## 0.1.423
+- Update model version v0.0.376
+  - Add `AzureNodePool` to `NodePool` type
+
+## 0.1.422
+- Update model version v0.0.375
+  - Add `ManagementUpgrade` parameters to the `NodePool` model to support additional upgrade configuration.
+  - Support server name inference for regionalized OCM redirects
+  - Add `AdditionalAllowedPrincipals` to `AWS` type to support additional allowed principal ARNs to be added to the hosted control plane's VPC Endpoint Service.
+
+## 0.1.421
+- Update model version v0.0.374
+  - Add `CreationTimestamp` and `LastUpdateTimestamp` to `RolePolicyBinding` type
+  - Add `access_transparency` service
+
+## 0.1.420
+- Update model version v0.0.373
+  - Add `subnet_resource_id` to `Azure` resource
+  - Add `network_security_group_resource_id to `Azure` resource
+
+## 0.1.419
+- Update model version v0.0.372
+  - Exposed the `/api/clusters_mgmt/v1/clusters/{id}/kubelet_configs` endpoint
+  - Added `name` field to `KubeletConfig`
+  - Added `kubelet_configs` field to `NodePool`
+
+## 0.1.418
+- Update model version v0.0.371
+  - Add Tags to the AWSMachinePool model to support custom AWS tags for day 2 creation of machine pools
+
+## 0.1.417
+- Add RolePolicyBindings to the AWS resource model to support STS Arbitrary Policies feature.
+
+## 0.1.416
+- Update windows api.openshift certs 
+
+## 0.1.415
+- Update model version v0.0.369
+  - Update metamodel version to 0.0.60
+  - [OCM-6294] add /load_balancer_quota_values endpoint
+  - [OCM-7027] feat: document pagination and ordering support for break glass
+  - [OCM-7144] Add /storage_quota_values endpoint
+  - Add Azure resource to Cluster resource.
+  - Fix spacing in description of Azure's ManagedResourceGroupName
+
+## 0.1.414
+- Update metamodel version v0.0.60
+
+## 0.1.413
+- Update model version v0.0.366
+  - Fix Default Capabilities.
+
+## 0.1.412
+- Update model version v0.0.365
+  - [OCM-6763] Add default capability resource to SDK.
+
+## 0.1.411
+- Upgrade pgx version and other dependencies
+
+## 0.1.410
+- Update model version v0.0.364
+  - Add `BreakGlassCredentials` to the `Cluster` resource model.
+
+## 0.1.409
+- Update model version v0.0.363
+  - Add `NodeDrainGracePeriod` to the `NodePool` model.
+- Update model version v0.0.362
+  - Changed `UserName` attribute for TokenClaimMappings to `Username`.
+
+## 0.1.408
+- Update model version v0.0.361
+  - Add `Scope` attribute to `ReservedResource`.
+  - Add `Scope` attribute to `ClusterAuthorizationRequest`.
+
+## 0.1.407
+- Update model version v0.0.360
+  - Add `ComponentRoutes` attribute to `Ingress`
+
+## 0.1.406
+- Migrate Keychain `securestore` usage to non-CGO libraries 
+
+## 0.1.405
+- Update model version v0.0.359
+  - Add `ExternalAuthConfig` resource to `Cluster` model.
+  - Add `DomainPrefix` to `Cluster` model.
+
+## 0.1.404
+- Update model version v0.0.357
+  - Add `ExternalAuth` to `ExternalAuthConfig` model
+
+## 0.1.403
+- Update model version v0.0.356
+  - Reverting change to remove provision shard from cluster
+
+## 0.1.402
+- Update model version v0.0.355
+  - Removed undefined api calls from the model
+  - Add support to `securestore` that allows the caller to define a keyring target
+  - Additional `securestore` Error Standardization
+  - Add error handling to `securestore` for denied Keychain access due to permissions
+
+## 0.1.401
+- Update model version v0.0.353
+  - Added support for `PackageImage` for `clusters_mgmt`
+
+## 0.1.400
+- Update model version v0.0.352
+  - Remove `StatusBoard` `fullname` search parameter.
+  - Deprecate `Notify` resource.
+
+## 0.1.399
+- Additional error handling for `securestore`
+
+## 0.1.398
+- Add regions support from ocm shards
+- Don't error when response is 204 and no content-type
+
+## 0.1.397
+- Add `NewUnauthenticatedConnectionBuilder` function to allow creating a
+  `Connection` without client side authentication
+
+## 0.1.396
+- Remove redundant fields from /notify_details
+- Add `ExternalAuthConfig` to `Cluster` model.
+
+## 0.1.395
+- Add `SubnetOutposts` and `AvailabilityZoneTypes` to `aws_node_pool_type` and `aws_machine_pool_type` resources.
+
+## 0.1.394
+- Added Device Code flow to `authentication`
+- Update model version v0.0.347
+  - Add `HostedControlPlaneDefault` boolean to `Version` Type model.
+
+## 0.1.393
+- Add authentication using OAuth2 and PCKE
+- Add secure token storage
+
+## 0.1.392
+- Update model version v0.0.346
+  - Modify notify_details response
+
 ## 0.1.391
 - Update model version v0.0.345
   - Add `validate_credentials` resource to `AwsInquiries`

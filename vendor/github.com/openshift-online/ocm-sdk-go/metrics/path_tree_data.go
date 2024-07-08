@@ -22,6 +22,18 @@ package metrics // github.com/openshift-online/ocm-sdk-go/metrics
 // pathTreeData is the JSON representation of the tree of URL paths.
 var pathTreeData = `{
   "api": {
+    "access_transparency": {
+      "v1": {
+        "access_protection": null,
+        "access_requests": {
+          "-": {
+            "decisions": {
+              "-": null
+            }
+          }
+        }
+      }
+    },
     "accounts_mgmt": {
       "v1": {
         "access_token": null,
@@ -45,6 +57,9 @@ var pathTreeData = `{
           "-": null
         },
         "current_account": null,
+        "default_capabilities": {
+          "-": null
+        },
         "deleted_subscriptions": null,
         "feature_toggles": {
           "-": {
@@ -52,7 +67,6 @@ var pathTreeData = `{
           }
         },
         "labels": null,
-        "notify": null,
         "notify_details": null,
         "organizations": {
           "-": {
@@ -96,7 +110,6 @@ var pathTreeData = `{
             "labels": {
               "-": null
             },
-            "notify": null,
             "reserved_resources": {
               "-": null
             },
@@ -200,9 +213,13 @@ var pathTreeData = `{
                 "principals": {
                   "-": null
                 }
-              }
+              },
+              "role_policy_bindings": null
             },
             "aws_infrastructure_access_role_grants": {
+              "-": null
+            },
+            "break_glass_credentials": {
               "-": null
             },
             "clusterdeployment": null,
@@ -213,6 +230,11 @@ var pathTreeData = `{
             },
             "credentials": null,
             "delete_protection": null,
+            "external_auth_config": {
+              "external_auths": {
+                "-": null
+              }
+            },
             "external_configuration": {
               "labels": {
                 "-": null
@@ -251,6 +273,9 @@ var pathTreeData = `{
               "-": null
             },
             "kubelet_config": null,
+            "kubelet_configs": {
+              "-": null
+            },
             "limited_support_reasons": {
               "-": null
             },
@@ -273,14 +298,6 @@ var pathTreeData = `{
                 "upgrade_policies": {
                   "-": null
                 }
-              }
-            },
-            "product": {
-              "minimal_versions": {
-                "-": null
-              },
-              "technology_previews": {
-                "-": null
               }
             },
             "provision_shard": null,
@@ -322,6 +339,7 @@ var pathTreeData = `{
         "limited_support_reason_templates": {
           "-": null
         },
+        "load_balancer_quota_values": null,
         "machine_types": {
           "-": null
         },
@@ -347,9 +365,8 @@ var pathTreeData = `{
         "provision_shards": {
           "-": null
         },
-        "trusted_ip_addresses": {
-          "-": null
-        },
+        "storage_quota_values": null,
+        "trusted_ip_addresses": null,
         "version_gates": {
           "-": null
         },

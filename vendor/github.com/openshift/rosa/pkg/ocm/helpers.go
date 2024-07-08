@@ -24,15 +24,16 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	awssdk "github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/arn"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	semver "github.com/hashicorp/go-version"
 	common "github.com/openshift-online/ocm-common/pkg/ocm/validations"
 	amsv1 "github.com/openshift-online/ocm-sdk-go/accountsmgmt/v1"
@@ -59,11 +60,16 @@ const (
 	Username            = "Username"
 	URL                 = "URL"
 	IsThrottle          = "IsThrottle"
+	Account             = "Account"
+	Organization        = "Organization"
+	RoleName            = "RoleName"
+	PolicyArn           = "PolicyArn"
 
 	OCMRoleLabel  = "sts_ocm_role"
 	USERRoleLabel = "sts_user_role"
 
-	maxClusterNameLength = 15
+	MaxClusterNameLength         = 54
+	MaxClusterDomainPrefixLength = 15
 
 	HcpProduct        = "hcp"
 	HcpBillingAccount = "hcp-billing"
@@ -75,11 +81,20 @@ var clusterKeyRE = regexp.MustCompile(`^(\w|-)+$`)
 
 var kubernetesLabelRE = regexp.MustCompile(`^[a-z0-9A-Z]+[-_.a-z0-9A-Z/]*$`)
 
-// Cluster names must be valid DNS-1035 labels, so they must consist of lower case alphanumeric
+// Cluster names must be valid DNS-1035 labels, so they must consist of at most 54 lower case alphanumeric
 // characters or '-', start with an alphabetic character, and end with an alphanumeric character
-var clusterNameRE = regexp.MustCompile(`^[a-z]([-a-z0-9]{0,13}[a-z0-9])?$`)
+var clusterNameRE = regexp.MustCompile(`^[a-z]([-a-z0-9]{0,52}[a-z0-9])?$`)
+
+// Cluster domain prefix must be valid DNS-1035 labels, so they must consist of at most 15 lower case alphanumeric
+// characters or '-', start with an alphabetic character, and end with an alphanumeric character
+var clusterDomainPrefixRE = regexp.MustCompile(`^[a-z]([-a-z0-9]{0,13}[a-z0-9])?$`)
 
 var badUsernameRE = regexp.MustCompile(`^(~|\.?\.|.*[:\/%].*)$`)
+
+// math.MaxInt64 needs to be bound by int64() as that can otherwise overflow
+// if the helpers are compiled for non-64bit architectures (e.g. armv7l)
+// as per https://github.com/golang/go/issues/23086.
+var maxInt = int64(math.MaxInt64)
 
 func IsValidClusterKey(clusterKey string) bool {
 	return clusterKeyRE.MatchString(clusterKey)
@@ -93,13 +108,30 @@ func ClusterNameValidator(name interface{}) error {
 	if str, ok := name.(string); ok {
 		str := strings.Trim(str, " \t")
 		if !IsValidClusterName(str) {
-			return fmt.Errorf("Cluster name must consist of no more than 15 lowercase " +
-				"alphanumeric characters or '-', start with a letter, and end with an " +
-				"alphanumeric character.")
+			return fmt.Errorf("Cluster name must consist of no more than %d lowercase "+
+				"alphanumeric characters or '-', start with a letter, and end with an "+
+				"alphanumeric character.", MaxClusterNameLength)
 		}
 		return nil
 	}
-	return fmt.Errorf("can only validate strings, got %v", name)
+	return fmt.Errorf("can only validate strings, got '%v'", name)
+}
+
+func IsValidClusterDomainPrefix(domainPrefix string) bool {
+	return clusterDomainPrefixRE.MatchString(domainPrefix)
+}
+
+func ClusterDomainPrefixValidator(domainPrefix interface{}) error {
+	if str, ok := domainPrefix.(string); ok {
+		str := strings.Trim(str, " \t")
+		if str != "" && !IsValidClusterDomainPrefix(str) {
+			return fmt.Errorf("Cluster domain prefix must consist of no more than %d lowercase "+
+				"alphanumeric characters or '-', start with a letter, and end with an "+
+				"alphanumeric character.", MaxClusterDomainPrefixLength)
+		}
+		return nil
+	}
+	return fmt.Errorf("can only validate strings, got '%v'", domainPrefix)
 }
 
 func ValidateHTTPProxy(val interface{}) error {
@@ -116,7 +148,7 @@ func ValidateHTTPProxy(val interface{}) error {
 		}
 		return nil
 	}
-	return fmt.Errorf("can only validate strings, got %v", val)
+	return fmt.Errorf("can only validate strings, got '%v'", val)
 }
 
 func ValidateAdditionalTrustBundle(val interface{}) error {
@@ -138,7 +170,7 @@ func ValidateAdditionalTrustBundle(val interface{}) error {
 		}
 		return nil
 	}
-	return fmt.Errorf("can only validate strings, got %v", val)
+	return fmt.Errorf("can only validate strings, got '%v'", val)
 }
 
 func IsValidUsername(username string) bool {
@@ -648,27 +680,33 @@ const (
 	privateLinkMultiAZSubnetsCount  = 3
 )
 
-func ValidateSubnetsCount(multiAZ bool, privateLink bool, subnetsInputCount int) error {
-	if privateLink {
-		if multiAZ && subnetsInputCount != privateLinkMultiAZSubnetsCount {
-			return fmt.Errorf("The number of subnets for a multi-AZ private link cluster should be %d, "+
-				"instead received: %d", privateLinkMultiAZSubnetsCount, subnetsInputCount)
-		}
-		if !multiAZ && subnetsInputCount != privateLinkSingleAZSubnetsCount {
-			return fmt.Errorf("The number of subnets for a single AZ private link cluster should be %d, "+
-				"instead received: %d", privateLinkSingleAZSubnetsCount, subnetsInputCount)
-		}
-	} else {
-		if multiAZ && subnetsInputCount != BYOVPCMultiAZSubnetsCount {
-			return fmt.Errorf("The number of subnets for a multi-AZ cluster should be %d, "+
-				"instead received: %d", BYOVPCMultiAZSubnetsCount, subnetsInputCount)
-		}
-		if !multiAZ && subnetsInputCount != BYOVPCSingleAZSubnetsCount {
-			return fmt.Errorf("The number of subnets for a single AZ cluster should be %d, "+
-				"instead received: %d", BYOVPCSingleAZSubnetsCount, subnetsInputCount)
-		}
-	}
+func expectedSubnetsCount(multiAZ, privateLink bool) int {
+	return map[bool]map[bool]int{
+		true: {
+			true:  privateLinkMultiAZSubnetsCount,
+			false: BYOVPCMultiAZSubnetsCount,
+		},
+		false: {
+			true:  privateLinkSingleAZSubnetsCount,
+			false: BYOVPCSingleAZSubnetsCount,
+		},
+	}[multiAZ][privateLink]
+}
 
+func ValidateSubnetsCount(multiAZ bool, privateLink bool, subnetsInputCount int) error {
+	expected := expectedSubnetsCount(multiAZ, privateLink)
+	if subnetsInputCount != expected {
+		clusterPrefix := "cluster"
+		if privateLink {
+			clusterPrefix = "private link cluster"
+		}
+		azPrefix := "single AZ"
+		if multiAZ {
+			azPrefix = "multi-AZ"
+		}
+		return fmt.Errorf("The number of subnets for a '%s' '%s' should be '%d', "+
+			"instead received: '%d'", azPrefix, clusterPrefix, expected, subnetsInputCount)
+	}
 	return nil
 }
 
@@ -684,10 +722,10 @@ func ValidateHostedClusterSubnets(awsClient aws.Client, isPrivate bool, subnetID
 		return 0, vpcSubnetsErr
 	}
 
-	var subnets []*ec2.Subnet
+	var subnets []ec2types.Subnet
 	for _, subnet := range vpcSubnets {
 		for _, subnetId := range subnetIDs {
-			if awssdk.StringValue(subnet.SubnetId) == subnetId {
+			if awssdk.ToString(subnet.SubnetId) == subnetId {
 				subnets = append(subnets, subnet)
 				break
 			}
@@ -816,13 +854,15 @@ func (c *Client) GetVersionsList(channelGroup string, defaultFirst bool) ([]stri
 
 func ValidateOperatorRolesMatchOidcProvider(reporter *reporter.Object, awsClient aws.Client,
 	operatorIAMRoleList []OperatorIAMRole, oidcEndpointUrl string,
-	clusterVersion string, expectedOperatorRolePath string, accountRolesHasManagedPolicies bool) error {
+	clusterVersion string, expectedOperatorRolePath string,
+	accountRolesHasManagedPolicies bool, logOperatorRoles bool) error {
 	operatorIAMRoles := operatorIAMRoleList
 	parsedUrl, err := url.Parse(oidcEndpointUrl)
 	if err != nil {
 		return err
 	}
-	if reporter.IsTerminal() && !output.HasFlag() {
+	printInfo := reporter.IsTerminal() && !output.HasFlag() && logOperatorRoles
+	if printInfo {
 		reporter.Infof("Reusable OIDC Configuration detected. Validating trusted relationships to operator roles: ")
 	}
 	for _, operatorIAMRole := range operatorIAMRoles {
@@ -856,6 +896,9 @@ func ValidateOperatorRolesMatchOidcProvider(reporter *reporter.Object, awsClient
 			return errors.Errorf("Operator role '%s' has unmanaged policies and is not compatible with the account "+
 				"role's managed policies.", roleARN)
 		}
+		if printInfo {
+			reporter.Infof("Using '%s'", roleARN)
+		}
 		if hasManagedPolicies {
 			// Managed policies should be compatible with all versions
 			continue
@@ -876,9 +919,6 @@ func ValidateOperatorRolesMatchOidcProvider(reporter *reporter.Object, awsClient
 				return errors.Errorf("Operator role '%s' is not compatible with cluster version '%s'", roleARN, clusterVersion)
 			}
 		}
-		if reporter.IsTerminal() && !output.HasFlag() {
-			reporter.Infof("Using '%s'", *roleObject.Arn)
-		}
 	}
 	return nil
 }
@@ -897,7 +937,7 @@ func ValidateHttpTokensValue(val interface{}) error {
 		}
 	}
 
-	return fmt.Errorf("can only validate strings, got %v", val)
+	return fmt.Errorf("can only validate strings, got '%v'", val)
 }
 
 func ParseDiskSizeToGigibyte(size string) (int, error) {
@@ -932,14 +972,23 @@ func ParseDiskSizeToGigibyte(size string) (int, error) {
 	qty, err := resource.ParseQuantity(size)
 	if err != nil {
 		if err == resource.ErrFormatWrong {
-			return 0, fmt.Errorf("invalid disk size format: %s. %s", size, suffixErrorString)
+			return 0, fmt.Errorf("invalid disk size format: '%s'. %s", size, suffixErrorString)
 		}
-		return 0, fmt.Errorf("invalid disk size: %w", err)
+		return 0, fmt.Errorf("invalid disk size: '%s'. %w", size, err)
+	}
+
+	if qty.Value() < 0 {
+		return 0, fmt.Errorf("invalid disk size: '%s'. positive size required", size)
 	}
 
 	// If the value is 0, this could mean the user forgot to specify the unit suffix
 	if qty.IsZero() {
 		return 0, nil
+	}
+
+	// resource.ParseQuantity() will not error when a value exceeds the max int64.
+	if qty.Value() == maxInt {
+		return 0, fmt.Errorf("invalid disk size: '%s'. maximum size exceeded", size)
 	}
 
 	// Check the suffix is correct
@@ -951,8 +1000,8 @@ func ParseDiskSizeToGigibyte(size string) (int, error) {
 		// If the conversion hit the maximum value of a 64 bit integer, it means the user passed a very
 		// large value which is ok, we can still proceed and the backend will return an error since
 		// the size is too large
-		if diskSizeInt != math.MaxInt64 {
-			return 0, fmt.Errorf("missing unit suffix: %s. %s", diskSize, suffixErrorString)
+		if int64(diskSizeInt) != maxInt {
+			return 0, fmt.Errorf("missing unit suffix: '%s'. %s", diskSize, suffixErrorString)
 		}
 	}
 
@@ -961,7 +1010,7 @@ func ParseDiskSizeToGigibyte(size string) (int, error) {
 		strings.HasSuffix(diskSize, "Mi") ||
 		strings.HasSuffix(diskSize, "K") ||
 		strings.HasSuffix(diskSize, "Ki") {
-		return 0, fmt.Errorf("invalid disk size format: %s. %s", diskSize, suffixErrorString)
+		return 0, fmt.Errorf("invalid disk size format: '%s'. %s", diskSize, suffixErrorString)
 	}
 
 	// Return gibibytes since the AWS expects that format
@@ -973,7 +1022,7 @@ func ValidateBalancingIgnoredLabels(val interface{}) error {
 	labelsInput, ok := val.(string)
 
 	if !ok {
-		return fmt.Errorf("can only validate strings, got %v", val)
+		return fmt.Errorf("can only validate strings, got '%v'", val)
 	}
 
 	labels := strings.Split(labelsInput, ",")
@@ -995,5 +1044,32 @@ func ValidateBalancingIgnoredLabels(val interface{}) error {
 		}
 	}
 
+	return nil
+}
+
+func ValidateClaimValidationRules(input interface{}) error {
+	var idRE = regexp.MustCompile(`^[0-9a-z]+([:][0-9a-z]+)`)
+	var inputRules []string
+	inputType := reflect.TypeOf(input).Kind()
+	switch inputType {
+	case reflect.String:
+		if input.(string) == "" {
+			return nil
+		}
+		inputRules = strings.Split(input.(string), ",")
+		for _, inputRule := range inputRules {
+			if !idRE.MatchString(inputRule) {
+				return fmt.Errorf("invalid identifier '%s' for 'claim validation rule. '"+
+					"Should be in a <claim>:<required_value> format.", inputRule)
+			}
+		}
+	case reflect.Slice:
+		if reflect.TypeOf(input).Elem().Kind() != reflect.String {
+			return fmt.Errorf("unable to verify claim validation rules, incompatible type, expected slice of string got: '%s'",
+				inputType.String())
+		}
+	default:
+		return fmt.Errorf("can only validate string types, got %v", inputType.String())
+	}
 	return nil
 }

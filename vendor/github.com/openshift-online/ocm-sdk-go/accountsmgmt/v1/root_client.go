@@ -142,6 +142,16 @@ func (c *Client) CurrentAccount() *CurrentAccountClient {
 	)
 }
 
+// DefaultCapabilities returns the target 'default_capabilities' resource.
+//
+// Reference to the resource that manages the collection of default capabilities.
+func (c *Client) DefaultCapabilities() *DefaultCapabilitiesClient {
+	return NewDefaultCapabilitiesClient(
+		c.transport,
+		path.Join(c.path, "default_capabilities"),
+	)
+}
+
 // DeletedSubscriptions returns the target 'deleted_subscriptions' resource.
 //
 // Reference to the resource that manages the collection of deleted subscriptions.
@@ -169,16 +179,6 @@ func (c *Client) Labels() *LabelsClient {
 	return NewLabelsClient(
 		c.transport,
 		path.Join(c.path, "labels"),
-	)
-}
-
-// Notify returns the target 'notify' resource.
-//
-// Reference to the resource that manages the notifications.
-func (c *Client) Notify() *NotifyClient {
-	return NewNotifyClient(
-		c.transport,
-		path.Join(c.path, "notify"),
 	)
 }
 

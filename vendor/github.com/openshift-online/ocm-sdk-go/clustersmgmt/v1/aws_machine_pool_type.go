@@ -39,7 +39,10 @@ type AWSMachinePool struct {
 	id                         string
 	href                       string
 	additionalSecurityGroupIds []string
+	availabilityZoneTypes      map[string]string
 	spotMarketOptions          *AWSSpotMarketOptions
+	subnetOutposts             map[string]string
+	tags                       map[string]string
 }
 
 // Kind returns the name of the type of the object.
@@ -122,12 +125,35 @@ func (o *AWSMachinePool) GetAdditionalSecurityGroupIds() (value []string, ok boo
 	return
 }
 
+// AvailabilityZoneTypes returns the value of the 'availability_zone_types' attribute, or
+// the zero value of the type if the attribute doesn't have a value.
+//
+// Associates nodepool availability zones with zone types (e.g. wavelength, local).
+func (o *AWSMachinePool) AvailabilityZoneTypes() map[string]string {
+	if o != nil && o.bitmap_&16 != 0 {
+		return o.availabilityZoneTypes
+	}
+	return nil
+}
+
+// GetAvailabilityZoneTypes returns the value of the 'availability_zone_types' attribute and
+// a flag indicating if the attribute has a value.
+//
+// Associates nodepool availability zones with zone types (e.g. wavelength, local).
+func (o *AWSMachinePool) GetAvailabilityZoneTypes() (value map[string]string, ok bool) {
+	ok = o != nil && o.bitmap_&16 != 0
+	if ok {
+		value = o.availabilityZoneTypes
+	}
+	return
+}
+
 // SpotMarketOptions returns the value of the 'spot_market_options' attribute, or
 // the zero value of the type if the attribute doesn't have a value.
 //
 // Use spot instances on this machine pool to reduce cost.
 func (o *AWSMachinePool) SpotMarketOptions() *AWSSpotMarketOptions {
-	if o != nil && o.bitmap_&16 != 0 {
+	if o != nil && o.bitmap_&32 != 0 {
 		return o.spotMarketOptions
 	}
 	return nil
@@ -138,9 +164,69 @@ func (o *AWSMachinePool) SpotMarketOptions() *AWSSpotMarketOptions {
 //
 // Use spot instances on this machine pool to reduce cost.
 func (o *AWSMachinePool) GetSpotMarketOptions() (value *AWSSpotMarketOptions, ok bool) {
-	ok = o != nil && o.bitmap_&16 != 0
+	ok = o != nil && o.bitmap_&32 != 0
 	if ok {
 		value = o.spotMarketOptions
+	}
+	return
+}
+
+// SubnetOutposts returns the value of the 'subnet_outposts' attribute, or
+// the zero value of the type if the attribute doesn't have a value.
+//
+// Associates nodepool subnets with AWS Outposts.
+func (o *AWSMachinePool) SubnetOutposts() map[string]string {
+	if o != nil && o.bitmap_&64 != 0 {
+		return o.subnetOutposts
+	}
+	return nil
+}
+
+// GetSubnetOutposts returns the value of the 'subnet_outposts' attribute and
+// a flag indicating if the attribute has a value.
+//
+// Associates nodepool subnets with AWS Outposts.
+func (o *AWSMachinePool) GetSubnetOutposts() (value map[string]string, ok bool) {
+	ok = o != nil && o.bitmap_&64 != 0
+	if ok {
+		value = o.subnetOutposts
+	}
+	return
+}
+
+// Tags returns the value of the 'tags' attribute, or
+// the zero value of the type if the attribute doesn't have a value.
+//
+// Optional keys and values that the machine pool provisioner will add as AWS tags to all AWS resources it creates.
+//
+// AWS tags must conform to the following standards:
+// - Each resource may have a maximum of 25 tags
+// - Tags beginning with "aws:" are reserved for system use and may not be set
+// - Tag keys may be between 1 and 128 characters in length
+// - Tag values may be between 0 and 256 characters in length
+// - Tags may only contain letters, numbers, spaces, and the following characters: [_ . : / = + - @]
+func (o *AWSMachinePool) Tags() map[string]string {
+	if o != nil && o.bitmap_&128 != 0 {
+		return o.tags
+	}
+	return nil
+}
+
+// GetTags returns the value of the 'tags' attribute and
+// a flag indicating if the attribute has a value.
+//
+// Optional keys and values that the machine pool provisioner will add as AWS tags to all AWS resources it creates.
+//
+// AWS tags must conform to the following standards:
+// - Each resource may have a maximum of 25 tags
+// - Tags beginning with "aws:" are reserved for system use and may not be set
+// - Tag keys may be between 1 and 128 characters in length
+// - Tag values may be between 0 and 256 characters in length
+// - Tags may only contain letters, numbers, spaces, and the following characters: [_ . : / = + - @]
+func (o *AWSMachinePool) GetTags() (value map[string]string, ok bool) {
+	ok = o != nil && o.bitmap_&128 != 0
+	if ok {
+		value = o.tags
 	}
 	return
 }
