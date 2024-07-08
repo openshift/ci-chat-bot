@@ -1424,7 +1424,9 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		job.Mode = JobTypeWorkflowUpgrade
 	case JobTypeWorkflowLaunch:
 		if req.Architecture != "amd64" {
-			return nil, fmt.Errorf("workflow launches are not currently supported for non-amd64 releases")
+			if req.Architecture != "multi" && req.Platform != "hypershift-hosted" {
+				return nil, fmt.Errorf("workflow launches are not currently supported for non-amd64 releases")
+			}
 		}
 		if len(jobInputs) != 1 {
 			return nil, fmt.Errorf("launching a cluster requires one image, version, or pull request")
