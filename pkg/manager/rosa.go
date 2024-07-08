@@ -212,6 +212,11 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 			return nil, "", fmt.Errorf("Failed to marshal expiry time as text: %w", err)
 		}
 	}
+	creator, err := m.rClient.AWSClient.GetCreator()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get Creator information from AWS: %w", err)
+	}
+
 	clusterConfig := ocm.Spec{
 		Name:                clusterName,
 		Region:              region,
@@ -245,6 +250,7 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 			utils.ExpiryTimeTag:            base64.RawStdEncoding.EncodeToString([]byte(expiryTime)),
 		},
 		DefaultIngress: ocm.NewDefaultIngressSpec(),
+		AWSCreator:     creator,
 	}
 
 	klog.Infof("Cluster Definition: %+v", clusterConfig)
