@@ -229,6 +229,9 @@ func GetPlatformArchFromWorkflowConfig(workflowConfig *manager.WorkflowConfig, n
 			}
 		}
 	}
+	if platform == "hypershift-hosted" {
+		architecture = "multi"
+	}
 	return platform, architecture, nil
 }
 
