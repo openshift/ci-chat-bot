@@ -9,7 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/test-infra/prow/pod-utils/downwardapi"
+	"sigs.k8s.io/prow/pkg/pod-utils/downwardapi"
 )
 
 // JobSpec is a superset of the upstream spec.

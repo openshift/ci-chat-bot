@@ -22,6 +22,7 @@ const (
 
 type boskosClient interface {
 	AcquireWaitWithPriority(ctx context.Context, rtype, state, dest, requestID string) (*common.Resource, error)
+	Acquire(rtype, state, dest string) (*common.Resource, error)
 	UpdateOne(name, dest string, _ *common.UserData) error
 	ReleaseOne(name, dest string) error
 	ReleaseAll(dest string) error
@@ -42,6 +43,9 @@ type Client interface {
 	// `ctx` can be used to abort the operation, `cancel` is called if any
 	// subsequent updates to the lease fail.
 	Acquire(rtype string, n uint, ctx context.Context, cancel context.CancelFunc) ([]string, error)
+	//AcquireIfAvailableImmediately leases `n` resources and returns the lease names.
+	// Does not block, and only leases the resources if they are available right away.
+	AcquireIfAvailableImmediately(rtype string, n uint, cancel context.CancelFunc) ([]string, error)
 	// Heartbeat updates all leases. It calls the cancellation function of each
 	// lease it fails to update.
 	Heartbeat() error
@@ -104,6 +108,21 @@ func (c *client) Acquire(rtype string, n uint, ctx context.Context, cancel conte
 	// TODO `m` processes may fight for the last `m * n` remaining leases
 	for i := uint(0); i < n; i++ {
 		r, err := c.boskos.AcquireWaitWithPriority(ctx, rtype, freeState, leasedState, randId())
+		if err != nil {
+			return nil, err
+		}
+		c.Lock()
+		c.leases[r.Name] = &lease{cancel: cancel}
+		c.Unlock()
+		ret = append(ret, r.Name)
+	}
+	return ret, nil
+}
+
+func (c *client) AcquireIfAvailableImmediately(rtype string, n uint, cancel context.CancelFunc) ([]string, error) {
+	var ret []string
+	for i := uint(0); i < n; i++ {
+		r, err := c.boskos.Acquire(rtype, freeState, leasedState)
 		if err != nil {
 			return nil, err
 		}

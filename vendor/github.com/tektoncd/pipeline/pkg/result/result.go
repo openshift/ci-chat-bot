@@ -33,6 +33,11 @@ const (
 	InternalTektonResultType = 3
 	// UnknownResultType default unknown result type value
 	UnknownResultType = 10
+	// StepResultType default step result value
+	StepResultType ResultType = 4
+
+	// StepArtifactsResultType default artifacts result value
+	StepArtifactsResultType ResultType = 5
 )
 
 // RunResult is used to write key/value pairs to TaskRun pod termination messages.
@@ -80,10 +85,14 @@ func (r *ResultType) UnmarshalJSON(data []byte) error {
 	}
 
 	switch asString {
+	case "StepResult":
+		*r = StepResultType
 	case "TaskRunResult":
 		*r = TaskRunResultType
 	case "InternalTektonResult":
 		*r = InternalTektonResultType
+	case "StepArtifactsResult":
+		*r = StepArtifactsResultType
 	default:
 		*r = UnknownResultType
 	}

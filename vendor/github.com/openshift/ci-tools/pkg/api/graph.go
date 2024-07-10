@@ -628,7 +628,7 @@ func (c *CIOperatorStepDetailInfo) UnmarshalJSON(data []byte) error {
 
 const CIOperatorStepGraphJSONFilename = "ci-operator-step-graph.json"
 
-// StepGraphJSONURL takes a base url like https://storage.googleapis.com/origin-ci-test/pr-logs/pull/openshift_ci-tools/999/pull-ci-openshift-ci-tools-master-validate-vendor/1283812971092381696
+// StepGraphJSONURL takes a base url like https://storage.googleapis.com/test-platform-results/pr-logs/pull/openshift_ci-tools/999/pull-ci-openshift-ci-tools-master-validate-vendor/1283812971092381696
 // and returns the full url for the step graph json document.
 func StepGraphJSONURL(baseJobURL string) string {
 	return strings.Join([]string{baseJobURL, "artifacts", CIOperatorStepGraphJSONFilename}, "/")
