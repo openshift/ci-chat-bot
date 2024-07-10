@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/openshift/ci-chat-bot/pkg/utils"
-	"k8s.io/test-infra/prow/pjutil"
+	"sigs.k8s.io/prow/pkg/pjutil"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,8 +14,8 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
-	"k8s.io/test-infra/prow/config"
+	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
+	"sigs.k8s.io/prow/pkg/config"
 )
 
 type ProwConfigLoader interface {

@@ -20,9 +20,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
-	"k8s.io/test-infra/prow/github"
-	"k8s.io/test-infra/prow/metrics"
+	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
+	"sigs.k8s.io/prow/pkg/github"
+	"sigs.k8s.io/prow/pkg/metrics"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
