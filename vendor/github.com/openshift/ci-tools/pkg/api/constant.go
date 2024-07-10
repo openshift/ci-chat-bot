@@ -59,8 +59,9 @@ const (
 	// `podStartTimeout`.
 	ReasonPending = "pod_pending"
 	// CliEnv if the env we use to expose the path to the cli
-	CliEnv          = "CLI_DIR"
-	DefaultLeaseEnv = "LEASED_RESOURCE"
+	CliEnv                = "CLI_DIR"
+	DefaultLeaseEnv       = "LEASED_RESOURCE"
+	DefaultIPPoolLeaseEnv = "IP_POOL_AVAILABLE"
 	// SkipCensoringLabel is the label we use to mark a secret as not needing to be censored
 	SkipCensoringLabel = "ci.openshift.io/skip-censoring"
 
@@ -69,7 +70,16 @@ const (
 
 	CIAdminsGroupName = "test-platform-ci-admins"
 
-	ShmResource = "ci-operator.openshift.io/shm"
+	ShmResource       = "ci-operator.openshift.io/shm"
+	NvidiaGPUResource = "nvidia.com/gpu"
+
+	// ReleaseConfigAnnotation is the name of annotation created by the release controller.
+	// ci-operator uses the release controller configuration to determine
+	// the version of OpenShift we create from the ImageStream, so we need
+	// to copy the annotation if it exists
+	ReleaseConfigAnnotation = "release.openshift.io/config"
+
+	ImageStreamImportRetries = 6
 )
 
 var (

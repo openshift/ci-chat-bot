@@ -18,13 +18,13 @@ import (
 	slackClient "github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"k8s.io/klog"
-	"k8s.io/test-infra/prow/config"
-	prowflagutil "k8s.io/test-infra/prow/flagutil"
-	"k8s.io/test-infra/prow/interrupts"
-	"k8s.io/test-infra/prow/metrics"
-	"k8s.io/test-infra/prow/pjutil"
-	"k8s.io/test-infra/prow/pjutil/pprof"
-	"k8s.io/test-infra/prow/simplifypath"
+	"sigs.k8s.io/prow/pkg/config"
+	prowflagutil "sigs.k8s.io/prow/pkg/flagutil"
+	"sigs.k8s.io/prow/pkg/interrupts"
+	"sigs.k8s.io/prow/pkg/metrics"
+	"sigs.k8s.io/prow/pkg/pjutil"
+	"sigs.k8s.io/prow/pkg/pjutil/pprof"
+	"sigs.k8s.io/prow/pkg/simplifypath"
 )
 
 func l(fragment string, children ...simplifypath.Node) simplifypath.Node {

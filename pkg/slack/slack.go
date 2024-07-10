@@ -16,7 +16,7 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	"github.com/slack-go/slack"
 	"k8s.io/klog"
-	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
+	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 )
 
 type Bot struct {

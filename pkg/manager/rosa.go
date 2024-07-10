@@ -29,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog"
-	"k8s.io/test-infra/prow/metrics"
+	"sigs.k8s.io/prow/pkg/metrics"
 )
 
 var RosaClusterSecretName = "ci-chat-bot-rosa-clusters"

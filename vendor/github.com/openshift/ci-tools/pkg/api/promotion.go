@@ -28,21 +28,7 @@ func PromotionTargets(c *PromotionConfiguration) []PromotionTarget {
 	if c == nil {
 		return nil
 	}
-
-	var targets []PromotionTarget
-	if c.Namespace != "" {
-		targets = append(targets, PromotionTarget{
-			Name:             c.Name,
-			Namespace:        c.Namespace,
-			Tag:              c.Tag,
-			TagByCommit:      c.TagByCommit,
-			ExcludedImages:   c.ExcludedImages,
-			AdditionalImages: c.AdditionalImages,
-			Disabled:         c.Disabled,
-		})
-	}
-	targets = append(targets, c.Targets...)
-	return targets
+	return c.Targets
 }
 
 // ImageTargets returns image targets
@@ -104,29 +90,19 @@ func RefersToOfficialImage(namespace string, includeOKD OKDInclusion) bool {
 	return (bool(includeOKD) && namespace == okdPromotionNamespace) || namespace == ocpPromotionNamespace
 }
 
-func tagsInQuay(image string, tag ImageStreamTagReference, date string) ([]string, error) {
-	if date == "" {
-		return nil, fmt.Errorf("date must not be empty")
-	}
-	splits := strings.Split(image, "@sha256:")
-	if len(splits) != 2 {
-		return nil, fmt.Errorf("malformed image pull spec: %s", image)
-	}
-	digest := splits[1]
-	return []string{
-		QuayImageFromDateAndDigest(date, digest),
-		QuayImage(tag),
-	}, nil
-}
-
-// QuayImage returns the image in quay.io for an image stream tag
+// QuayImage returns the image in quay.io for an image stream tag which is used to push the image
 func QuayImage(tag ImageStreamTagReference) string {
 	return fmt.Sprintf("%s:%s_%s_%s", QuayOpenShiftCIRepo, tag.Namespace, tag.Name, tag.Tag)
 }
 
-// QuayImageFromDateAndDigest returns the image in quay.io for a date and an image digest
-func QuayImageFromDateAndDigest(date, digest string) string {
-	return fmt.Sprintf("%s:%s_sha256_%s", QuayOpenShiftCIRepo, date, digest)
+// QuayImageReference returns the image in quay.io for an image stream tag which is used to pull the image
+func QuayImageReference(tag ImageStreamTagReference) string {
+	return strings.Replace(QuayImage(tag), "quay.io", QCIAPPCIDomain, 1)
+}
+
+// quayImageWithTime returns the image in quay.io with a timestamp
+func quayImageWithTime(timestamp string, tag ImageStreamTagReference) string {
+	return fmt.Sprintf("%s:%s_prune_%s_%s_%s", QuayOpenShiftCIRepo, timestamp, tag.Namespace, tag.Name, tag.Tag)
 }
 
 var (
@@ -135,14 +111,13 @@ var (
 		mirror[target] = source
 	}
 	// QuayMirrorFunc is the mirroring function for quay.io
-	QuayMirrorFunc = func(source, target string, tag ImageStreamTagReference, date string, mirror map[string]string) {
-		if quayTags, err := tagsInQuay(source, tag, date); err != nil {
-			logrus.WithField("source", source).WithError(err).
-				Warn("Failed to get the tag in quay.io and skipped the promotion to quay for this image")
+	QuayMirrorFunc = func(source, target string, tag ImageStreamTagReference, time string, mirror map[string]string) {
+		if time == "" {
+			logrus.Warn("Found time is empty string and skipped the promotion to quay for this image")
 		} else {
-			for _, quayTag := range quayTags {
-				mirror[quayTag] = source
-			}
+			t := QuayImage(tag)
+			mirror[t] = source
+			mirror[quayImageWithTime(time, tag)] = t
 		}
 	}
 

@@ -18,8 +18,8 @@ import (
 
 	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
-	"k8s.io/test-infra/prow/github"
+	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
+	"sigs.k8s.io/prow/pkg/github"
 )
 
 const (

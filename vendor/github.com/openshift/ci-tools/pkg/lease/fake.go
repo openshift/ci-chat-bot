@@ -7,17 +7,16 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/boskos/common"
 )
 
 type fakeClient struct {
 	owner    string
-	failures sets.Set[string]
+	failures map[string]error
 	calls    *[]string
 }
 
-func NewFakeClient(owner, url string, retries int, failures sets.Set[string], calls *[]string) Client {
+func NewFakeClient(owner, url string, retries int, failures map[string]error, calls *[]string) Client {
 	if calls == nil {
 		calls = &[]string{}
 	}
@@ -36,14 +35,20 @@ func (c *fakeClient) addCall(call string, args ...string) error {
 	if c.calls != nil {
 		*c.calls = append(*c.calls, s)
 	}
-	if c.failures.Has(s) {
-		return fmt.Errorf("injected failure %q", s)
+	failure, exists := c.failures[s]
+	if exists {
+		return failure
 	}
 	return nil
 }
 
 func (c *fakeClient) AcquireWaitWithPriority(ctx context.Context, rtype, state, dest, requestID string) (*common.Resource, error) {
-	err := c.addCall("acquire", rtype, state, dest, requestID)
+	err := c.addCall("acquireWaitWithPriority", rtype, state, dest, requestID)
+	return &common.Resource{Name: fmt.Sprintf("%s_%d", rtype, len(*c.calls)-1)}, err
+}
+
+func (c *fakeClient) Acquire(rtype, state, dest string) (*common.Resource, error) {
+	err := c.addCall("acquire", rtype, state, dest)
 	return &common.Resource{Name: fmt.Sprintf("%s_%d", rtype, len(*c.calls)-1)}, err
 }
 

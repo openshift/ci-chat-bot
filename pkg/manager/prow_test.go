@@ -6,7 +6,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	citools "github.com/openshift/ci-tools/pkg/api"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
+	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 )
 
 func Test_processOperatorPR(t *testing.T) {

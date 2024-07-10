@@ -37,8 +37,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/transport"
-	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
+	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 
 	citools "github.com/openshift/ci-tools/pkg/api"
 )

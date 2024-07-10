@@ -6,7 +6,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"k8s.io/test-infra/prow/secretutil"
+	"sigs.k8s.io/prow/pkg/secretutil"
 )
 
 // prowArtifactsEnv is the directory Prow wants us to put artifacts into for upload

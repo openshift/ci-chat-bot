@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	prowv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
+	prowv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 )
 
 // Default sets default values after loading but before validation

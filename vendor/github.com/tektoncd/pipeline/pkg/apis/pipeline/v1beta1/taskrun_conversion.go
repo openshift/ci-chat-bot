@@ -29,6 +29,7 @@ import (
 const (
 	cloudEventsAnnotationKey     = "tekton.dev/v1beta1CloudEvents"
 	resourcesResultAnnotationKey = "tekton.dev/v1beta1ResourcesResult"
+	resourcesStatusAnnotationKey = "tekton.dev/v1beta1ResourcesStatus"
 )
 
 var _ apis.Convertible = (*TaskRun)(nil)
@@ -41,7 +42,16 @@ func (tr *TaskRun) ConvertTo(ctx context.Context, to apis.Convertible) error {
 	switch sink := to.(type) {
 	case *v1.TaskRun:
 		sink.ObjectMeta = tr.ObjectMeta
+		if err := serializeTaskRunResources(&sink.ObjectMeta, &tr.Spec); err != nil {
+			return err
+		}
 		if err := serializeTaskRunCloudEvents(&sink.ObjectMeta, &tr.Status); err != nil {
+			return err
+		}
+		if err := serializeTaskRunResourcesResult(&sink.ObjectMeta, &tr.Status); err != nil {
+			return err
+		}
+		if err := serializeTaskRunResourcesStatus(&sink.ObjectMeta, &tr.Status); err != nil {
 			return err
 		}
 		if err := tr.Status.ConvertTo(ctx, &sink.Status, &sink.ObjectMeta); err != nil {
@@ -112,10 +122,19 @@ func (tr *TaskRun) ConvertFrom(ctx context.Context, from apis.Convertible) error
 	switch source := from.(type) {
 	case *v1.TaskRun:
 		tr.ObjectMeta = source.ObjectMeta
+		if err := deserializeTaskRunResources(&tr.ObjectMeta, &tr.Spec); err != nil {
+			return err
+		}
 		if err := deserializeTaskRunCloudEvents(&tr.ObjectMeta, &tr.Status); err != nil {
 			return err
 		}
+		if err := deserializeTaskRunResourcesResult(&tr.ObjectMeta, &tr.Status); err != nil {
+			return err
+		}
 		if err := tr.Status.ConvertFrom(ctx, source.Status, &tr.ObjectMeta); err != nil {
+			return err
+		}
+		if err := deserializeTaskRunResourcesStatus(&tr.ObjectMeta, &tr.Status); err != nil {
 			return err
 		}
 		return tr.Spec.ConvertFrom(ctx, &source.Spec, &tr.ObjectMeta)
@@ -134,13 +153,13 @@ func (trs *TaskRunSpec) ConvertFrom(ctx context.Context, source *v1.TaskRunSpec,
 	trs.Params = nil
 	for _, p := range source.Params {
 		new := Param{}
-		new.convertFrom(ctx, p)
+		new.ConvertFrom(ctx, p)
 		trs.Params = append(trs.Params, new)
 	}
 	trs.ServiceAccountName = source.ServiceAccountName
 	if source.TaskRef != nil {
 		newTaskRef := TaskRef{}
-		newTaskRef.convertFrom(ctx, *source.TaskRef)
+		newTaskRef.ConvertFrom(ctx, *source.TaskRef)
 		trs.TaskRef = &newTaskRef
 	}
 	if source.TaskSpec != nil {
@@ -159,7 +178,7 @@ func (trs *TaskRunSpec) ConvertFrom(ctx context.Context, source *v1.TaskRunSpec,
 	trs.Workspaces = nil
 	for _, w := range source.Workspaces {
 		new := WorkspaceBinding{}
-		new.convertFrom(ctx, w)
+		new.ConvertFrom(ctx, w)
 		trs.Workspaces = append(trs.Workspaces, new)
 	}
 	trs.StepOverrides = nil
@@ -179,11 +198,26 @@ func (trs *TaskRunSpec) ConvertFrom(ctx context.Context, source *v1.TaskRunSpec,
 }
 
 func (trd TaskRunDebug) convertTo(ctx context.Context, sink *v1.TaskRunDebug) {
-	sink.Breakpoint = trd.Breakpoint
+	if trd.Breakpoints != nil {
+		sink.Breakpoints = &v1.TaskBreakpoints{}
+		trd.Breakpoints.convertTo(ctx, sink.Breakpoints)
+	}
 }
 
 func (trd *TaskRunDebug) convertFrom(ctx context.Context, source v1.TaskRunDebug) {
-	trd.Breakpoint = source.Breakpoint
+	if source.Breakpoints != nil {
+		newBreakpoints := TaskBreakpoints{}
+		newBreakpoints.convertFrom(ctx, *source.Breakpoints)
+		trd.Breakpoints = &newBreakpoints
+	}
+}
+
+func (tbp TaskBreakpoints) convertTo(ctx context.Context, sink *v1.TaskBreakpoints) {
+	sink.OnFailure = tbp.OnFailure
+}
+
+func (tbp *TaskBreakpoints) convertFrom(ctx context.Context, source v1.TaskBreakpoints) {
+	tbp.OnFailure = source.OnFailure
 }
 
 func (trso TaskRunStepOverride) convertTo(ctx context.Context, sink *v1.TaskRunStepSpec) {
@@ -309,6 +343,29 @@ func (ss StepState) convertTo(ctx context.Context, sink *v1.StepState) {
 	sink.Name = ss.Name
 	sink.Container = ss.ContainerName
 	sink.ImageID = ss.ImageID
+	sink.Results = nil
+
+	if ss.ContainerState.Terminated != nil {
+		sink.TerminationReason = ss.ContainerState.Terminated.Reason
+	}
+
+	for _, o := range ss.Outputs {
+		new := v1.TaskRunStepArtifact{}
+		o.convertTo(ctx, &new)
+		sink.Outputs = append(sink.Outputs, new)
+	}
+
+	for _, o := range ss.Inputs {
+		new := v1.TaskRunStepArtifact{}
+		o.convertTo(ctx, &new)
+		sink.Inputs = append(sink.Inputs, new)
+	}
+
+	for _, r := range ss.Results {
+		new := v1.TaskRunStepResult{}
+		r.convertTo(ctx, &new)
+		sink.Results = append(sink.Results, new)
+	}
 }
 
 func (ss *StepState) convertFrom(ctx context.Context, source v1.StepState) {
@@ -316,6 +373,22 @@ func (ss *StepState) convertFrom(ctx context.Context, source v1.StepState) {
 	ss.Name = source.Name
 	ss.ContainerName = source.Container
 	ss.ImageID = source.ImageID
+	ss.Results = nil
+	for _, r := range source.Results {
+		new := TaskRunStepResult{}
+		new.convertFrom(ctx, r)
+		ss.Results = append(ss.Results, new)
+	}
+	for _, o := range source.Outputs {
+		new := TaskRunStepArtifact{}
+		new.convertFrom(ctx, o)
+		ss.Outputs = append(ss.Outputs, new)
+	}
+	for _, o := range source.Inputs {
+		new := TaskRunStepArtifact{}
+		new.convertFrom(ctx, o)
+		ss.Inputs = append(ss.Inputs, new)
+	}
 }
 
 func (trr TaskRunResult) convertTo(ctx context.Context, sink *v1.TaskRunResult) {
@@ -334,6 +407,43 @@ func (trr *TaskRunResult) convertFrom(ctx context.Context, source v1.TaskRunResu
 	trr.Value = newValue
 }
 
+func (t *TaskRunStepArtifact) convertFrom(ctx context.Context, source v1.TaskRunStepArtifact) {
+	t.Name = source.Name
+	for _, v := range source.Values {
+		new := ArtifactValue{}
+		new.convertFrom(ctx, v)
+		t.Values = append(t.Values, new)
+	}
+}
+
+func (t TaskRunStepArtifact) convertTo(ctx context.Context, sink *v1.TaskRunStepArtifact) {
+	sink.Name = t.Name
+	for _, v := range t.Values {
+		new := v1.ArtifactValue{}
+		v.convertTo(ctx, &new)
+		sink.Values = append(sink.Values, new)
+	}
+}
+
+func (t *ArtifactValue) convertFrom(ctx context.Context, source v1.ArtifactValue) {
+	t.Uri = source.Uri
+	if source.Digest != nil {
+		t.Digest = map[Algorithm]string{}
+		for i, a := range source.Digest {
+			t.Digest[Algorithm(i)] = a
+		}
+	}
+}
+func (t ArtifactValue) convertTo(ctx context.Context, sink *v1.ArtifactValue) {
+	sink.Uri = t.Uri
+	if t.Digest != nil {
+		sink.Digest = map[v1.Algorithm]string{}
+		for i, a := range t.Digest {
+			sink.Digest[v1.Algorithm(i)] = a
+		}
+	}
+}
+
 func (ss SidecarState) convertTo(ctx context.Context, sink *v1.SidecarState) {
 	sink.ContainerState = ss.ContainerState
 	sink.Name = ss.Name
@@ -346,6 +456,25 @@ func (ss *SidecarState) convertFrom(ctx context.Context, source v1.SidecarState)
 	ss.Name = source.Name
 	ss.ContainerName = source.Container
 	ss.ImageID = source.ImageID
+}
+
+func serializeTaskRunResources(meta *metav1.ObjectMeta, spec *TaskRunSpec) error {
+	if spec.Resources == nil {
+		return nil
+	}
+	return version.SerializeToMetadata(meta, spec.Resources, resourcesAnnotationKey)
+}
+
+func deserializeTaskRunResources(meta *metav1.ObjectMeta, spec *TaskRunSpec) error {
+	resources := &TaskRunResources{}
+	err := version.DeserializeFromMetadata(meta, resources, resourcesAnnotationKey)
+	if err != nil {
+		return err
+	}
+	if resources.Inputs != nil || resources.Outputs != nil {
+		spec.Resources = resources
+	}
+	return nil
 }
 
 func serializeTaskRunCloudEvents(meta *metav1.ObjectMeta, status *TaskRunStatus) error {
@@ -363,6 +492,50 @@ func deserializeTaskRunCloudEvents(meta *metav1.ObjectMeta, status *TaskRunStatu
 	}
 	if len(cloudEvents) != 0 {
 		status.CloudEvents = cloudEvents
+	}
+	return nil
+}
+
+func serializeTaskRunResourcesResult(meta *metav1.ObjectMeta, status *TaskRunStatus) error {
+	if status.ResourcesResult == nil {
+		return nil
+	}
+	return version.SerializeToMetadata(meta, status.ResourcesResult, resourcesResultAnnotationKey)
+}
+
+func deserializeTaskRunResourcesResult(meta *metav1.ObjectMeta, status *TaskRunStatus) error {
+	resourcesResult := []RunResult{}
+	err := version.DeserializeFromMetadata(meta, &resourcesResult, resourcesResultAnnotationKey)
+	if err != nil {
+		return err
+	}
+	if len(resourcesResult) != 0 {
+		status.ResourcesResult = resourcesResult
+	}
+	return nil
+}
+
+func serializeTaskRunResourcesStatus(meta *metav1.ObjectMeta, status *TaskRunStatus) error {
+	if status.TaskSpec == nil {
+		return nil
+	}
+	if status.TaskSpec.Resources == nil {
+		return nil
+	}
+	return version.SerializeToMetadata(meta, status.TaskSpec.Resources, resourcesStatusAnnotationKey)
+}
+
+func deserializeTaskRunResourcesStatus(meta *metav1.ObjectMeta, status *TaskRunStatus) error {
+	resourcesStatus := &TaskResources{}
+	err := version.DeserializeFromMetadata(meta, resourcesStatus, resourcesStatusAnnotationKey)
+	if err != nil {
+		return err
+	}
+	if resourcesStatus.Inputs != nil || resourcesStatus.Outputs != nil {
+		if status.TaskRunStatusFields.TaskSpec == nil {
+			status.TaskSpec = &TaskSpec{}
+		}
+		status.TaskSpec.Resources = resourcesStatus
 	}
 	return nil
 }

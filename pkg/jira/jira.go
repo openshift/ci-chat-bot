@@ -8,7 +8,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
 
-	jirautil "k8s.io/test-infra/prow/jira"
+	jirautil "sigs.k8s.io/prow/pkg/jira"
 )
 
 const (
