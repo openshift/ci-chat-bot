@@ -852,6 +852,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		return "", err
 	}
 
+	// TODO: Any errors returned after this point need to make sure that they are properly handled by the enclosing logic calling newJob()
 	var prowJobURL string
 	// Wait for ProwJob URL to be assigned
 	err = wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {

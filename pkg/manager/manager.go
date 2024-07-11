@@ -1750,6 +1750,14 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 
 	prowJobUrl, err := m.newJob(job)
 	if err != nil {
+		// In the case where a ProwJob has been created, but we fail to get its URL, we shouldn't delete anything
+		if !strings.HasPrefix(err.Error(), "did not retrieve job url due to an error:") {
+			m.lock.Lock()
+			defer m.lock.Unlock()
+			// Cleanup any active requests and/or jobs
+			delete(m.requests, req.User)
+			delete(m.jobs, req.Name)
+		}
 		return "", fmt.Errorf("the requested job cannot be started: %v", err)
 	}
 
