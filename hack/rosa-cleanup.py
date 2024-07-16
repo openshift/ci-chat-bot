@@ -5,9 +5,9 @@ import hashlib
 import json
 import logging
 import subprocess
+import sys
 
 import boto3
-import sys
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('rosaCleanup')
@@ -29,12 +29,40 @@ def get_ec2_resources():
     client = boto3.client('ec2')
 
     return {
-        'instances': get_ec2_instances(client),
-        'securityGroups': get_aws_paginated_resources(client, 'describe_security_groups', 'SecurityGroups'),
-        'volumes': get_aws_paginated_resources(client, 'describe_volumes', 'Volumes'),
+        'subnets': get_aws_paginated_resources(client, 'describe_subnets', 'Subnets'),
+        # 'instances': get_ec2_instances(client),
+        # 'securityGroups': get_aws_paginated_resources(client, 'describe_security_groups', 'SecurityGroups'),
+        # 'volumes': get_aws_paginated_resources(client, 'describe_volumes', 'Volumes'),
         # 'snapshots': get_aws_paginated_resources(client, 'describe_snapshots', 'Snapshots'),
-        'networkInterfaces': get_aws_paginated_resources(client, 'describe_network_interfaces', 'NetworkInterfaces')
+        # 'networkInterfaces': get_aws_paginated_resources(client, 'describe_network_interfaces', 'NetworkInterfaces')
     }
+
+
+def delete_ec2_resources(clusters, resources):
+    delete_subnet_tags(clusters, resources['subnets'])
+
+
+# We run into issues when we hit the maximum number of user tags (50) on Subnets...
+def delete_subnet_tags(clusters, subnets):
+    ec2 = boto3.resource('ec2')
+
+    for subnet in subnets:
+        tags = []
+        logger.info(f'Processing subnet: {subnet["SubnetId"]}')
+        for tag in subnet['Tags']:
+            if tag['Key'].startswith('kubernetes.io/cluster/'):
+                found = False
+                for cluster in clusters:
+                    if tag["Key"].endswith(cluster['id']):
+                        found = True
+                        break
+
+                if not found:
+                    tags.append(ec2.Tag(subnet["SubnetId"], tag['Key'], tag['Value']))
+
+        for tag in tags:
+            logger.info(f' Deleting tag: {tag.key}:{tag.value}')
+            tag.delete(DryRun=False)
 
 
 def get_elb_resources():
@@ -56,6 +84,7 @@ def get_iam_resources():
     }
 
 
+# We run into issues when we hit the IAM Roles limit (1000)...
 def delete_iam_roles(clusters, resources):
     client = boto3.client('iam')
     roles = []
@@ -212,11 +241,14 @@ if __name__ == '__main__':
     # Gather the current list of ROSA clusters
     rosa_clusters = get_rosa_clusters()
 
-    # We're currently running into issues with hitting the IAM Roles limit (1000)...
+    # IAM Cleanup
     iam_resources = get_iam_resources()
     delete_iam_roles(rosa_clusters, iam_resources)
 
+    # EC2 Cleanup
+    ec2_resources = get_ec2_resources()
+    delete_ec2_resources(rosa_clusters, ec2_resources)
+
     # Other resources to check for...
-    # ec2_resources = get_ec2_resources()
     # elb_resources = get_elb_resources()
     # s3_resources = get_s3_resources()
