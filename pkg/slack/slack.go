@@ -169,7 +169,8 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 func GetUserName(client *slack.Client, userID string) string {
 	user, err := client.GetUserInfo(userID)
 	if err != nil {
-		klog.Warningf("Failed to get the User details for UserID: %s", userID)
+		klog.Warningf("Failed to get the User Info for UserID: %s, %v", userID, err)
+		return ""
 	}
 	if strings.HasSuffix(user.Profile.Email, "@redhat.com") {
 		return strings.TrimSuffix(user.Profile.Email, "@redhat.com")
