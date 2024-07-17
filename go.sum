@@ -766,10 +766,10 @@ github.com/opencontainers/runc v1.1.12 h1:BOIssBaW1La0/qbNZHXOOa71dZfZEQOzW7dqQf
 github.com/opencontainers/runc v1.1.12/go.mod h1:S+lQwSfncpBha7XTy/5lBwWgm5+y5Ma/O44Ekby9FK8=
 github.com/opencontainers/runtime-spec v1.1.0 h1:HHUyrt9mwHUjtasSbXSMvs4cyFxh+Bll4AjJ9odEGpg=
 github.com/opencontainers/runtime-spec v1.1.0/go.mod h1:jwyrGlmzljRJv/Fgzds9SsS/C5hL+LL3ko9hs6T5lQ0=
-github.com/openshift-online/ocm-common v0.0.0-20240508111534-37822c515806 h1:YEDgruMDet/LJyav5G6VuvMhCf3tm7mQxR9ZS/yjn2E=
-github.com/openshift-online/ocm-common v0.0.0-20240508111534-37822c515806/go.mod h1:aAE9ThwbT6pHKyVP15TW724yV0uvdNL3ZnIxena2j5s=
-github.com/openshift-online/ocm-sdk-go v0.1.426 h1:tzaQAx/2arpkwA/NCoj9N4XM/SwAtHg2zIfXtY/aql0=
-github.com/openshift-online/ocm-sdk-go v0.1.426/go.mod h1:CiAu2jwl3ITKOxkeV0Qnhzv4gs35AmpIzVABQLtcI2Y=
+github.com/openshift-online/ocm-common v0.0.4 h1:omkT+OoInkIY5H6mXs5UlkLyonajWaYsUaUMr9FG0d0=
+github.com/openshift-online/ocm-common v0.0.4/go.mod h1:jN6cL4H/fni6faK+Z8S4Lo0lkZphx4VkylGObfYHW7Y=
+github.com/openshift-online/ocm-sdk-go v0.1.427 h1:ZpXKNSsfminKwq954uaeAGGYxX6xOTloyi2dKRHWeLE=
+github.com/openshift-online/ocm-sdk-go v0.1.427/go.mod h1:CiAu2jwl3ITKOxkeV0Qnhzv4gs35AmpIzVABQLtcI2Y=
 github.com/openshift/api v0.0.0-20240522145529-93d6bda14341 h1:JQpzgk+p24rkgNbNsrNR0yLm63WTKapuT60INU5BqT8=
 github.com/openshift/api v0.0.0-20240522145529-93d6bda14341/go.mod h1:qNtV0315F+f8ld52TLtPvrfivZpdimOzTi3kn9IVbtU=
 github.com/openshift/build-machinery-go v0.0.0-20220913142420-e25cf57ea46d h1:RR4ah7FfaPR1WePizm0jlrsbmPu91xQZnAsVVreQV1k=
@@ -786,8 +786,8 @@ github.com/openshift/moby-moby v1.4.2-0.20190308215630-da810a85109d h1:1LuQzDKgi
 github.com/openshift/moby-moby v1.4.2-0.20190308215630-da810a85109d/go.mod h1:LJM49W8fBVSj+rvcopJZu9mgH5Tx6HwLHySIYeGeu4k=
 github.com/openshift/oc v0.0.0-alpha.0.0.20230410203846-b68ac7c39057 h1:qPCovANfcKaI45rXB/TcIgoaJtufe/W9LcCBc5PaXVM=
 github.com/openshift/oc v0.0.0-alpha.0.0.20230410203846-b68ac7c39057/go.mod h1:XpOVZsTmYlQz/ndFR/FOfPLm4/k13XMafwYNkfA8wLc=
-github.com/openshift/rosa v1.2.41 h1:7XO+k8Rx5o9pZxWgCAtzXIeg22bN57nwUGl2o3+rqHI=
-github.com/openshift/rosa v1.2.41/go.mod h1:Yd95lhqZHM1CxS6g82dHUOJ1BQ6xY3HNoYOAMoivT5o=
+github.com/openshift/rosa v1.2.42 h1:APk3pFeTXV1g+2JzB0EDk106xG9fwi73MQk/oRiZzkg=
+github.com/openshift/rosa v1.2.42/go.mod h1:AW7gFCZ3k0f5V9XJNK5zOwaYyjkcCtdq4tFdRLIencs=
 github.com/operator-framework/api v0.17.6 h1:E6+vlvYUKafvoXYtCuHlDZrXX4vl8AT+r93OxNlzjpU=
 github.com/operator-framework/api v0.17.6/go.mod h1:l/cuwtPxkVUY7fzYgdust2m9tlmb8I4pOvbsUufRb24=
 github.com/operator-framework/operator-registry v1.28.0 h1:vtmd2WgJxkx7vuuOxW4k5Le/oo0SfonSeJVMU3rKIfk=
