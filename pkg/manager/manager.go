@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/url"
 	"regexp"
+	prowClient "sigs.k8s.io/prow/pkg/client/clientset/versioned/typed/prowjobs/v1"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,7 +41,6 @@ import (
 	"github.com/openshift/rosa/pkg/ocm"
 	"github.com/openshift/rosa/pkg/rosa"
 
-	"k8s.io/client-go/dynamic"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	corev1 "k8s.io/api/core/v1"
@@ -48,6 +48,7 @@ import (
 
 	"github.com/blang/semver"
 	"gopkg.in/yaml.v2"
+	prowInformer "sigs.k8s.io/prow/pkg/client/informers/externalversions/prowjobs/v1"
 )
 
 func init() {
@@ -112,7 +113,8 @@ func initializeErrorMetrics(vec *prometheus.CounterVec) {
 func NewJobManager(
 	prowConfigLoader prow.ProwConfigLoader,
 	configResolver ConfigResolver,
-	prowClient dynamic.NamespaceableResourceInterface,
+	prowClient prowClient.ProwV1Interface,
+	prowInformer prowInformer.ProwJobInformer,
 	imageClient imageclientset.Interface,
 	buildClusterClientConfigMap utils.BuildClusterClientConfigMap,
 	githubClient github.Client,
@@ -138,6 +140,7 @@ func NewJobManager(
 		githubClient:     githubClient,
 		prowConfigLoader: prowConfigLoader,
 		prowClient:       prowClient,
+		prowLister:       prowInformer.Lister(),
 		imageClient:      imageClient,
 		clusterClients:   buildClusterClientConfigMap,
 		prowNamespace:    "ci",
@@ -440,16 +443,10 @@ func (m *jobManager) rosaSync() error {
 }
 
 func (m *jobManager) sync() error {
-	u, err := m.prowClient.Namespace(m.prowNamespace).List(context.TODO(), metav1.ListOptions{
-		LabelSelector: labels.SelectorFromSet(labels.Set{
-			utils.LaunchLabel: "true",
-		}).String(),
-	})
+	prowjobs, err := m.prowLister.ProwJobs(m.prowNamespace).List(labels.SelectorFromSet(labels.Set{
+		utils.LaunchLabel: "true",
+	}))
 	if err != nil {
-		return err
-	}
-	list := &prowapiv1.ProwJobList{}
-	if err := prow.UnstructuredToObject(u, list); err != nil {
 		return err
 	}
 
@@ -458,7 +455,7 @@ func (m *jobManager) sync() error {
 
 	now := time.Now()
 
-	for _, job := range list.Items {
+	for _, job := range prowjobs {
 		previous := m.jobs[job.Name]
 
 		value := job.Annotations["ci-chat-bot.openshift.io/jobInputs"]

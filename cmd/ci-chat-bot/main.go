@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -28,7 +29,6 @@ import (
 	"sigs.k8s.io/prow/pkg/metrics"
 	"sigs.k8s.io/prow/pkg/pjutil"
 
-	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
@@ -44,10 +44,15 @@ import (
 	citools "github.com/openshift/ci-tools/pkg/api"
 	"github.com/openshift/ci-tools/pkg/lease"
 
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
+	prowclientset "sigs.k8s.io/prow/pkg/client/clientset/versioned"
+	prowinformers "sigs.k8s.io/prow/pkg/client/informers/externalversions"
 	configflagutil "sigs.k8s.io/prow/pkg/flagutil/config"
+)
+
+const (
+	controllerDefaultResyncDuration = 24 * time.Hour
 )
 
 var (
@@ -197,11 +202,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	dynamicClient, err := dynamic.NewForConfig(prowJobKubeconfig)
+	prowClient, err := prowclientset.NewForConfig(prowJobKubeconfig)
 	if err != nil {
 		return fmt.Errorf("unable to create prow client: %w", err)
 	}
-	prowClient := dynamicClient.Resource(schema.GroupVersionResource{Group: "prow.k8s.io", Version: "v1", Resource: "prowjobs"})
+	prowjobInformerFactory := prowinformers.NewSharedInformerFactory(prowClient, controllerDefaultResyncDuration)
+	prowjobInformer := prowjobInformerFactory.Prow().V1().ProwJobs()
 
 	// Config and Client to access release images
 	releaseConfig, err := utils.LoadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, prowJobKubeconfig)
@@ -277,10 +283,14 @@ func run() error {
 		klog.Errorf("Failed to read %s: %v", opt.rosaBillingAccount, err)
 	}
 
+	ctx := context.Background()
+	prowjobInformerFactory.Start(ctx.Done())
+
 	jobManager := manager.NewJobManager(
 		configAgent,
 		resolver,
-		prowClient,
+		prowClient.ProwV1(),
+		prowjobInformer,
 		imageClient,
 		buildClusterClientConfigs,
 		ghClient,

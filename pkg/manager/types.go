@@ -10,15 +10,15 @@ import (
 	"github.com/openshift/rosa/pkg/rosa"
 	"github.com/prometheus/client_golang/prometheus"
 
+	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	citools "github.com/openshift/ci-tools/pkg/api"
 	"github.com/openshift/ci-tools/pkg/lease"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/dynamic"
-
-	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
+	prowjobClient "sigs.k8s.io/prow/pkg/client/clientset/versioned/typed/prowjobs/v1"
+	prowjobLister "sigs.k8s.io/prow/pkg/client/listers/prowjobs/v1"
 	"sigs.k8s.io/prow/pkg/github"
 )
 
@@ -168,7 +168,8 @@ type jobManager struct {
 	maxAge        time.Duration
 
 	prowConfigLoader    prow.ProwConfigLoader
-	prowClient          dynamic.NamespaceableResourceInterface
+	prowClient          prowjobClient.ProwV1Interface
+	prowLister          prowjobLister.ProwJobLister
 	imageClient         imageclientset.Interface
 	hiveConfigMapClient corev1.ConfigMapInterface
 	clusterClients      utils.BuildClusterClientConfigMap

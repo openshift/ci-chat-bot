@@ -2028,6 +2028,11 @@ sigs.k8s.io/prow/pkg/cache
 sigs.k8s.io/prow/pkg/client/clientset/versioned
 sigs.k8s.io/prow/pkg/client/clientset/versioned/scheme
 sigs.k8s.io/prow/pkg/client/clientset/versioned/typed/prowjobs/v1
+sigs.k8s.io/prow/pkg/client/informers/externalversions
+sigs.k8s.io/prow/pkg/client/informers/externalversions/internalinterfaces
+sigs.k8s.io/prow/pkg/client/informers/externalversions/prowjobs
+sigs.k8s.io/prow/pkg/client/informers/externalversions/prowjobs/v1
+sigs.k8s.io/prow/pkg/client/listers/prowjobs/v1
 sigs.k8s.io/prow/pkg/clonerefs
 sigs.k8s.io/prow/pkg/commentpruner
 sigs.k8s.io/prow/pkg/config

@@ -248,16 +248,12 @@ func (r *URLConfigResolver) Resolve(org, repo, branch, variant string) ([]byte, 
 // stopJob triggers graceful cluster teardown. If this method returns nil,
 // it is safe to consider the cluster released.
 func (m *jobManager) stopJob(name, cluster string) error {
-	uns, err := m.prowClient.Namespace(m.prowNamespace).Get(context.TODO(), name, metav1.GetOptions{})
+	pj, err := m.prowClient.ProwJobs(m.prowNamespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// There may have been an issue creating the prowjob; treat as success
 			return nil
 		}
-		return err
-	}
-	var pj prowapiv1.ProwJob
-	if err := prow.UnstructuredToObject(uns, &pj); err != nil {
 		return err
 	}
 
@@ -276,7 +272,7 @@ func (m *jobManager) stopJob(name, cluster string) error {
 
 	klog.Infof("ProwJob pod for job %q will be aborted", name)
 	pj.Status.State = prowapiv1.AbortedState
-	_, err = m.prowClient.Namespace(m.prowNamespace).Update(context.Background(), prow.ObjectToUnstructured(&pj), metav1.UpdateOptions{})
+	_, err = m.prowClient.ProwJobs(m.prowNamespace).Update(context.Background(), pj, metav1.UpdateOptions{})
 	return err
 }
 
@@ -847,7 +843,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		klog.Infof("Job %q will create prow job:\n%s", job.Name, string(data))
 	}
 
-	_, err = m.prowClient.Namespace(m.prowNamespace).Create(context.TODO(), prow.ObjectToUnstructured(pj), metav1.CreateOptions{})
+	_, err = m.prowClient.ProwJobs(m.prowNamespace).Create(context.TODO(), pj, metav1.CreateOptions{})
 	if err != nil && !errors.IsAlreadyExists(err) {
 		return "", err
 	}
@@ -856,12 +852,8 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	var prowJobURL string
 	// Wait for ProwJob URL to be assigned
 	err = wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
-		uns, err := m.prowClient.Namespace(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
+		latestPJ, err := m.prowClient.ProwJobs(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
 		if err != nil {
-			return false, err
-		}
-		var latestPJ prowapiv1.ProwJob
-		if err := prow.UnstructuredToObject(uns, &latestPJ); err != nil {
 			return false, err
 		}
 
@@ -1091,15 +1083,11 @@ func (m *jobManager) waitForJob(job *Job) error {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
 		}
-		uns, err := m.prowClient.Namespace(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
+		latest, err := m.prowClient.ProwJobs(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
-		var latestPJ prowapiv1.ProwJob
-		if err := prow.UnstructuredToObject(uns, &latestPJ); err != nil {
-			return false, err
-		}
-		pj = &latestPJ
+		pj = latest
 
 		var done bool
 		switch pj.Status.State {
@@ -1147,12 +1135,8 @@ func (m *jobManager) waitForJob(job *Job) error {
 			if m.jobIsComplete(job) {
 				return false, errJobCompleted
 			}
-			uns, err := m.prowClient.Namespace(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
+			pj, err := m.prowClient.ProwJobs(m.prowNamespace).Get(context.TODO(), job.Name, metav1.GetOptions{})
 			if err != nil {
-				return false, err
-			}
-			var pj prowapiv1.ProwJob
-			if err := prow.UnstructuredToObject(uns, &pj); err != nil {
 				return false, err
 			}
 			switch pj.Status.State {
@@ -1369,7 +1353,7 @@ func (m *jobManager) clearNotificationAnnotations(job *Job, created bool, startD
 	} else {
 		patch = []byte(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":""}}}`)
 	}
-	if _, err := m.prowClient.Namespace(m.prowNamespace).Patch(context.TODO(), job.Name, types.MergePatchType, patch, metav1.PatchOptions{}); err != nil {
+	if _, err := m.prowClient.ProwJobs(m.prowNamespace).Patch(context.TODO(), job.Name, types.MergePatchType, patch, metav1.PatchOptions{}); err != nil {
 		klog.Infof("error: Job %q unable to clear channel annotation from prow job: %v", job.Name, err)
 	}
 }
