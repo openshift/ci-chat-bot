@@ -1,7 +1,6 @@
 package prow
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 
@@ -10,10 +9,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
-
 	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 	"sigs.k8s.io/prow/pkg/config"
 )
@@ -71,22 +67,6 @@ func JobForConfig(prowConfigLoader ProwConfigLoader, jobName string) (*prowapiv1
 	}
 	pj = pj.DeepCopy()
 	return pj, nil
-}
-
-func ObjectToUnstructured(obj runtime.Object) *unstructured.Unstructured {
-	buf := &bytes.Buffer{}
-	if err := unstructured.UnstructuredJSONScheme.Encode(obj, buf); err != nil {
-		panic(err)
-	}
-	u := &unstructured.Unstructured{}
-	if _, _, err := unstructured.UnstructuredJSONScheme.Decode(buf.Bytes(), nil, u); err != nil {
-		panic(err)
-	}
-	return u
-}
-
-func UnstructuredToObject(in runtime.Unstructured, out runtime.Object) error {
-	return runtime.DefaultUnstructuredConverter.FromUnstructured(in.UnstructuredContent(), out)
 }
 
 func OverrideJobEnvironment(spec *prowapiv1.ProwJobSpec, image, initialImage, targetRelease, namespace string, variants []string) {
