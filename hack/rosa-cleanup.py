@@ -25,25 +25,13 @@ def get_rosa_clusters():
     return clusters
 
 
-def get_ec2_resources():
+def get_ec2_subnets():
     client = boto3.client('ec2')
-
-    return {
-        'subnets': get_aws_paginated_resources(client, 'describe_subnets', 'Subnets'),
-        # 'instances': get_ec2_instances(client),
-        # 'securityGroups': get_aws_paginated_resources(client, 'describe_security_groups', 'SecurityGroups'),
-        # 'volumes': get_aws_paginated_resources(client, 'describe_volumes', 'Volumes'),
-        # 'snapshots': get_aws_paginated_resources(client, 'describe_snapshots', 'Snapshots'),
-        # 'networkInterfaces': get_aws_paginated_resources(client, 'describe_network_interfaces', 'NetworkInterfaces')
-    }
-
-
-def delete_ec2_resources(clusters, resources):
-    delete_subnet_tags(clusters, resources['subnets'])
+    return get_aws_paginated_resources(client, 'describe_subnets', 'Subnets')
 
 
 # We run into issues when we hit the maximum number of user tags (50) on Subnets...
-def delete_subnet_tags(clusters, subnets):
+def prune_ec2_subnet_tags(clusters, subnets):
     ec2 = boto3.resource('ec2')
 
     for subnet in subnets:
@@ -65,13 +53,49 @@ def delete_subnet_tags(clusters, subnets):
             tag.delete(DryRun=False)
 
 
-def get_elb_resources():
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+
+def get_load_balancer_tags():
     client = boto3.client('elbv2')
 
+    tags = []
+    load_balancers = get_aws_paginated_resources(client, 'describe_load_balancers', 'LoadBalancers')
+
+    for chunk in chunks(load_balancers, 20):
+        arns = []
+        for elb in chunk:
+            arns.append(elb['LoadBalancerArn'])
+
+        response = client.describe_tags(ResourceArns=arns)
+        tags.extend(response['TagDescriptions'])
+
     return {
-        'loadBalancers': get_aws_paginated_resources(client, 'describe_load_balancers', 'LoadBalancers'),
-        'targetGroups': get_aws_paginated_resources(client, 'describe_target_groups', 'TargetGroups'),
+        'loadBalancerTags': tags,
     }
+
+
+def prune_load_balancers(clusters, resources):
+    client = boto3.client('elbv2')
+    arns = []
+    for lb in resources['loadBalancerTags']:
+        for tag in lb['Tags']:
+            if tag['Key'] == 'api.openshift.com/id':
+                found = False
+                for cluster in clusters:
+                    if tag["Value"] == cluster['id']:
+                        found = True
+                        break
+
+                if not found:
+                    arns.append(lb["ResourceArn"])
+
+    for arn in arns:
+        logger.info(f' Deleting load balancer: {arn}')
+        client.delete_load_balancer(LoadBalancerArn=arn)
 
 
 def get_iam_resources():
@@ -85,7 +109,7 @@ def get_iam_resources():
 
 
 # We run into issues when we hit the IAM Roles limit (1000)...
-def delete_iam_roles(clusters, resources):
+def prune_iam_roles(clusters, resources):
     client = boto3.client('iam')
     roles = []
     for role in resources['roles']:
@@ -106,12 +130,12 @@ def delete_iam_roles(clusters, resources):
         logger.info(f'Found: {len(attached_policies)} Attached Policies')
 
         for policy in attached_policies:
-            response = client.detach_role_policy(
+            _ = client.detach_role_policy(
                 RoleName=role,
                 PolicyArn=policy['PolicyArn']
             )
 
-        response = client.delete_role(
+        _ = client.delete_role(
             RoleName=role
         )
 
@@ -242,13 +266,10 @@ if __name__ == '__main__':
     rosa_clusters = get_rosa_clusters()
 
     # IAM Cleanup
-    iam_resources = get_iam_resources()
-    delete_iam_roles(rosa_clusters, iam_resources)
+    prune_iam_roles(rosa_clusters, get_iam_resources())
 
-    # EC2 Cleanup
-    ec2_resources = get_ec2_resources()
-    delete_ec2_resources(rosa_clusters, ec2_resources)
+    # Subnets
+    prune_ec2_subnet_tags(rosa_clusters, get_ec2_subnets())
 
-    # Other resources to check for...
-    # elb_resources = get_elb_resources()
-    # s3_resources = get_s3_resources()
+    # Load Balancers
+    prune_load_balancers(rosa_clusters, get_load_balancer_tags())
