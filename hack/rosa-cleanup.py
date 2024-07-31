@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 import boto3
+from botocore.exceptions import ClientError
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('rosaCleanup')
@@ -38,19 +39,20 @@ def prune_ec2_subnet_tags(clusters, subnets):
         tags = []
         logger.info(f'Processing subnet: {subnet["SubnetId"]}')
         for tag in subnet['Tags']:
+            found = False
             if tag['Key'].startswith('kubernetes.io/cluster/'):
-                found = False
                 for cluster in clusters:
                     if tag["Key"].endswith(cluster['id']):
                         found = True
                         break
-
                 if not found:
                     tags.append(ec2.Tag(subnet["SubnetId"], tag['Key'], tag['Value']))
+            if found:
+                break
 
         for tag in tags:
             logger.info(f' Deleting tag: {tag.key}:{tag.value}')
-            tag.delete(DryRun=False)
+            tag.delete()
 
 
 def chunks(lst, n):
@@ -83,15 +85,16 @@ def prune_load_balancers(clusters, resources):
     arns = []
     for lb in resources['loadBalancerTags']:
         for tag in lb['Tags']:
+            found = False
             if tag['Key'] == 'api.openshift.com/id':
-                found = False
                 for cluster in clusters:
                     if tag["Value"] == cluster['id']:
                         found = True
                         break
-
                 if not found:
                     arns.append(lb["ResourceArn"])
+            if found:
+                break
 
     for arn in arns:
         logger.info(f' Deleting load balancer: {arn}')
@@ -106,6 +109,19 @@ def get_iam_resources():
         'policies': get_aws_paginated_resources(client, 'list_policies', 'Policies'),
         'identityProviders': get_iam_identity_providers(client),
     }
+
+
+def get_iam_identity_providers(client):
+    providers = {}
+    response = client.list_open_id_connect_providers()
+
+    if 'OpenIDConnectProviderList' in response:
+        for item in response['OpenIDConnectProviderList']:
+            if 'Arn' in item:
+                providers.update({item['Arn']: get_aws_paginated_resources(client, 'list_open_id_connect_provider_tags', 'Tags', OpenIDConnectProviderArn=item['Arn'])})
+
+    logger.info(f'Retrieved: {len(providers)} IAM Identity Providers')
+    return providers
 
 
 # We run into issues when we hit the IAM Roles limit (1000)...
@@ -140,18 +156,158 @@ def prune_iam_roles(clusters, resources):
         )
 
 
-def get_s3_resources():
-    client = boto3.client('s3')
+def get_ec2_volumes():
+    client = boto3.client('ec2')
+    return get_aws_paginated_resources(client, 'describe_volumes', 'Volumes')
 
-    s3_data = {}
 
-    buckets = get_s3_buckets(client)
+def prune_ec2_volumes(clusters, resources):
+    ec2 = boto3.resource('ec2')
 
-    for bucket in buckets:
-        logger.info(f'Bucket: {bucket}')
-        s3_data.update({bucket: get_aws_paginated_resources(client, 'list_objects_v2', 'Contents', Bucket=bucket)})
+    volumes = []
+    for volume in resources:
+        if volume['State'] != 'available':
+            continue
+        for tag in volume['Tags']:
+            found = False
+            if tag['Key'].startswith('kubernetes.io/cluster/') or tag['Key'] == 'api.openshift.com/id':
+                for cluster in clusters:
+                    if tag["Key"].endswith(cluster['id']) or tag['Value'] == cluster['id']:
+                        found = True
+                        break
+                if not found:
+                    volumes.append(ec2.Volume(volume["VolumeId"]))
+                    break
+            if found:
+                break
 
-    return s3_data
+    for volume in volumes:
+        logger.info(f' Deleting volume: {volume.id}')
+        volume.delete()
+
+
+def get_ec2_snapshots():
+    client = boto3.client('ec2')
+    filters = [
+        {
+            'Name': 'tag-key',
+            'Values': [
+                'ci-chat-bot/launch'
+            ]
+        }
+    ]
+    return get_aws_paginated_resources(client, 'describe_snapshots', 'Snapshots', Filters=filters)
+
+
+def prune_ec2_snapshots(clusters, resources):
+    ec2 = boto3.resource('ec2')
+
+    snapshots = []
+    for snapshot in resources:
+        for tag in snapshot['Tags']:
+            found = False
+            if tag['Key'] == 'api.openshift.com/id':
+                for cluster in clusters:
+                    if tag['Value'] == cluster['id']:
+                        found = True
+                        break
+                if not found:
+                    snapshots.append(ec2.Snapshot(snapshot["SnapshotId"]))
+                    break
+            if found:
+                break
+
+    for snapshot in snapshots:
+        logger.info(f' Deleting snapshot: {snapshot.id}')
+        snapshot.delete()
+
+
+def get_ec2_security_groups():
+    client = boto3.client('ec2')
+    return get_aws_paginated_resources(client, 'describe_security_groups', 'SecurityGroups')
+
+
+def get_ec2_network_interfaces_for_security_group(security_group_id):
+    client = boto3.client('ec2')
+    filters = [
+        {
+            'Name': 'group-id',
+            'Values': [
+                security_group_id
+            ]
+        }
+    ]
+    return get_aws_paginated_resources(client, 'describe_network_interfaces', 'NetworkInterfaces', Filters=filters)
+
+
+def get_ec2_reservations(instance_id):
+    client = boto3.client('ec2')
+    filters = [
+        {
+            'Name': 'instance-id',
+            'Values': [
+                instance_id
+            ]
+        }
+    ]
+    return get_aws_paginated_resources(client, 'describe_instances', 'Reservations', Filters=filters)
+
+
+def prune_ec2_security_groups(clusters, resources):
+    ec2 = boto3.resource('ec2')
+    client = boto3.client('ec2')
+    waiter = client.get_waiter('instance_terminated')
+
+    security_groups = []
+    for security_group in resources:
+        if 'Tags' in security_group:
+            for tag in security_group['Tags']:
+                found = False
+                if tag['Key'].startswith('kubernetes.io/cluster/') or tag['Key'] == 'api.openshift.com/id':
+                    for cluster in clusters:
+                        if tag["Key"].endswith(cluster['id']) or tag['Value'] == cluster['id']:
+                            found = True
+                            break
+                    if not found:
+                        security_groups.append(ec2.SecurityGroup(security_group["GroupId"]))
+                        break
+                if found:
+                    break
+
+    for security_group in security_groups:
+        network_interfaces = get_ec2_network_interfaces_for_security_group(security_group.id)
+        for network_interface in network_interfaces:
+            interface = ec2.NetworkInterface(network_interface['NetworkInterfaceId'])
+
+            if interface.attachment is not None and 'InstanceId' in interface.attachment:
+                reservations = get_ec2_reservations(interface.attachment['InstanceId'])
+
+                instances = []
+                for reservation in reservations:
+                    for instance in reservation['Instances']:
+                        logger.info(f' Terminating instance: {instance["InstanceId"]}')
+                        ec2.Instance(instance["InstanceId"]).terminate()
+                        instances.append(instance["InstanceId"])
+
+                if len(instances) > 0:
+                    filters = [
+                        {
+                            'Name': 'instance-id',
+                            'Values': instances
+                        }
+                    ]
+                    logger.info(f' Waiting for {len(instances)} instances to terminate')
+                    waiter.wait(InstanceIds=instances, Filters=filters)
+
+            try:
+                logger.info(f' Deleting network interface: {interface.id}')
+                interface.delete()
+            except ClientError as e:
+                if e.response['Error']['Code'] != 'InvalidNetworkInterfaceID.NotFound':
+                    raise e
+
+        logger.info(f' Deleting security group: {security_group.id}')
+        security_group.delete()
 
 
 def get_aws_paginated_resources(client, operation_name, response_key, **paginator_args):
@@ -166,44 +322,6 @@ def get_aws_paginated_resources(client, operation_name, response_key, **paginato
 
     logger.info(f'Retrieved: {len(resources)} {response_key} resources')
     return resources
-
-
-def get_ec2_instances(client):
-    instances = []
-    reservations = get_aws_paginated_resources(client, 'describe_instances', 'Reservations')
-
-    for reservation in reservations:
-        if 'Instances' in reservation:
-            instances.extend(reservation['Instances'])
-
-    logger.info(f'Retrieved: {len(instances)} EC2 Instances')
-    return instances
-
-
-def get_iam_identity_providers(client):
-    providers = {}
-    response = client.list_open_id_connect_providers()
-
-    if 'OpenIDConnectProviderList' in response:
-        for item in response['OpenIDConnectProviderList']:
-            if 'Arn' in item:
-                providers.update({item['Arn']: get_aws_paginated_resources(client, 'list_open_id_connect_provider_tags', 'Tags', OpenIDConnectProviderArn=item['Arn'])})
-
-    logger.info(f'Retrieved: {len(providers)} IAM Identity Providers')
-    return providers
-
-
-def get_s3_buckets(client):
-    buckets = []
-    response = client.list_buckets()
-
-    if 'Buckets' in response:
-        for item in response['Buckets']:
-            if 'Name' in item:
-                buckets.append(item['Name'])
-
-    logger.info(f'Retrieved: {len(buckets)} S3 Buckets')
-    return buckets
 
 
 def validate_cloud_account(account_name, parameters, name, command, digest):
@@ -273,3 +391,12 @@ if __name__ == '__main__':
 
     # Load Balancers
     prune_load_balancers(rosa_clusters, get_load_balancer_tags())
+
+    # EC2 Volumes
+    prune_ec2_volumes(rosa_clusters, get_ec2_volumes())
+
+    # EC2 Snapshots
+    prune_ec2_snapshots(rosa_clusters, get_ec2_snapshots())
+
+    # EC2 Security Groups
+    prune_ec2_security_groups(rosa_clusters, get_ec2_security_groups())
