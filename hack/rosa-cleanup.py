@@ -47,8 +47,6 @@ def prune_ec2_subnet_tags(clusters, subnets):
                         break
                 if not found:
                     tags.append(ec2.Tag(subnet["SubnetId"], tag['Key'], tag['Value']))
-            if found:
-                break
 
         for tag in tags:
             logger.info(f' Deleting tag: {tag.key}:{tag.value}')
@@ -93,8 +91,6 @@ def prune_load_balancers(clusters, resources):
                         break
                 if not found:
                     arns.append(lb["ResourceArn"])
-            if found:
-                break
 
     for arn in arns:
         logger.info(f' Deleting load balancer: {arn}')
@@ -178,8 +174,6 @@ def prune_ec2_volumes(clusters, resources):
                 if not found:
                     volumes.append(ec2.Volume(volume["VolumeId"]))
                     break
-            if found:
-                break
 
     for volume in volumes:
         logger.info(f' Deleting volume: {volume.id}')
@@ -214,8 +208,6 @@ def prune_ec2_snapshots(clusters, resources):
                 if not found:
                     snapshots.append(ec2.Snapshot(snapshot["SnapshotId"]))
                     break
-            if found:
-                break
 
     for snapshot in snapshots:
         logger.info(f' Deleting snapshot: {snapshot.id}')
@@ -271,8 +263,6 @@ def prune_ec2_security_groups(clusters, resources):
                     if not found:
                         security_groups.append(ec2.SecurityGroup(security_group["GroupId"]))
                         break
-                if found:
-                    break
 
     for security_group in security_groups:
         network_interfaces = get_ec2_network_interfaces_for_security_group(security_group.id)
