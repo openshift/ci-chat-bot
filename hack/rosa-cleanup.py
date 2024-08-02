@@ -53,12 +53,6 @@ def prune_ec2_subnet_tags(clusters, subnets):
             tag.delete()
 
 
-def chunks(lst, n):
-    """Yield successive n-sized chunks from lst."""
-    for i in range(0, len(lst), n):
-        yield lst[i:i + n]
-
-
 def get_load_balancer_tags():
     client = boto3.client('elbv2')
 
@@ -82,49 +76,24 @@ def prune_load_balancers(clusters, resources):
     client = boto3.client('elbv2')
     arns = []
     for lb in resources['loadBalancerTags']:
-        for tag in lb['Tags']:
-            found = False
-            if tag['Key'] == 'api.openshift.com/id':
-                for cluster in clusters:
-                    if tag["Value"] == cluster['id']:
-                        found = True
-                        break
-                if not found:
-                    arns.append(lb["ResourceArn"])
+        if not associated_with_active_cluster(lb['Tags'], clusters):
+            arns.append(lb["ResourceArn"])
 
     for arn in arns:
         logger.info(f' Deleting load balancer: {arn}')
         client.delete_load_balancer(LoadBalancerArn=arn)
 
 
-def get_iam_resources():
+def get_iam_roles():
     client = boto3.client('iam')
-
-    return {
-        'roles': get_aws_paginated_resources(client, 'list_roles', 'Roles'),
-        'policies': get_aws_paginated_resources(client, 'list_policies', 'Policies'),
-        'identityProviders': get_iam_identity_providers(client),
-    }
-
-
-def get_iam_identity_providers(client):
-    providers = {}
-    response = client.list_open_id_connect_providers()
-
-    if 'OpenIDConnectProviderList' in response:
-        for item in response['OpenIDConnectProviderList']:
-            if 'Arn' in item:
-                providers.update({item['Arn']: get_aws_paginated_resources(client, 'list_open_id_connect_provider_tags', 'Tags', OpenIDConnectProviderArn=item['Arn'])})
-
-    logger.info(f'Retrieved: {len(providers)} IAM Identity Providers')
-    return providers
+    return get_aws_paginated_resources(client, 'list_roles', 'Roles')
 
 
 # We run into issues when we hit the IAM Roles limit (1000)...
 def prune_iam_roles(clusters, resources):
     client = boto3.client('iam')
     roles = []
-    for role in resources['roles']:
+    for role in resources:
         if "-kube-system-" in role["RoleName"] or "-openshift-" in role["RoleName"]:
             found = False
             for cluster in clusters:
@@ -164,16 +133,8 @@ def prune_ec2_volumes(clusters, resources):
     for volume in resources:
         if volume['State'] != 'available':
             continue
-        for tag in volume['Tags']:
-            found = False
-            if tag['Key'].startswith('kubernetes.io/cluster/') or tag['Key'] == 'api.openshift.com/id':
-                for cluster in clusters:
-                    if tag["Key"].endswith(cluster['id']) or tag['Value'] == cluster['id']:
-                        found = True
-                        break
-                if not found:
-                    volumes.append(ec2.Volume(volume["VolumeId"]))
-                    break
+        if not associated_with_active_cluster(volume['Tags'], clusters):
+            volumes.append(ec2.Volume(volume["VolumeId"]))
 
     for volume in volumes:
         logger.info(f' Deleting volume: {volume.id}')
@@ -198,16 +159,8 @@ def prune_ec2_snapshots(clusters, resources):
 
     snapshots = []
     for snapshot in resources:
-        for tag in snapshot['Tags']:
-            found = False
-            if tag['Key'] == 'api.openshift.com/id':
-                for cluster in clusters:
-                    if tag['Value'] == cluster['id']:
-                        found = True
-                        break
-                if not found:
-                    snapshots.append(ec2.Snapshot(snapshot["SnapshotId"]))
-                    break
+        if not associated_with_active_cluster(snapshot['Tags'], clusters):
+            snapshots.append(ec2.Snapshot(snapshot["SnapshotId"]))
 
     for snapshot in snapshots:
         logger.info(f' Deleting snapshot: {snapshot.id}')
@@ -253,16 +206,8 @@ def prune_ec2_security_groups(clusters, resources):
     security_groups = []
     for security_group in resources:
         if 'Tags' in security_group:
-            for tag in security_group['Tags']:
-                found = False
-                if tag['Key'].startswith('kubernetes.io/cluster/') or tag['Key'] == 'api.openshift.com/id':
-                    for cluster in clusters:
-                        if tag["Key"].endswith(cluster['id']) or tag['Value'] == cluster['id']:
-                            found = True
-                            break
-                    if not found:
-                        security_groups.append(ec2.SecurityGroup(security_group["GroupId"]))
-                        break
+            if not associated_with_active_cluster(security_group['Tags'], clusters):
+                security_groups.append(ec2.SecurityGroup(security_group["GroupId"]))
 
     for security_group in security_groups:
         network_interfaces = get_ec2_network_interfaces_for_security_group(security_group.id)
@@ -298,6 +243,48 @@ def prune_ec2_security_groups(clusters, resources):
 
         logger.info(f' Deleting security group: {security_group.id}')
         security_group.delete()
+
+
+def get_s3_buckets():
+    client = boto3.client('s3')
+    buckets = {}
+
+    for bucket in client.list_buckets()['Buckets']:
+        response = client.get_bucket_tagging(Bucket=bucket['Name'])
+        buckets.update({bucket['Name']: response['TagSet']})
+
+    logger.info(f'Retrieved: {len(buckets)} Buckets')
+    return buckets
+
+
+def prune_s3_buckets(clusters, resources):
+    s3 = boto3.resource('s3')
+    buckets = []
+    for bucket, tags in resources.items():
+        if not associated_with_active_cluster(tags, clusters):
+            buckets.append(bucket)
+
+    for bucket in buckets:
+        b = s3.Bucket(bucket)
+        response = b.objects.delete()
+        logger.info(f'Removed: {len(response)} items from bucket: {b.name}')
+        bucket.delete()
+        logger.info(f'Deleted bucket: {b.name}')
+
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+
+def associated_with_active_cluster(tags, clusters):
+    for tag in tags:
+        if tag['Key'].startswith('kubernetes.io/cluster/') or tag['Key'] == 'api.openshift.com/id':
+            for cluster in clusters:
+                if tag["Key"].endswith(cluster['id']) or tag['Value'] == cluster['id']:
+                    return True
+    return False
 
 
 def get_aws_paginated_resources(client, operation_name, response_key, **paginator_args):
@@ -374,7 +361,7 @@ if __name__ == '__main__':
     rosa_clusters = get_rosa_clusters()
 
     # IAM Cleanup
-    prune_iam_roles(rosa_clusters, get_iam_resources())
+    prune_iam_roles(rosa_clusters, get_iam_roles())
 
     # Subnets
     prune_ec2_subnet_tags(rosa_clusters, get_ec2_subnets())
@@ -390,3 +377,6 @@ if __name__ == '__main__':
 
     # EC2 Security Groups
     prune_ec2_security_groups(rosa_clusters, get_ec2_security_groups())
+
+    # S3 Buckets
+    prune_s3_buckets(rosa_clusters, get_s3_buckets())
