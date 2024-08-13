@@ -121,6 +121,30 @@ def prune_iam_roles(clusters, resources):
         )
 
 
+def get_vpc_endpoints():
+    client = boto3.client('ec2')
+    return get_aws_paginated_resources(client, 'describe_vpc_endpoints', 'VpcEndpoints')
+
+
+def prune_vpc_endpoints(clusters, resources):
+    ec2 = boto3.client('ec2')
+
+    endpoints = []
+    for endpoint in resources:
+        if endpoint['State'] != 'rejected':
+            continue
+        if not associated_with_active_cluster(endpoint['Tags'], clusters):
+            endpoints.append(endpoint["VpcEndpointId"])
+
+    if len(endpoints) > 0:
+        logger.info(f' Deleting {len(endpoints)} VPC Endpoints: {",".join(endpoints)}')
+        response = ec2.delete_vpc_endpoints(VpcEndpointIds=endpoints)
+
+        if 'Unsuccessful' in response and len(response['Unsuccessful']) > 0:
+            for resource in response['Unsuccessful']:
+                logger.warning(f'  - unable to delete vpc endpoint {resource["ResourceId"]}: {resource["Error"]["Message"]}')
+
+
 def get_ec2_volumes():
     client = boto3.client('ec2')
     return get_aws_paginated_resources(client, 'describe_volumes', 'Volumes')
@@ -377,6 +401,9 @@ if __name__ == '__main__':
 
     # EC2 Security Groups
     prune_ec2_security_groups(rosa_clusters, get_ec2_security_groups())
+
+    # EC2 VPC Endpoints
+    prune_vpc_endpoints(rosa_clusters, get_vpc_endpoints())
 
     # S3 Buckets
     prune_s3_buckets(rosa_clusters, get_s3_buckets())
