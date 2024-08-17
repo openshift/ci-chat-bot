@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"k8s.io/client-go/tools/cache"
 	"log"
 	"net/http"
 	"net/url"
@@ -198,6 +199,7 @@ func run() error {
 		return fmt.Errorf("the environment variable BOT_SIGNING_SECRET must be set")
 	}
 
+	var hasSynced []cache.InformerSynced
 	prowJobKubeconfig, _, _, err := utils.LoadKubeconfig()
 	if err != nil {
 		return err
@@ -208,6 +210,7 @@ func run() error {
 	}
 	prowjobInformerFactory := prowinformers.NewSharedInformerFactory(prowClient, controllerDefaultResyncDuration)
 	prowjobInformer := prowjobInformerFactory.Prow().V1().ProwJobs()
+	hasSynced = append(hasSynced, prowjobInformer.Informer().HasSynced)
 
 	// Config and Client to access release images
 	releaseConfig, err := utils.LoadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, prowJobKubeconfig)
@@ -307,6 +310,10 @@ func run() error {
 		strings.ReplaceAll(string(rosaOidcConfigId), "\n", ""),
 		strings.ReplaceAll(string(rosaBillingAccount), "\n", ""),
 	)
+
+	klog.Infof("Waiting for caches to sync")
+	cache.WaitForCacheSync(ctx.Done(), hasSynced...)
+
 	if err := jobManager.Start(); err != nil {
 		return fmt.Errorf("unable to load initial configuration: %w", err)
 	}
