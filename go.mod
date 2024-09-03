@@ -22,7 +22,7 @@ require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/onsi/ginkgo/v2 v2.17.1
 	github.com/onsi/gomega v1.32.0
-	github.com/openshift-online/ocm-sdk-go v0.1.428
+	github.com/openshift-online/ocm-sdk-go v0.1.435
 	github.com/openshift/api v0.0.0-20240522145529-93d6bda14341
 	github.com/openshift/build-machinery-go v0.0.0-20220913142420-e25cf57ea46d
 	github.com/openshift/ci-tools v0.0.0-20240710031808-de122ac79fa9
@@ -168,7 +168,7 @@ require (
 	github.com/subosito/gotenv v1.2.0 // indirect
 	github.com/zalando/go-keyring v0.2.3 // indirect
 	github.com/zgalor/weberr v0.6.0 // indirect
-	gitlab.com/c0b/go-ordered-json v0.0.0-20171130231205-49bbdab258c2 // indirect
+	gitlab.com/c0b/go-ordered-json v0.0.0-20201030195603-febf46534d5a // indirect
 	go.etcd.io/bbolt v1.3.8 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
@@ -253,7 +253,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/openshift/rosa v1.2.43
+	github.com/openshift/rosa v1.2.44
 	github.com/operator-framework/api v0.17.6
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pkg/errors v0.9.1 // indirect

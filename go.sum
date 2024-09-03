@@ -768,8 +768,8 @@ github.com/opencontainers/runtime-spec v1.1.0 h1:HHUyrt9mwHUjtasSbXSMvs4cyFxh+Bl
 github.com/opencontainers/runtime-spec v1.1.0/go.mod h1:jwyrGlmzljRJv/Fgzds9SsS/C5hL+LL3ko9hs6T5lQ0=
 github.com/openshift-online/ocm-common v0.0.7 h1:2/3G7W4gIyAZ1RyqbC+IUOHlf52Rd1Sf+MqmbQ2FYGk=
 github.com/openshift-online/ocm-common v0.0.7/go.mod h1:gsBWQYLZB0w0ZRR+NLASuTr29uFo5nekEODasFKxESc=
-github.com/openshift-online/ocm-sdk-go v0.1.428 h1:HIgQ9FkkgNEMyLsP75JU17nZjYV1Q9M9FrpO/Df2SSg=
-github.com/openshift-online/ocm-sdk-go v0.1.428/go.mod h1:CiAu2jwl3ITKOxkeV0Qnhzv4gs35AmpIzVABQLtcI2Y=
+github.com/openshift-online/ocm-sdk-go v0.1.435 h1:VDpDpkZmE5rknxQAdS+7p6653y6qKyDbz+nSuBgTxX8=
+github.com/openshift-online/ocm-sdk-go v0.1.435/go.mod h1:CiAu2jwl3ITKOxkeV0Qnhzv4gs35AmpIzVABQLtcI2Y=
 github.com/openshift/api v0.0.0-20240522145529-93d6bda14341 h1:JQpzgk+p24rkgNbNsrNR0yLm63WTKapuT60INU5BqT8=
 github.com/openshift/api v0.0.0-20240522145529-93d6bda14341/go.mod h1:qNtV0315F+f8ld52TLtPvrfivZpdimOzTi3kn9IVbtU=
 github.com/openshift/build-machinery-go v0.0.0-20220913142420-e25cf57ea46d h1:RR4ah7FfaPR1WePizm0jlrsbmPu91xQZnAsVVreQV1k=
@@ -786,8 +786,8 @@ github.com/openshift/moby-moby v1.4.2-0.20190308215630-da810a85109d h1:1LuQzDKgi
 github.com/openshift/moby-moby v1.4.2-0.20190308215630-da810a85109d/go.mod h1:LJM49W8fBVSj+rvcopJZu9mgH5Tx6HwLHySIYeGeu4k=
 github.com/openshift/oc v0.0.0-alpha.0.0.20230410203846-b68ac7c39057 h1:qPCovANfcKaI45rXB/TcIgoaJtufe/W9LcCBc5PaXVM=
 github.com/openshift/oc v0.0.0-alpha.0.0.20230410203846-b68ac7c39057/go.mod h1:XpOVZsTmYlQz/ndFR/FOfPLm4/k13XMafwYNkfA8wLc=
-github.com/openshift/rosa v1.2.43 h1:/W+dngx9XpIdoySI2T9IfqRNIKtICLzkfYUOtNhyrrE=
-github.com/openshift/rosa v1.2.43/go.mod h1:u9iUUnbs+NZ8jP/KLZw0PhI3w8JSVLIAJrCbJClIeVU=
+github.com/openshift/rosa v1.2.44 h1:Edna1nACHj9JE+GXEG1ZrujY4InlfyuKwAjCTUkhHGE=
+github.com/openshift/rosa v1.2.44/go.mod h1:8jA4B6VgYgwikW91mo1K//g6TFt/PAXU3GVRGUBV7Gs=
 github.com/operator-framework/api v0.17.6 h1:E6+vlvYUKafvoXYtCuHlDZrXX4vl8AT+r93OxNlzjpU=
 github.com/operator-framework/api v0.17.6/go.mod h1:l/cuwtPxkVUY7fzYgdust2m9tlmb8I4pOvbsUufRb24=
 github.com/operator-framework/operator-registry v1.28.0 h1:vtmd2WgJxkx7vuuOxW4k5Le/oo0SfonSeJVMU3rKIfk=
@@ -940,8 +940,8 @@ github.com/zalando/go-keyring v0.2.3 h1:v9CUu9phlABObO4LPWycf+zwMG7nlbb3t/B5wa97
 github.com/zalando/go-keyring v0.2.3/go.mod h1:HL4k+OXQfJUWaMnqyuSOc0drfGPX2b51Du6K+MRgZMk=
 github.com/zgalor/weberr v0.6.0 h1:k6XSpFcOUNco8qtyAMBqXbCAVUivV7mRxGE5CMqHHdM=
 github.com/zgalor/weberr v0.6.0/go.mod h1:cqK89mj84q3PRgqQXQFWJDzCorOd8xOtov/ulOnqDwc=
-gitlab.com/c0b/go-ordered-json v0.0.0-20171130231205-49bbdab258c2 h1:M+r1hdmjZc4L4SCn0ZIq/5YQIRxprV+kOf7n7f04l5o=
-gitlab.com/c0b/go-ordered-json v0.0.0-20171130231205-49bbdab258c2/go.mod h1:NREvu3a57BaK0R1+ztrEzHWiZAihohNLQ6trPxlIqZI=
+gitlab.com/c0b/go-ordered-json v0.0.0-20201030195603-febf46534d5a h1:DxppxFKRqJ8WD6oJ3+ZXKDY0iMONQDl5UTg2aTyHh8k=
+gitlab.com/c0b/go-ordered-json v0.0.0-20201030195603-febf46534d5a/go.mod h1:NREvu3a57BaK0R1+ztrEzHWiZAihohNLQ6trPxlIqZI=
 go.etcd.io/bbolt v1.3.8 h1:xs88BrvEv273UsB79e0hcVrlUWmS0a8upikMFhSyAtA=
 go.etcd.io/bbolt v1.3.8/go.mod h1:N9Mkw9X8x5fupy0IKsmuqVtoGDyxsaDlbk4Rd05IAQw=
 go.etcd.io/etcd/api/v3 v3.5.0/go.mod h1:cbVKeC6lCfl7j/8jBhAK6aIYO9XOjdptoxU/nLQcPvs=
