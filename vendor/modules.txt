@@ -957,7 +957,7 @@ github.com/openshift-online/ocm-common/pkg/ocm/validations
 github.com/openshift-online/ocm-common/pkg/rosa/accountroles
 github.com/openshift-online/ocm-common/pkg/rosa/operatorroles
 github.com/openshift-online/ocm-common/pkg/utils
-# github.com/openshift-online/ocm-sdk-go v0.1.435
+# github.com/openshift-online/ocm-sdk-go v0.1.428
 ## explicit; go 1.21
 github.com/openshift-online/ocm-sdk-go
 github.com/openshift-online/ocm-sdk-go/accesstransparency
@@ -972,7 +972,6 @@ github.com/openshift-online/ocm-sdk-go/authorizations
 github.com/openshift-online/ocm-sdk-go/authorizations/v1
 github.com/openshift-online/ocm-sdk-go/clustersmgmt
 github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1
-github.com/openshift-online/ocm-sdk-go/clustersmgmt/v2alpha1
 github.com/openshift-online/ocm-sdk-go/configuration
 github.com/openshift-online/ocm-sdk-go/errors
 github.com/openshift-online/ocm-sdk-go/helpers
@@ -1040,7 +1039,7 @@ github.com/openshift/library-go/pkg/oauth/oauthdiscovery
 github.com/openshift/oc/pkg/helpers/term
 github.com/openshift/oc/pkg/helpers/tokencmd
 github.com/openshift/oc/pkg/version
-# github.com/openshift/rosa v1.2.44
+# github.com/openshift/rosa v1.2.43
 ## explicit; go 1.21
 github.com/openshift/rosa/assets
 github.com/openshift/rosa/pkg/arguments
@@ -1229,7 +1228,7 @@ github.com/zalando/go-keyring/secret_service
 # github.com/zgalor/weberr v0.6.0
 ## explicit
 github.com/zgalor/weberr
-# gitlab.com/c0b/go-ordered-json v0.0.0-20201030195603-febf46534d5a
+# gitlab.com/c0b/go-ordered-json v0.0.0-20171130231205-49bbdab258c2
 ## explicit
 gitlab.com/c0b/go-ordered-json
 # go.etcd.io/bbolt v1.3.8

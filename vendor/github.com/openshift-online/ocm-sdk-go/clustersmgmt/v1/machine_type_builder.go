@@ -27,7 +27,6 @@ type MachineTypeBuilder struct {
 	id            string
 	href          string
 	cpu           *ValueBuilder
-	architecture  ProcessorType
 	category      MachineTypeCategory
 	cloudProvider *CloudProviderBuilder
 	genericName   string
@@ -104,21 +103,12 @@ func (b *MachineTypeBuilder) CPU(value *ValueBuilder) *MachineTypeBuilder {
 	return b
 }
 
-// Architecture sets the value of the 'architecture' attribute to the given value.
-//
-// Processor type category.
-func (b *MachineTypeBuilder) Architecture(value ProcessorType) *MachineTypeBuilder {
-	b.architecture = value
-	b.bitmap_ |= 32
-	return b
-}
-
 // Category sets the value of the 'category' attribute to the given value.
 //
 // Machine type category.
 func (b *MachineTypeBuilder) Category(value MachineTypeCategory) *MachineTypeBuilder {
 	b.category = value
-	b.bitmap_ |= 64
+	b.bitmap_ |= 32
 	return b
 }
 
@@ -128,9 +118,9 @@ func (b *MachineTypeBuilder) Category(value MachineTypeCategory) *MachineTypeBui
 func (b *MachineTypeBuilder) CloudProvider(value *CloudProviderBuilder) *MachineTypeBuilder {
 	b.cloudProvider = value
 	if value != nil {
-		b.bitmap_ |= 128
+		b.bitmap_ |= 64
 	} else {
-		b.bitmap_ &^= 128
+		b.bitmap_ &^= 64
 	}
 	return b
 }
@@ -138,7 +128,7 @@ func (b *MachineTypeBuilder) CloudProvider(value *CloudProviderBuilder) *Machine
 // GenericName sets the value of the 'generic_name' attribute to the given value.
 func (b *MachineTypeBuilder) GenericName(value string) *MachineTypeBuilder {
 	b.genericName = value
-	b.bitmap_ |= 256
+	b.bitmap_ |= 128
 	return b
 }
 
@@ -165,9 +155,9 @@ func (b *MachineTypeBuilder) GenericName(value string) *MachineTypeBuilder {
 func (b *MachineTypeBuilder) Memory(value *ValueBuilder) *MachineTypeBuilder {
 	b.memory = value
 	if value != nil {
-		b.bitmap_ |= 512
+		b.bitmap_ |= 256
 	} else {
-		b.bitmap_ &^= 512
+		b.bitmap_ &^= 256
 	}
 	return b
 }
@@ -175,7 +165,7 @@ func (b *MachineTypeBuilder) Memory(value *ValueBuilder) *MachineTypeBuilder {
 // Name sets the value of the 'name' attribute to the given value.
 func (b *MachineTypeBuilder) Name(value string) *MachineTypeBuilder {
 	b.name = value
-	b.bitmap_ |= 1024
+	b.bitmap_ |= 512
 	return b
 }
 
@@ -184,7 +174,7 @@ func (b *MachineTypeBuilder) Name(value string) *MachineTypeBuilder {
 // Machine type size.
 func (b *MachineTypeBuilder) Size(value MachineTypeSize) *MachineTypeBuilder {
 	b.size = value
-	b.bitmap_ |= 2048
+	b.bitmap_ |= 1024
 	return b
 }
 
@@ -202,7 +192,6 @@ func (b *MachineTypeBuilder) Copy(object *MachineType) *MachineTypeBuilder {
 	} else {
 		b.cpu = nil
 	}
-	b.architecture = object.architecture
 	b.category = object.category
 	if object.cloudProvider != nil {
 		b.cloudProvider = NewCloudProvider().Copy(object.cloudProvider)
@@ -233,7 +222,6 @@ func (b *MachineTypeBuilder) Build() (object *MachineType, err error) {
 			return
 		}
 	}
-	object.architecture = b.architecture
 	object.category = b.category
 	if b.cloudProvider != nil {
 		object.cloudProvider, err = b.cloudProvider.Build()

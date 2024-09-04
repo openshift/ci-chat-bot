@@ -120,8 +120,8 @@ func (mt MachineType) HasQuota(multiAZ bool) bool {
 // The function triggers the 'api/clusters_mgmt/v1/aws_inquiries/machine_types'
 // and passes a role ARN for STS clusters or access keys for non-STS clusters.
 func (c *Client) GetAvailableMachineTypesInRegion(region string, availabilityZones []string, roleARN string,
-	awsClient aws.Client, externalId string) (MachineTypeList, error) {
-	cloudProviderDataBuilder, err := c.createCloudProviderDataBuilder(roleARN, awsClient, externalId)
+	awsClient aws.Client) (MachineTypeList, error) {
+	cloudProviderDataBuilder, err := c.createCloudProviderDataBuilder(roleARN, awsClient, "")
 	if err != nil {
 		return MachineTypeList{}, err
 	}
@@ -234,8 +234,7 @@ func (mtl *MachineTypeList) UpdateAvailableQuota(quotaCosts *amsv1.QuotaCostList
 		}
 		quotaCosts.Each(func(quotaCost *amsv1.QuotaCost) bool {
 			for _, relatedResource := range quotaCost.RelatedResources() {
-				if machineType.MachineType.GenericName() == relatedResource.ResourceName() &&
-					isCompatible(relatedResource) {
+				if machineType.MachineType.GenericName() == relatedResource.ResourceName() && isCompatible(relatedResource) {
 					availableQuota := (quotaCost.Allowed() - quotaCost.Consumed()) / relatedResource.Cost()
 					machineType.Available = availableQuota > 1
 					machineType.availableQuota = availableQuota
