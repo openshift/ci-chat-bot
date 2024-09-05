@@ -287,13 +287,13 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	klog.Infof("Running %s\n", rolesOutput.String())
 	if err := rolesOutput.Run(); err != nil {
 		metrics.RecordError(errorRosaRoles, m.errorMetric)
-		return nil, "", fmt.Errorf("Failed to run command: %v", err)
+		return nil, "", fmt.Errorf("Failed to run create operator-roles command: %v", err)
 	}
 	oidcOutput := exec.Command(strings.Split(oidcCMD, " ")[0], strings.Split(oidcCMD, " ")[1:]...)
 	klog.Infof("Running %s\n", oidcOutput.String())
 	if err := oidcOutput.Run(); err != nil {
 		metrics.RecordError(errorRosaRoles, m.errorMetric)
-		return nil, "", fmt.Errorf("Failed to run command: %v", err)
+		return nil, "", fmt.Errorf("Failed to run create oidc-provider command: %v", err)
 	}
 	klog.Infof("Created rosa roles and oidc for %s", cluster.ID())
 	// update clusters list
@@ -319,13 +319,13 @@ func (m *jobManager) removeAssociatedAWSResources(clusterID string) error {
 	klog.Infof("Running %s\n", rolesOutput.String())
 	if err := rolesOutput.Run(); err != nil {
 		metrics.RecordError(errorRosaCleanup, m.errorMetric)
-		return fmt.Errorf("Failed to run command: %v", err)
+		return fmt.Errorf("Failed to run delete operator-roles command: %v", err)
 	}
 	oidcOutput := exec.Command(strings.Split(oidcCMD, " ")[0], strings.Split(oidcCMD, " ")[1:]...)
 	klog.Infof("Running %s\n", oidcOutput.String())
 	if err := oidcOutput.Run(); err != nil {
 		metrics.RecordError(errorRosaCleanup, m.errorMetric)
-		return fmt.Errorf("Failed to run command: %v", err)
+		return fmt.Errorf("Failed to run delete oidc-provider command: %v", err)
 	}
 	klog.Infof("Deleted rosa roles and oidc for %s", clusterID)
 	return nil
@@ -490,7 +490,7 @@ func (m *jobManager) describeROSACluster(name string) (string, error) {
 		out, err := cmd.Output()
 		if err != nil {
 			metrics.RecordError(errorRosaDescribe, m.errorMetric)
-			return "", fmt.Errorf("Failed to run command: %v", err)
+			return "", fmt.Errorf("Failed to run describe cluster command: %v", err)
 		}
 		return fmt.Sprintf("`%s` returned:\n```%s```", cmd.String(), string(out)), nil
 	}
