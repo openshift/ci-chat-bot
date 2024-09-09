@@ -1,10 +1,11 @@
 package parser
 
 import (
+	"regexp"
+
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
-	"regexp"
 )
 
 type Command struct {
@@ -31,6 +32,7 @@ type BotCommand interface {
 	Match(text string) (*Properties, bool)
 	Tokenize() []*Token
 	Execute(client *slack.Client, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string
+	IsPrivate() bool
 }
 
 // botCommand structure Contains the bots' command, description and handler
@@ -38,4 +40,5 @@ type botCommand struct {
 	usage      string
 	definition *CommandDefinition
 	command    *Command
+	private    bool
 }

@@ -7,14 +7,19 @@ if [[ -z $BOT_SIGNING_SECRET ]]; then echo "BOT_SIGNING_SECRET var must be set";
 
 tmp_dir=$(mktemp -d)
 tmp_kube=$tmp_dir/kubeconfigs
-mkdir $tmp_kube
+tmp_build=$tmp_dir/kubeconfigs/build
+tmp_dpcr=$tmp_dir/kubeconfigs/dpcr
+mkdir -p $tmp_kube
+mkdir -p $tmp_dpcr
 tmp_boskos=$tmp_dir/boskos
 tmp_subnets=$tmp_dir/subnets
 trap 'rm -rf $tmp_dir' EXIT
 
-oc --context app.ci -n ci extract secrets/ci-chat-bot-kubeconfigs --to=${tmp_kube} --confirm
+oc --context app.ci -n ci extract secrets/ci-chat-bot-kubeconfigs --to=${tmp_build} --confirm
 oc --context app.ci -n ci get secrets boskos-credentials -ogo-template={{.data.credentials}} | base64 -d > $tmp_boskos
 oc --context app.ci -n ci get secrets ci-chat-bot-slack-app --template='{{index .data "rosa-subnet-ids"}}' | base64 -d > $tmp_subnets
+oc --context app.ci -n ci get secrets ci-chat-bot-slack-app --template='{{index .data "sa.ci-chat-bot-mce.dpcr.config"}}' | base64 -d > $tmp_dpcr/sa.ci-chat-bot-mce.dpcr.config
+oc --context app.ci -n ci get secrets ci-chat-bot-slack-app --template='{{index .data "sa.ci-chat-bot-mce.dpcr.token.txt"}}' | base64 -d > $tmp_dpcr/sa.ci-chat-bot-mce.dpcr.token.txt
 
 work_dir=$(readlink -f $(dirname $0)/..)
 make

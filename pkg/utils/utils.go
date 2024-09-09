@@ -24,6 +24,7 @@ const CoreOSURL = "https://coreos.slack.com"
 const UserTag = "ci-chat-bot/user"
 const ChannelTag = "ci-chat-bot/channel"
 const ExpiryTimeTag = "ci-chat-bot/expiry-time"
+const RequestTimeTag = "ci-chat-bot/request-time"
 
 type BuildClusterClientConfig struct {
 	CoreConfig        *rest.Config

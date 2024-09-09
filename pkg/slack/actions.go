@@ -2,9 +2,10 @@ package slack
 
 import (
 	"fmt"
-	botversion "github.com/openshift/ci-chat-bot/pkg/version"
 	"strings"
 	"time"
+
+	botversion "github.com/openshift/ci-chat-bot/pkg/version"
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
@@ -93,6 +94,23 @@ func Refresh(client *slack.Client, jobManager manager.JobManager, event *slackev
 		return err.Error()
 	}
 	return msg
+}
+
+func MceAuth(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	nameInput, err := ParseImageInput(properties.StringParam("name", ""))
+	if err != nil {
+		return err.Error()
+	}
+	if len(nameInput) != 1 {
+		return "mce auth take exactly 1 argument"
+	}
+	name := nameInput[0]
+	managed, deployments, provisions, kubeconfigs, passwords := jobManager.GetManagedClustersForUser(event.User)
+	if _, ok := managed[name]; !ok {
+		return fmt.Sprintf("No cluster called `%s` for your user found", name)
+	}
+	NotifyMce(client, managed[name], deployments[name], provisions[name], kubeconfigs[name], passwords[name])
+	return " "
 }
 
 func Auth(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
@@ -486,4 +504,72 @@ func RosaDescribe(client *slack.Client, jobManager manager.JobManager, event *sl
 		return err.Error()
 	}
 	return msg
+}
+
+func MceCreate(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	from, err := ParseImageInput(properties.StringParam("imageset", ""))
+	if err != nil {
+		return err.Error()
+	}
+	providedImageset := ""
+	if len(from) > 1 {
+		return "mce create only takes one version"
+	}
+	if len(from) == 1 {
+		providedImageset = from[0]
+	}
+
+	platformInput, err := ParseImageInput(properties.StringParam("platform", ""))
+	if err != nil {
+		return err.Error()
+	}
+	platform := ""
+	if len(platform) > 1 {
+		return "platform only takes 1 input"
+	}
+
+	if len(platformInput) == 1 {
+		platform = platformInput[0]
+	}
+	rawDuration, err := ParseImageInput(properties.StringParam("duration", ""))
+	if err != nil {
+		return err.Error()
+	}
+	var duration time.Duration
+	if len(rawDuration) != 0 {
+		duration, err = time.ParseDuration(rawDuration[0])
+		if err != nil {
+			return fmt.Sprintf("Failed to parse provided duration: %v", err)
+		}
+	}
+
+	msg, err := jobManager.CreateMceCluster(event.User, event.Channel, platform, providedImageset, duration)
+	if err != nil {
+		return err.Error()
+	}
+	return msg
+}
+
+func MceDelete(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	nameInput, err := ParseImageInput(properties.StringParam("cluster_name", ""))
+	if err != nil {
+		return err.Error()
+	}
+	if len(nameInput) != 1 {
+		return "cluster_name takes 1 input"
+	}
+	name := nameInput[0]
+	msg, err := jobManager.DeleteMceCluster(event.User, name)
+	if err != nil {
+		return err.Error()
+	}
+	return msg
+}
+
+func MceImageSets(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	return jobManager.ListImagesets()
+}
+
+func MceList(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	return jobManager.ListManagedClusters()
 }
