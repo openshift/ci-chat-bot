@@ -1205,16 +1205,12 @@ github.com/tektoncd/pipeline/pkg/apis/pipeline/errors
 github.com/tektoncd/pipeline/pkg/apis/pipeline/internal/checksum
 github.com/tektoncd/pipeline/pkg/apis/pipeline/pod
 github.com/tektoncd/pipeline/pkg/apis/pipeline/v1
-github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1
-github.com/tektoncd/pipeline/pkg/apis/resource/v1alpha1
 github.com/tektoncd/pipeline/pkg/apis/run/v1alpha1
 github.com/tektoncd/pipeline/pkg/apis/run/v1beta1
 github.com/tektoncd/pipeline/pkg/apis/validate
-github.com/tektoncd/pipeline/pkg/apis/version
 github.com/tektoncd/pipeline/pkg/internal/resultref
 github.com/tektoncd/pipeline/pkg/list
 github.com/tektoncd/pipeline/pkg/reconciler/pipeline/dag
-github.com/tektoncd/pipeline/pkg/result
 github.com/tektoncd/pipeline/pkg/spire/config
 github.com/tektoncd/pipeline/pkg/substitution
 # github.com/trivago/tgo v1.0.7
@@ -2019,7 +2015,7 @@ sigs.k8s.io/controller-runtime/pkg/scheme
 ## explicit; go 1.18
 sigs.k8s.io/json
 sigs.k8s.io/json/internal/golang/encoding/json
-# sigs.k8s.io/prow v0.0.0-20240709172814-d43b36cf61ae
+# sigs.k8s.io/prow v0.0.0-20240910125013-1e9790f40f9f
 ## explicit; go 1.22.3
 sigs.k8s.io/prow/pkg/apis/prowjobs
 sigs.k8s.io/prow/pkg/apis/prowjobs/v1
