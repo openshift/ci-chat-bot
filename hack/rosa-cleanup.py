@@ -292,7 +292,7 @@ def prune_s3_buckets(clusters, resources):
         b = s3.Bucket(bucket)
         response = b.objects.delete()
         logger.info(f'Removed: {len(response)} items from bucket: {b.name}')
-        bucket.delete()
+        b.delete()
         logger.info(f'Deleted bucket: {b.name}')
 
 
