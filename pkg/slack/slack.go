@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -239,6 +240,9 @@ func GetPlatformArchFromWorkflowConfig(workflowConfig *manager.WorkflowConfig, n
 func BuildJobParams(params string) (map[string]string, error) {
 	var splitParams []string
 	if len(params) > 0 {
+		if !strings.Contains(params, "\"") {
+			return nil, fmt.Errorf("unable to parse `%s` for parameters. Please ensure that you're using double quotes to enclose variables", params)
+		}
 		splitParams = strings.Split(params, "\",\"")
 		// first item will have a double quote at the beginning
 		splitParams[0] = strings.TrimPrefix(splitParams[0], "\"")
@@ -251,9 +255,22 @@ func BuildJobParams(params string) (map[string]string, error) {
 		if len(split) != 2 {
 			return nil, fmt.Errorf("unable to interpret `%s` as a parameter. Please ensure that all parameters are in the form of KEY=VALUE", combinedParam)
 		}
-		jobParams[split[0]] = split[1]
+		jobParams[split[0]] = parseParameterValue(split[1])
 	}
 	return jobParams, nil
+}
+
+const (
+	markdownLink = `^<(.*)\|(.*)>$`
+)
+
+func parseParameterValue(value string) string {
+	re, _ := regexp.Compile(markdownLink)
+	matches := re.FindStringSubmatch(value)
+	if len(matches) == 3 {
+		return matches[2]
+	}
+	return value
 }
 
 func NotifyJob(client *slack.Client, job *manager.Job) {
