@@ -39,7 +39,7 @@ require (
 	k8s.io/client-go v0.30.2
 	k8s.io/klog v1.0.0
 	sigs.k8s.io/controller-runtime v0.18.0
-	sigs.k8s.io/prow v0.0.0-20240910125013-1e9790f40f9f
+	sigs.k8s.io/prow v0.0.0-20240917051714-0ac691ea5cae
 	sigs.k8s.io/yaml v1.4.0
 )
 
