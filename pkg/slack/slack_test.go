@@ -26,6 +26,12 @@ func TestBuildJobParams(t *testing.T) {
 			errorString: "",
 		},
 		{
+			name:        "IncorrectlyQuotedParameter",
+			params:      "“KEY1=VALUE1”",
+			expected:    map[string]string{"KEY1": "VALUE1"},
+			errorString: "",
+		},
+		{
 			name:        "IncorrectlyDeliminatedParameter",
 			params:      "\"KEY1:VALUE1\"",
 			expected:    nil,

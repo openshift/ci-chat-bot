@@ -240,7 +240,7 @@ func GetPlatformArchFromWorkflowConfig(workflowConfig *manager.WorkflowConfig, n
 func BuildJobParams(params string) (map[string]string, error) {
 	var splitParams []string
 	if len(params) > 0 {
-		params = strings.ReplaceAll(strings.ReplaceAll(params, "“", ""), "”", "")
+		params = strings.ReplaceAll(strings.ReplaceAll(params, "“", "\""), "”", "\"")
 		if !strings.Contains(params, "\"") {
 			return nil, fmt.Errorf("unable to parse `%s` for parameters. Please ensure that you're using double quotes to enclose variables", params)
 		}
