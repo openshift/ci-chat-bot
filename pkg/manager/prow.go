@@ -1524,7 +1524,7 @@ for i in ${pids[@]}; do if ! wait $i; then exit 1; fi; done
 cd ${initial_dir}
 # update job spec with operator ref changes if needed
 if [ -n "${OPERATOR_REFS-}" ]; then
-	curl -s -L https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o jq
+	curl -s -L https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-$(uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/') -o jq
 	chmod +x jq
 	JOB_SPEC=$(( echo $JOB_SPEC ; echo $OPERATOR_REFS ) | ./jq -s add)
 fi
@@ -1534,7 +1534,7 @@ const permissionsScript = `
 # prow doesn't allow init containers or a second container
 export PATH=$PATH:/tmp/bin
 mkdir /tmp/bin
-curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/oc/4.4/linux/oc.tar.gz | tar xvzf - -C /tmp/bin/ oc
+curl -sL https://mirror.openshift.com/pub/openshift-v4/$(uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/')/clients/ocp/4.15.0/openshift-client-linux.tar.gz | tar xvzf - -C /tmp/bin/ oc
 chmod ug+x /tmp/bin/oc
 
 # grant all authenticated users access to the images in this namespace
