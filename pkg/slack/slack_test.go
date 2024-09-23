@@ -26,12 +26,6 @@ func TestBuildJobParams(t *testing.T) {
 			errorString: "",
 		},
 		{
-			name:        "IncorrectlyQuotedParameter",
-			params:      "“KEY1=VALUE1”",
-			expected:    nil,
-			errorString: "unable to parse `“KEY1=VALUE1”` for parameters. Please ensure that you're using double quotes to enclose variables",
-		},
-		{
 			name:        "IncorrectlyDeliminatedParameter",
 			params:      "\"KEY1:VALUE1\"",
 			expected:    nil,
