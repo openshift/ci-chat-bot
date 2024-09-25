@@ -434,10 +434,12 @@ func ParseImageInput(input string) ([]string, error) {
 	}
 	input = utils.StripLinks(input)
 	parts := strings.Split(input, ",")
-	for _, part := range parts {
+	for i, part := range parts {
+		part = strings.TrimSpace(part)
 		if len(part) == 0 {
 			return nil, fmt.Errorf("image inputs must not contain empty items")
 		}
+		parts[i] = part // store trimmed variant
 	}
 	return parts, nil
 }
