@@ -436,9 +436,11 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	if job.Mode == JobTypeWorkflowLaunch || job.Mode == JobTypeWorkflowUpgrade || job.Mode == JobTypeWorkflowTest {
 		// use "launch" test name to identify proper cluster profile
 		var profile citools.ClusterProfile
+		var leases []citools.StepLease
 		for _, test := range sourceConfig.Tests {
 			if test.As == "launch" {
 				profile = test.MultiStageTestConfiguration.ClusterProfile
+				leases = test.MultiStageTestConfiguration.Leases
 				break
 			}
 		}
@@ -452,6 +454,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 				ClusterProfile: profile,
 				Workflow:       &job.WorkflowName,
 				Environment:    environment,
+				Leases:         leases,
 			},
 		}
 		if job.Mode == JobTypeWorkflowLaunch {
