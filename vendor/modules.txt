@@ -2015,7 +2015,7 @@ sigs.k8s.io/controller-runtime/pkg/scheme
 ## explicit; go 1.18
 sigs.k8s.io/json
 sigs.k8s.io/json/internal/golang/encoding/json
-# sigs.k8s.io/prow v0.0.0-20240917051714-0ac691ea5cae
+# sigs.k8s.io/prow v0.0.0-20241002215026-8442fff47c20
 ## explicit; go 1.22.3
 sigs.k8s.io/prow/pkg/apis/prowjobs
 sigs.k8s.io/prow/pkg/apis/prowjobs/v1
