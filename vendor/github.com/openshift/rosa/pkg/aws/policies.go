@@ -35,9 +35,19 @@ import (
 	client "github.com/openshift/rosa/pkg/aws/api_interface"
 	"github.com/openshift/rosa/pkg/aws/tags"
 	"github.com/openshift/rosa/pkg/helper"
+	"github.com/openshift/rosa/pkg/reporter"
 )
 
-var DefaultPrefix = "ManagedOpenShift"
+const (
+	awsManagedPolicyRegexPattern = `^arn:aws:iam::aws:policy/.*$`
+	awsManagedPolicyUrlPrefix    = "https://docs.aws.amazon.com/aws-managed-policy/latest/reference/"
+	roleUrlPrefix                = "https://console.aws.amazon.com/iam/home?#/roles/"
+)
+
+var (
+	awsManagedPolicyRegex = regexp.MustCompile(awsManagedPolicyRegexPattern)
+	DefaultPrefix         = "ManagedOpenShift"
+)
 
 type Operator struct {
 	Name                string
@@ -146,14 +156,14 @@ var roleTypeMap = map[string]string{
 	WorkerAccountRole:       WorkerAccountRoleType,
 }
 
-func (c *awsClient) EnsureRole(name string, policy string, permissionsBoundary string,
+func (c *awsClient) EnsureRole(reporter *reporter.Object, name string, policy string, permissionsBoundary string,
 	version string, tagList map[string]string, path string, managedPolicies bool) (string, error) {
 	output, err := c.iamClient.GetRole(context.Background(), &iam.GetRoleInput{
 		RoleName: aws.String(name),
 	})
 	if err != nil {
 		if awserr.IsNoSuchEntityException(err) {
-			return c.createRole(name, policy, permissionsBoundary, tagList, path)
+			return c.createRole(reporter, name, policy, permissionsBoundary, tagList, path)
 		}
 		return "", err
 	}
@@ -207,6 +217,7 @@ func (c *awsClient) EnsureRole(name string, policy string, permissionsBoundary s
 		if err != nil {
 			return roleArn, err
 		}
+		reporter.Infof("Attached trust policy to role '%s(%s)': %s", name, roleUrlPrefix+name, policy)
 
 		_, err = c.iamClient.TagRole(context.Background(), &iam.TagRoleInput{
 			RoleName: aws.String(name),
@@ -239,8 +250,8 @@ func (c *awsClient) ValidateRoleNameAvailable(name string) (err error) {
 	return fmt.Errorf("Error validating role name '%s': %v", name, err)
 }
 
-func (c *awsClient) createRole(name string, policy string, permissionsBoundary string,
-	tagList map[string]string, path string) (string, error) {
+func (c *awsClient) createRole(reporter *reporter.Object, name string, policy string,
+	permissionsBoundary string, tagList map[string]string, path string) (string, error) {
 	if !RoleNameRE.MatchString(name) {
 		return "", fmt.Errorf("Role name is invalid")
 	}
@@ -262,6 +273,7 @@ func (c *awsClient) createRole(name string, policy string, permissionsBoundary s
 		}
 		return "", err
 	}
+	reporter.Infof("Attached trust policy to role '%s(%s)': %s", name, roleUrlPrefix+name, policy)
 	return aws.ToString(output.Role.Arn), nil
 }
 
@@ -445,7 +457,7 @@ func (c *awsClient) hasCompatibleMajorMinorVersionTags(iamTags []iamtypes.Tag, v
 	return false, nil
 }
 
-func (c *awsClient) AttachRolePolicy(roleName string, policyARN string) error {
+func (c *awsClient) AttachRolePolicy(reporter *reporter.Object, roleName string, policyARN string) error {
 	_, err := c.iamClient.AttachRolePolicy(context.Background(), &iam.AttachRolePolicyInput{
 		RoleName:  aws.String(roleName),
 		PolicyArn: aws.String(policyARN),
@@ -453,6 +465,12 @@ func (c *awsClient) AttachRolePolicy(roleName string, policyARN string) error {
 	if err != nil {
 		return err
 	}
+	if isAwsManagedPolicy(policyARN) {
+		policyARNArr := strings.Split(policyARN, "/")
+		policyName := policyARNArr[len(policyARNArr)-1]
+		policyARN = fmt.Sprintf("%s(%s)", policyName, awsManagedPolicyUrlPrefix+policyName)
+	}
+	reporter.Infof("Attached policy '%s' to role '%s(%s)'\n", policyARN, roleName, roleUrlPrefix+roleName)
 	return nil
 }
 
@@ -630,7 +648,7 @@ func isAccountRoleVersionCompatible(tagsList []iamtypes.Tag, roleType string,
 }
 
 func (c *awsClient) ListRoles() ([]iamtypes.Role, error) {
-	roles := []iamtypes.Role{}
+	var roles []iamtypes.Role
 	paginator := iam.NewListRolesPaginator(c.iamClient, &iam.ListRolesInput{})
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(context.TODO())
@@ -994,6 +1012,18 @@ func (c *awsClient) ListOperatorRoles(targetVersion string,
 	return operatorMap, nil
 }
 
+func (c *awsClient) ValidateIfRosaOperatorRole(role iamtypes.Role,
+	credRequest map[string]*cmv1.STSOperator) (bool, error) {
+	listRoleTags, err := c.iamClient.ListRoleTags(context.Background(), &iam.ListRoleTagsInput{
+		RoleName: role.RoleName,
+	})
+	if err != nil {
+		return false, err
+	}
+	role.Tags = listRoleTags.Tags
+	return checkIfROSAOperatorRole(role, credRequest), nil
+}
+
 // Check if it is one of the ROSA account roles
 func checkIfAccountRole(roleName *string) bool {
 	for _, prefix := range AccountRoles {
@@ -1005,9 +1035,16 @@ func checkIfAccountRole(roleName *string) bool {
 }
 
 // Check if it is one of the ROSA account roles
-func checkIfROSAOperatorRole(roleName *string, credRequest map[string]*cmv1.STSOperator) bool {
+func checkIfROSAOperatorRole(role iamtypes.Role, credRequest map[string]*cmv1.STSOperator) bool {
 	for _, operatorRole := range credRequest {
-		if strings.Contains(aws.ToString(roleName), operatorRole.Namespace()) {
+		for _, tag := range role.Tags {
+			if aws.ToString(tag.Key) == "operator_namespace" {
+				if strings.Contains(aws.ToString(tag.Value), operatorRole.Namespace()) {
+					return true
+				}
+			}
+		}
+		if strings.Contains(aws.ToString(role.RoleName), operatorRole.Namespace()) {
 			return true
 		}
 	}
@@ -1341,15 +1378,20 @@ func (c *awsClient) detachOperatorRolePolicies(role *string) error {
 
 func (c *awsClient) GetOperatorRolesFromAccountByClusterID(clusterID string,
 	credRequest map[string]*cmv1.STSOperator) ([]string, error) {
-	roleList := []string{}
+	var roleList []string
 	roles, err := c.ListRoles()
 	if err != nil {
 		return roleList, err
 	}
 	for _, role := range roles {
-		if !checkIfROSAOperatorRole(role.RoleName, credRequest) {
+		isValidOperatorRole, err := c.ValidateIfRosaOperatorRole(role, credRequest)
+		if err != nil {
+			return roleList, err
+		}
+		if !isValidOperatorRole {
 			continue
 		}
+
 		listRoleTagsOutput, err := c.iamClient.ListRoleTags(context.Background(),
 			&iam.ListRoleTagsInput{
 				RoleName: role.RoleName,
@@ -1376,19 +1418,24 @@ func (c *awsClient) GetOperatorRolesFromAccountByClusterID(clusterID string,
 
 func (c *awsClient) GetOperatorRolesFromAccountByPrefix(prefix string,
 	credRequest map[string]*cmv1.STSOperator) ([]string, error) {
-	roleList := []string{}
+	var roleList []string
 	roles, err := c.ListRoles()
 	if err != nil {
 		return roleList, err
 	}
 	prefixOperatorRoleRE := regexp.MustCompile(("(?i)" + fmt.Sprintf("(%s)-(openshift|kube-system)", prefix)))
 	for _, role := range roles {
-		if !checkIfROSAOperatorRole(role.RoleName, credRequest) {
+		if !prefixOperatorRoleRE.MatchString(*role.RoleName) {
 			continue
 		}
-		if prefixOperatorRoleRE.MatchString(*role.RoleName) {
-			roleList = append(roleList, aws.ToString(role.RoleName))
+		isValidOperatorRole, err := c.ValidateIfRosaOperatorRole(role, credRequest)
+		if err != nil {
+			return roleList, err
 		}
+		if !isValidOperatorRole {
+			continue
+		}
+		roleList = append(roleList, aws.ToString(role.RoleName))
 	}
 	return roleList, nil
 }
@@ -2138,4 +2185,8 @@ func getOperatorRolePolicyTags(c client.IamApiClient, roleName string) (map[stri
 		}
 	}
 	return tagmap, nil
+}
+
+func isAwsManagedPolicy(policyArn string) bool {
+	return awsManagedPolicyRegex.MatchString(policyArn)
 }

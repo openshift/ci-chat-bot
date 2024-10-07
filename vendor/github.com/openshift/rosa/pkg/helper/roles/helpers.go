@@ -266,14 +266,14 @@ func upgradeMissingOperatorRole(missingRoles map[string]*cmv1.STSOperator, clust
 			tagsList[awsCommonValidations.ManagedPolicies] = "true"
 		}
 		r.Reporter.Debugf("Creating role '%s'", roleName)
-		roleARN, err := r.AWSClient.EnsureRole(roleName, policy, "", "",
+		roleARN, err := r.AWSClient.EnsureRole(r.Reporter, roleName, policy, "", "",
 			tagsList, unifiedPath, false)
 		if err != nil {
 			return err
 		}
 		r.Reporter.Infof("Created role '%s' with ARN '%s'", roleName, roleARN)
 		r.Reporter.Debugf("Attaching permission policy '%s' to role '%s'", policyARN, roleName)
-		err = r.AWSClient.AttachRolePolicy(roleName, policyARN)
+		err = r.AWSClient.AttachRolePolicy(r.Reporter, roleName, policyARN)
 		if err != nil {
 			return fmt.Errorf("Failed to attach role policy. Check your prefix or run "+
 				"'rosa create account-roles' to create the necessary policies: %s", err)

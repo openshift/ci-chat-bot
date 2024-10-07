@@ -35,6 +35,7 @@ import (
 	clustervalidations "github.com/openshift-online/ocm-common/pkg/cluster/validations"
 	diskValidator "github.com/openshift-online/ocm-common/pkg/machinepool/validations"
 
+	"github.com/openshift/rosa/pkg/aws"
 	"github.com/openshift/rosa/pkg/helper"
 	"github.com/openshift/rosa/pkg/ocm"
 )
@@ -225,21 +226,20 @@ func RegExpBoolean(restr string) Validator {
 
 // SubnetsCountValidator get a slice of `[]core.OptionAnswer` as an interface.
 // e.g. core.OptionAnswer { Value: subnet-04f67939f44a97dbe (us-west-2b), Index: 0 }
-func SubnetsCountValidator(multiAZ bool, privateLink bool, hostedCP bool) Validator {
-	return func(input interface{}) error {
+func SubnetsValidator(awsClient aws.Client, multiAZ bool, privateLink bool, hostedCP bool) Validator {
+	return func(input interface{}) (err error) {
 		if answers, ok := input.([]core.OptionAnswer); ok {
 			if hostedCP {
-				if privateLink && len(answers) < 1 {
-					return fmt.Errorf("The number of subnets for a private hosted cluster should be at least one")
+				subnetIDs := make([]string, len(answers))
+				for i, subnet := range answers {
+					subnetIDs[i] = aws.ParseOption(subnet.Value)
 				}
-				if !privateLink && len(answers) < 2 {
-					return fmt.Errorf("The number of subnets for a public hosted cluster should be at least two")
-				}
-				return nil
+
+				_, err = ocm.ValidateHostedClusterSubnets(awsClient, privateLink, subnetIDs)
+				return err
 			}
 			return ocm.ValidateSubnetsCount(multiAZ, privateLink, len(answers))
 		}
-
 		return fmt.Errorf("can only validate a slice of string, got %v", input)
 	}
 }
@@ -270,5 +270,24 @@ func MachinePoolRootDiskSizeValidator(version string) Validator {
 			return fmt.Errorf("failed to parse machine pool root disk size '%s': %v", machinePoolRootDiskSize, err)
 		}
 		return diskValidator.ValidateMachinePoolRootDiskSize(version, size)
+	}
+}
+
+func NodePoolRootDiskSizeValidator() Validator {
+	return func(val interface{}) error {
+		// We expect GigiByte as the unit for the root volume size
+
+		// Validate the worker root volume size is an integer
+		nodePoolRootDiskSize, ok := val.(string)
+		if !ok {
+			return fmt.Errorf("node pool root disk size must be an string, got %T", nodePoolRootDiskSize)
+		}
+
+		// parse it to validate it is a valid unit
+		size, err := ocm.ParseDiskSizeToGigibyte(nodePoolRootDiskSize)
+		if err != nil {
+			return fmt.Errorf("failed to parse machine pool root disk size '%s': %v", nodePoolRootDiskSize, err)
+		}
+		return diskValidator.ValidateNodePoolRootDiskSize(size)
 	}
 }

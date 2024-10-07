@@ -3,6 +3,54 @@
 This document describes the relevant changes between releases of the OCM API
 SDK.
 
+## 0.1.438
+- Update model version v0.0.391
+  - Add `RegistryConfig` attribute to `Cluster` model
+  - Add `RegistryAllowlist` resource and endpoints
+
+## 0.1.437
+- Update model version v0.0.390
+  - Add `RolePrefix` field to `WifGcp` model
+
+## 0.1.436
+- Update model version v0.0.389
+  - Add state struct to node pool
+  - Add limited support reason override
+
+## 0.1.435
+- Add 'OidcThumbprint' type model to v1 and v2alpha1
+- Add 'OidcThumbprintInput' type model to v1 and v2alpha1
+- Add 'OidcThumbprint' resource model to v1 and v2alpha1
+
+## 0.1.434
+- Update model version v0.0.386
+  - Add `RootVolume` attribute to `AWSNodePool` model
+- Update model version v0.0.387
+  - Add `ProjectNumber` field to `WifConfig` model
+
+## 0.1.433
+- Update model version v0.0.384
+  - Add clusters_mgmt API model for v2alpha1
+- Update model version v0.0.385
+  - Update WIF endpoint path
+  - Remove WIF templates endpoints
+
+## 0.1.432
+- Update model version v0.0.383
+  - Add `Kind` and `Id` field to GCP `Authentication` structure
+
+## 0.1.431
+- Update model version v0.0.382
+  - Add `Authentication` field to GCP model
+
+## 0.1.430
+- Added WIF endpoints and resources
+
+## 0.1.429
+- Update model version v0.0.380
+  - Add `Architecture` attribute to `MachineType` model
+  - Add `ReleaseImages` attribute to `Version` model
+
 ## 0.1.428
 - Update model version v0.0.379
   - Add `Ec2MetadataHttpTokens` to `AWSNodePool` resource
