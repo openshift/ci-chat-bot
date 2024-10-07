@@ -333,22 +333,10 @@ func (m *jobManager) getClusterAuth(name string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	/*
-		kubeconfig, err := base64.RawStdEncoding.DecodeString(string(kubeconfigSecret.Data["kubeconfig"]))
-		if err != nil {
-			return "", "", fmt.Errorf("failed to decode kubeconfig: %v", err)
-		}
-	*/
 	passwordSecret, err := secretsClient.Get(context.TODO(), clusterDeployment.Spec.ClusterMetadata.AdminPasswordSecretRef.Name, metav1.GetOptions{})
 	if err != nil {
 		return "", "", err
 	}
-	/*
-		password, err := base64.RawStdEncoding.DecodeString(string(passwordSecret.Data["password"]))
-		if err != nil {
-			return "", "", fmt.Errorf("failed to decode password: %v", err)
-		}
-	*/
 	m.mceClusters.lock.Lock()
 	defer m.mceClusters.lock.Unlock()
 	if m.mceClusters.clusterKubeconfigs == nil {
