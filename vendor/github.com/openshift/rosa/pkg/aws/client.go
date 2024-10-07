@@ -119,7 +119,7 @@ type Client interface {
 	ValidateQuota() (bool, error)
 	TagUserRegion(username string, region string) error
 	GetClusterRegionTagForUser(username string) (string, error)
-	EnsureRole(name string, policy string, permissionsBoundary string,
+	EnsureRole(reporter *reporter.Object, name string, policy string, permissionsBoundary string,
 		version string, tagList map[string]string, path string, managedPolicies bool) (string, error)
 	ValidateRoleNameAvailable(name string) (err error)
 	PutRolePolicy(roleName string, policyName string, policy string) error
@@ -127,7 +127,7 @@ type Client interface {
 		path string) (string, error)
 	EnsurePolicy(policyArn string, document string, version string, tagList map[string]string,
 		path string) (string, error)
-	AttachRolePolicy(roleName string, policyARN string) error
+	AttachRolePolicy(reporter *reporter.Object, roleName string, policyARN string) error
 	CreateOpenIDConnectProvider(issuerURL string, thumbprint string, clusterID string) (string, error)
 	DeleteOpenIDConnectProvider(providerURL string) error
 	HasOpenIDConnectProvider(issuerURL string, partition string, accountID string) (bool, error)
@@ -330,7 +330,7 @@ func (b *ClientBuilder) BuildSessionWithOptionsCredentials(value *AccessKey,
 		config.WithClientLogMode(logLevel),
 		config.WithAPIOptions([]func(stack *middleware.Stack) error{
 			smithyhttp.AddHeaderValue("User-Agent",
-				strings.Join([]string{"ROSACLI", info.Version}, ";")),
+				strings.Join([]string{"ROSACLI", info.DefaultVersion}, ";")),
 		}),
 		config.WithRetryer(func() aws.Retryer {
 			retryer := retry.AddWithMaxAttempts(retry.NewStandard(), numMaxRetries)
@@ -358,7 +358,7 @@ func (b *ClientBuilder) BuildSessionWithOptions(logLevel aws.ClientLogMode) (aws
 		config.WithClientLogMode(logLevel),
 		config.WithAPIOptions([]func(stack *middleware.Stack) error{
 			smithyhttp.AddHeaderValue("User-Agent",
-				strings.Join([]string{"ROSACLI", info.Version}, ";")),
+				strings.Join([]string{"ROSACLI", info.DefaultVersion}, ";")),
 		}),
 		config.WithRetryer(func() aws.Retryer {
 			retryer := retry.AddWithMaxAttempts(retry.NewStandard(), numMaxRetries)

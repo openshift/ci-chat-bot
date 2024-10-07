@@ -54,6 +54,8 @@ type Config struct {
 	Scopes       []string `json:"scopes,omitempty" doc:"OpenID scope."`
 	TokenURL     string   `json:"token_url,omitempty" doc:"OpenID token URL."`
 	URL          string   `json:"url,omitempty" doc:"URL of the API gateway."`
+	UserAgent    string   `json:"user_agent,omitempty" doc:"OCM client UserAgent. Default value is used if not set."`
+	Version      string   `json:"version,omitempty" doc:"OCM client version. Default value is used if not set."`
 	FedRAMP      bool     `json:"fedramp,omitempty" doc:"Indicates FedRAMP."`
 }
 
@@ -383,6 +385,22 @@ func (c *Config) Connection() (connection *sdk.Connection, err error) {
 	}
 
 	return
+}
+
+func PersistTokens(cfg *Config, accessToken string, refreshToken string) error {
+	var err error
+	activeCfg := cfg
+
+	if activeCfg == nil {
+		// Load the configuration if none is provided
+		activeCfg, err = Load()
+		if err != nil {
+			return err
+		}
+	}
+	activeCfg.AccessToken = accessToken
+	activeCfg.RefreshToken = refreshToken
+	return Save(activeCfg)
 }
 
 // IsKeyringManaged returns the keyring name and a boolean indicating if the config is managed by the keyring.

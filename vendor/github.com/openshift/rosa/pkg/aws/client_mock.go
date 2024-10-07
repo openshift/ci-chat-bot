@@ -5,7 +5,6 @@
 //
 //	mockgen -source=client.go -package=aws -destination=client_mock.go
 //
-
 // Package aws is a generated GoMock package.
 package aws
 
@@ -19,6 +18,7 @@ import (
 	types0 "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	servicequotas "github.com/aws/aws-sdk-go-v2/service/servicequotas"
 	v1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
+	reporter "github.com/openshift/rosa/pkg/reporter"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -60,17 +60,17 @@ func (mr *MockClientMockRecorder) AddRoleTag(roleName, key, value any) *gomock.C
 }
 
 // AttachRolePolicy mocks base method.
-func (m *MockClient) AttachRolePolicy(roleName, policyARN string) error {
+func (m *MockClient) AttachRolePolicy(reporter *reporter.Object, roleName, policyARN string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AttachRolePolicy", roleName, policyARN)
+	ret := m.ctrl.Call(m, "AttachRolePolicy", reporter, roleName, policyARN)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AttachRolePolicy indicates an expected call of AttachRolePolicy.
-func (mr *MockClientMockRecorder) AttachRolePolicy(roleName, policyARN any) *gomock.Call {
+func (mr *MockClientMockRecorder) AttachRolePolicy(reporter, roleName, policyARN any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AttachRolePolicy", reflect.TypeOf((*MockClient)(nil).AttachRolePolicy), roleName, policyARN)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AttachRolePolicy", reflect.TypeOf((*MockClient)(nil).AttachRolePolicy), reporter, roleName, policyARN)
 }
 
 // CheckAdminUserExists mocks base method.
@@ -377,18 +377,18 @@ func (mr *MockClientMockRecorder) EnsurePolicy(policyArn, document, version, tag
 }
 
 // EnsureRole mocks base method.
-func (m *MockClient) EnsureRole(name, policy, permissionsBoundary, version string, tagList map[string]string, path string, managedPolicies bool) (string, error) {
+func (m *MockClient) EnsureRole(reporter *reporter.Object, name, policy, permissionsBoundary, version string, tagList map[string]string, path string, managedPolicies bool) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "EnsureRole", name, policy, permissionsBoundary, version, tagList, path, managedPolicies)
+	ret := m.ctrl.Call(m, "EnsureRole", reporter, name, policy, permissionsBoundary, version, tagList, path, managedPolicies)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // EnsureRole indicates an expected call of EnsureRole.
-func (mr *MockClientMockRecorder) EnsureRole(name, policy, permissionsBoundary, version, tagList, path, managedPolicies any) *gomock.Call {
+func (mr *MockClientMockRecorder) EnsureRole(reporter, name, policy, permissionsBoundary, version, tagList, path, managedPolicies any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureRole", reflect.TypeOf((*MockClient)(nil).EnsureRole), name, policy, permissionsBoundary, version, tagList, path, managedPolicies)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureRole", reflect.TypeOf((*MockClient)(nil).EnsureRole), reporter, name, policy, permissionsBoundary, version, tagList, path, managedPolicies)
 }
 
 // FetchPublicSubnetMap mocks base method.
