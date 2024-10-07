@@ -131,7 +131,7 @@ func (m *jobManager) createManagedCluster(providedImageSet, platform, user, slac
 					Size: 100,
 					Type: "io1",
 				},
-				InstanceType: "m5.xlarge",
+				InstanceType: "m6a.xlarge",
 			},
 		}
 		installConfig.Compute[0].Platform = installer.MachinePoolPlatform{
@@ -142,7 +142,7 @@ func (m *jobManager) createManagedCluster(providedImageSet, platform, user, slac
 					Size: 100,
 					Type: "io1",
 				},
-				InstanceType: "m5.xlarge",
+				InstanceType: "m6a.xlarge",
 			},
 		}
 		installConfig.Platform = installer.Platform{
