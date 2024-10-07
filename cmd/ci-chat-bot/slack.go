@@ -35,6 +35,7 @@ func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.Job
 	slackclient := slackClient.New(bot.BotToken)
 	jobManager.SetNotifier(bot.JobResponder(slackclient))
 	jobManager.SetRosaNotifier(bot.RosaResponder(slackclient))
+	jobManager.SetMceNotifier(bot.MceResponder(slackclient))
 	var issueFiler jira.IssueFiler
 	if jiraclient != nil {
 		var err error

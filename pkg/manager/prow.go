@@ -1237,7 +1237,6 @@ func (m *jobManager) waitForJob(job *Job) error {
 	klog.Infof("Job %q waiting for setup container in pod %s to complete", job.Name, namespace)
 
 	seen = false
-	var lastErr error
 	err = wait.PollUntilContextTimeout(context.TODO(), 15*time.Second, setupContainerTimeout, true, func(ctx context.Context) (bool, error) {
 		if m.jobIsComplete(job) {
 			return false, errJobCompleted
@@ -1279,9 +1278,6 @@ func (m *jobManager) waitForJob(job *Job) error {
 		return false, nil
 	})
 	if err != nil {
-		if lastErr != nil {
-			err = lastErr
-		}
 		if strings.HasPrefix(err.Error(), "cluster ") {
 			return err
 		}

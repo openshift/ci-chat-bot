@@ -26,8 +26,19 @@ func Handle(client *slack.Client, manager manager.JobManager, botCommands []pars
 			if !ok {
 				return false, fmt.Errorf("failed to parse the slack event")
 			}
+			mceConfig := manager.GetMceUserConfig()
+			mceConfig.Mutex.RLock()
+			users := mceConfig.Users
+			var allowed bool
+			for user := range users {
+				if user == event.User {
+					allowed = true
+					break
+				}
+			}
+			mceConfig.Mutex.RUnlock()
 			if strings.TrimSpace(event.Text) == "help" {
-				help(client, event, botCommands)
+				help(client, event, botCommands, allowed)
 				return true, nil
 			}
 			// do not respond to bots
@@ -48,6 +59,9 @@ func Handle(client *slack.Client, manager manager.JobManager, botCommands []pars
 				return true, nil
 			}
 			for _, command := range botCommands {
+				if command.IsPrivate() && !allowed {
+					continue
+				}
 				properties, match := command.Match(event.Text)
 				if match {
 					response := command.Execute(client, manager, event, properties)
@@ -83,9 +97,12 @@ func postResponse(client *slack.Client, event *slackevents.MessageEvent, respons
 	return nil
 }
 
-func help(client *slack.Client, event *slackevents.MessageEvent, botCommands []parser.BotCommand) {
+func help(client *slack.Client, event *slackevents.MessageEvent, botCommands []parser.BotCommand, allowPrivate bool) {
 	helpMessage := ""
 	for _, command := range botCommands {
+		if command.IsPrivate() && !allowPrivate {
+			continue
+		}
 		tokens := command.Tokenize()
 
 		// # <command>

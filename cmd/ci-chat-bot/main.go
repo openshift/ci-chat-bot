@@ -4,13 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"k8s.io/client-go/tools/cache"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/go-logr/logr"
 	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -25,7 +26,6 @@ import (
 
 	"sigs.k8s.io/prow/pkg/config/secret"
 	"sigs.k8s.io/prow/pkg/flagutil"
-	prowflagutil "sigs.k8s.io/prow/pkg/flagutil"
 	"sigs.k8s.io/prow/pkg/github"
 	"sigs.k8s.io/prow/pkg/metrics"
 	"sigs.k8s.io/prow/pkg/pjutil"
@@ -37,6 +37,11 @@ import (
 	buildconfigclientset "github.com/openshift/client-go/build/clientset/versioned"
 	imageclientset "github.com/openshift/client-go/image/clientset/versioned"
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
+
+	hivescheme "github.com/openshift/hive/pkg/util/scheme"
+	machineryruntime "k8s.io/apimachinery/pkg/runtime"
+	clusterv1 "open-cluster-management.io/api/cluster/v1"
+	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"gopkg.in/yaml.v2"
 
@@ -62,9 +67,9 @@ var (
 
 type options struct {
 	prowconfig               configflagutil.ConfigOptions
-	GitHubOptions            prowflagutil.GitHubOptions
-	KubernetesOptions        prowflagutil.KubernetesOptions
-	InstrumentationOptions   prowflagutil.InstrumentationOptions
+	GitHubOptions            flagutil.GitHubOptions
+	KubernetesOptions        flagutil.KubernetesOptions
+	InstrumentationOptions   flagutil.InstrumentationOptions
 	ForcePROwner             string
 	ReleaseClusterKubeconfig string
 	ConfigResolver           string
@@ -84,7 +89,7 @@ type options struct {
 	overrideLaunchLabel      string
 	overrideRosaSecretName   string
 
-	jiraOptions prowflagutil.JiraOptions
+	jiraOptions flagutil.JiraOptions
 }
 
 func (o *options) Validate() error {
@@ -118,7 +123,7 @@ func run() error {
 			JobConfigPathFlagName: "job-config",
 		},
 		ConfigResolver:           "http://config.ci.openshift.org/config",
-		KubernetesOptions:        prowflagutil.KubernetesOptions{NOInClusterConfigDefault: true},
+		KubernetesOptions:        flagutil.KubernetesOptions{NOInClusterConfigDefault: true},
 		rosaClusterAdminUsername: "cluster-admin",
 	}
 
@@ -231,11 +236,36 @@ func run() error {
 	if config, ok := kubeConfigs["hosted-mgmt"]; ok {
 		hiveClient, err := corev1.NewForConfig(&config)
 		if err != nil {
-			return fmt.Errorf("unable to create hive client: %w", err)
+			return fmt.Errorf("unable to create hosted-mgmt hive client: %w", err)
 		}
 		hiveConfigMapClient = hiveClient.ConfigMaps("hypershift")
 	} else {
 		klog.Warning("hive config missing `hive` cluster context; will not support hypershift outside of default version")
+	}
+
+	var hiveClient, ocmClient crclient.Client
+	var dpcrCoreClient *corev1.CoreV1Client
+	var mceNamespaceClient corev1.NamespaceInterface
+	if config, ok := kubeConfigs["dpcr"]; ok {
+		// hive client for ClusterDeployments
+		hiveClient, err = crclient.New(&config, crclient.Options{Scheme: hivescheme.GetScheme()})
+		if err != nil {
+			return fmt.Errorf("unable to create dpcr hive client: %w", err)
+		}
+		// ocm client for ManagedClusters
+		ocmScheme := machineryruntime.NewScheme()
+		if err := clusterv1.Install(ocmScheme); err != nil {
+			return fmt.Errorf("Failed to install ocm scheme: %v", err)
+		}
+		ocmClient, err = crclient.New(&config, crclient.Options{Scheme: ocmScheme})
+		if err != nil {
+			return fmt.Errorf("unable to create dpcr ocm client: %w", err)
+		}
+		dpcrCoreClient, err = corev1.NewForConfig(&config)
+		if err != nil {
+			return fmt.Errorf("unable to create dpcr core client")
+		}
+		mceNamespaceClient = dpcrCoreClient.Namespaces()
 	}
 
 	configAgent, err := opt.prowconfig.ConfigAgent()
@@ -309,6 +339,10 @@ func run() error {
 		clusterBotMetrics.ErrorRate,
 		strings.ReplaceAll(string(rosaOidcConfigId), "\n", ""),
 		strings.ReplaceAll(string(rosaBillingAccount), "\n", ""),
+		ocmClient,
+		hiveClient,
+		mceNamespaceClient,
+		dpcrCoreClient,
 	)
 
 	klog.Infof("Waiting for caches to sync")

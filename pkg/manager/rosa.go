@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/openshift/rosa/pkg/interactive"
 	"io"
 	"math/big"
 	"net"
@@ -13,6 +12,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/openshift/rosa/pkg/interactive"
 
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 

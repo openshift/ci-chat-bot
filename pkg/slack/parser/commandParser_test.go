@@ -19,46 +19,46 @@ var supportedCommands = []BotCommand{
 			strings.Join(codeSlice(manager.SupportedParameters), ", ")),
 		Example: "launch 4.18,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
 		Handler: emptyHandler,
-	}),
+	}, false),
 	NewBotCommand("rosa create <version> <duration>", &CommandDefinition{
 		Description: "Launch an cluster in ROSA. Only GA Openshift versions are supported at the moment.",
 		Example:     "rosa create 4.18 3h",
 		Handler:     emptyHandler,
-	}),
+	}, false),
 	NewBotCommand("rosa lookup <version>", &CommandDefinition{
 		Description: "Find openshift version(s) with provided prefix that is supported in ROSA.",
 		Example:     "rosa lookup 4.18",
 		Handler:     emptyHandler,
-	}),
+	}, false),
 	NewBotCommand("list", &CommandDefinition{
 		Description: "See who is hogging all the clusters.",
 		Handler:     emptyHandler,
-	}),
+	}, false),
 	NewBotCommand("test upgrade <from> <to> <options>", &CommandDefinition{
 		Description: fmt.Sprintf("Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org. You may change the upgrade test by passing `test=NAME` in options with one of %s", strings.Join(codeSlice(manager.SupportedUpgradeTests), ", ")),
 		Example:     "test upgrade 4.17 4.18 aws",
 		Handler:     emptyHandler,
-	}),
+	}, false),
 	NewBotCommand("test <name> <image_or_version_or_prs> <options>", &CommandDefinition{
 		Description: fmt.Sprintf("Run the requested test suite from an image or release or built PRs. Supported test suites are %s. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org. ", strings.Join(codeSlice(manager.SupportedTests), ", ")),
 		Example:     "test e2e 4.18 vsphere",
 		Handler:     emptyHandler,
-	}),
+	}, false),
 	NewBotCommand("build <pullrequest>", &CommandDefinition{
 		Description: "Create a new release image from one or more pull requests. The successful build location will be sent to you when it completes and then preserved for 12 hours.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
 		Example:     "build openshift/operator-framework-olm#68,operator-framework/operator-marketplace#396",
 		Handler:     emptyHandler,
-	}),
+	}, false),
 	NewBotCommand("lookup <image_or_version_or_prs> <architecture>", &CommandDefinition{
 		Description: "Get info about a version.",
 		Example:     "lookup 4.18 arm64",
 		Handler:     emptyHandler,
-	}),
+	}, false),
 	NewBotCommand("catalog build <pullrequest> <bundle_name>", &CommandDefinition{
 		Description: "Create an operator, bundle, and catalog from a pull request. The successful build location will be sent to you when it completes and then preserved for 12 hours.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
 		Example:     "catalog build openshift/aws-efs-csi-driver-operator#75 aws-efs-csi-driver-operator-bundle",
 		Handler:     emptyHandler,
-	}),
+	}, false),
 }
 
 func codeSlice(items []string) []string {
