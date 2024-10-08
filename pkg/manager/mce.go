@@ -42,7 +42,7 @@ func (m *jobManager) createManagedCluster(providedImageSet, platform, user, slac
 	}
 
 	// copy credentials from main chat-bot secrets namespace
-	chatBotSecretsClient := m.dpcrCoreClient.Secrets("ci-chat-bot-mce-config")
+	chatBotSecretsClient := m.dpcrCoreClient.Secrets("crt-argocd")
 	clusterSecretsClient := m.dpcrCoreClient.Secrets(clusterName)
 	credentialsName := fmt.Sprintf("%s-credentials", platform)
 	if platform == "aws" && mceUserConfig.AwsSecret != "" {

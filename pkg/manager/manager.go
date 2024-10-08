@@ -425,7 +425,7 @@ func (m *jobManager) mceSync() error {
 	m.mceClusters.deployments = clusterDeployments
 	m.mceClusters.provisions = provisions
 	m.mceClusters.lock.Unlock()
-	userConfig, err := m.dpcrCoreClient.ConfigMaps("ci-chat-bot-mce-config").Get(context.TODO(), "users", metav1.GetOptions{})
+	userConfig, err := m.dpcrCoreClient.ConfigMaps("crt-argocd").Get(context.TODO(), "users", metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("Failed to retrieve mce user configs: %v", err)
 	}
