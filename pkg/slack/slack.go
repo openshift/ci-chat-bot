@@ -198,9 +198,9 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		}, false),
 		parser.NewBotCommand("mce create <imageset> <duration> <platform>", &parser.CommandDefinition{
 			Description: "Create a new cluster using Hive and MCE.",
-			Example:     "mce create img4.16.7-multi-appsub 6h aws",
+			Example:     "mce create 4.16.7 6h aws",
 			Handler:     MceCreate,
-		}, false),
+		}, true),
 		parser.NewBotCommand("mce auth <name>", &parser.CommandDefinition{
 			Description: "Print kubeconfig and kubeadmin password for specified MCE cluster.",
 			Example:     "mce auth mycluster",
@@ -213,12 +213,10 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		}, true),
 		parser.NewBotCommand("mce list", &parser.CommandDefinition{
 			Description: "List active MCE clusters.",
-			Example:     "mce list",
 			Handler:     MceList,
 		}, true),
 		parser.NewBotCommand("mce imagesets", &parser.CommandDefinition{
 			Description: "List available imagesets for MCE clusters.",
-			Example:     "mce list",
 			Handler:     MceImageSets,
 		}, true),
 	}
