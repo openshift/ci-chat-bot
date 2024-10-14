@@ -2522,10 +2522,10 @@ github.com/opencontainers/runc v1.1.14 h1:rgSuzbmgz5DUJjeSnw337TxDbRuqjs6iqQck/2
 github.com/opencontainers/runc v1.1.14/go.mod h1:E4C2z+7BxR7GHXp0hAY53mek+x49X1LjPNeMTfRGvOA=
 github.com/opencontainers/runtime-spec v1.2.0 h1:z97+pHb3uELt/yiAWD691HNHQIF07bE7dzrbT927iTk=
 github.com/opencontainers/runtime-spec v1.2.0/go.mod h1:jwyrGlmzljRJv/Fgzds9SsS/C5hL+LL3ko9hs6T5lQ0=
-github.com/openshift-online/ocm-common v0.0.10 h1:J3QtAOK/ZQlHTPB4uQfshO45vjYdJ9099PLM0HoOUR0=
-github.com/openshift-online/ocm-common v0.0.10/go.mod h1:6MWje2NFNJ3IWpGs7BYj6DWagWXHyp8EnmYY7XFTtI4=
-github.com/openshift-online/ocm-sdk-go v0.1.438 h1:tsLCCUzbLCTL4RZG02y9RuopmGCXp2cjxqhdyCutdes=
-github.com/openshift-online/ocm-sdk-go v0.1.438/go.mod h1:CiAu2jwl3ITKOxkeV0Qnhzv4gs35AmpIzVABQLtcI2Y=
+github.com/openshift-online/ocm-common v0.0.11 h1:DOj7fB59q0vAUFxSEQpLPp2AkReCCFq3r3NMaoZU20I=
+github.com/openshift-online/ocm-common v0.0.11/go.mod h1:6MWje2NFNJ3IWpGs7BYj6DWagWXHyp8EnmYY7XFTtI4=
+github.com/openshift-online/ocm-sdk-go v0.1.440 h1:qHVF8iZ0V3DPPuZq2LF7pwQKVsm0W0QxVDoXxDS7oyw=
+github.com/openshift-online/ocm-sdk-go v0.1.440/go.mod h1:CiAu2jwl3ITKOxkeV0Qnhzv4gs35AmpIzVABQLtcI2Y=
 github.com/openshift/api v0.0.0-20210730095913-85e1d547cdee/go.mod h1:ntkQrC1Z6AxxkhDlVpDVjkD+pzdwVUalWyfH40rSyyM=
 github.com/openshift/api v0.0.0-20210816181336-8ff39b776da3/go.mod h1:x81TFA31x1OMT9SYWukQqJ/KbmeveRN6fo+XeGRK8g0=
 github.com/openshift/api v0.0.0-20240527133614-ba11c1587003/go.mod h1:OOh6Qopf21pSzqNVCB5gomomBXb8o5sGKZxG2KNpaXM=
@@ -2563,8 +2563,8 @@ github.com/openshift/moby-moby v1.4.2-0.20190308215630-da810a85109d h1:1LuQzDKgi
 github.com/openshift/moby-moby v1.4.2-0.20190308215630-da810a85109d/go.mod h1:LJM49W8fBVSj+rvcopJZu9mgH5Tx6HwLHySIYeGeu4k=
 github.com/openshift/oc v0.0.0-alpha.0.0.20230410203846-b68ac7c39057 h1:qPCovANfcKaI45rXB/TcIgoaJtufe/W9LcCBc5PaXVM=
 github.com/openshift/oc v0.0.0-alpha.0.0.20230410203846-b68ac7c39057/go.mod h1:XpOVZsTmYlQz/ndFR/FOfPLm4/k13XMafwYNkfA8wLc=
-github.com/openshift/rosa v1.2.45 h1:xLAaPE5VFbF4qUJSHoRnzAUM+4KoL8bREiv/T3ToZ+Y=
-github.com/openshift/rosa v1.2.45/go.mod h1:OM10a3Mx3ByCMloqY+27ub3aMEzIHp2OWfCAkMcC+pA=
+github.com/openshift/rosa v1.2.46 h1:fvljMW37N9QTIPJI3KVCUfK/aQK91UwAK5NghJfz7Z0=
+github.com/openshift/rosa v1.2.46/go.mod h1:7N5ixdsv3jj5OIRSa+Y4kGbnbjbeOfwy02QIkC2AaEs=
 github.com/opentracing/opentracing-go v1.1.0/go.mod h1:UkNAQd3GIcIGf0SeVgPpRdFStlNbqXla1AfSYxPUl2o=
 github.com/operator-framework/api v0.17.6 h1:E6+vlvYUKafvoXYtCuHlDZrXX4vl8AT+r93OxNlzjpU=
 github.com/operator-framework/api v0.17.6/go.mod h1:l/cuwtPxkVUY7fzYgdust2m9tlmb8I4pOvbsUufRb24=
