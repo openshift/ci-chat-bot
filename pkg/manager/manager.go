@@ -17,9 +17,11 @@ import (
 
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	prowClient "sigs.k8s.io/prow/pkg/client/clientset/versioned/typed/prowjobs/v1"
+	"sigs.k8s.io/prow/pkg/scheduler/strategy"
 
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
+	"github.com/sirupsen/logrus"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -637,7 +639,11 @@ func (m *jobManager) sync() error {
 		}
 		buildCluster := job.Annotations["release.openshift.io/buildCluster"]
 		if len(buildCluster) == 0 {
-			buildCluster = job.Spec.Cluster
+			buildCluster, err = m.schedule(job)
+			if err != nil {
+				klog.Error(err.Error())
+				buildCluster = job.Spec.Cluster
+			}
 		}
 		var isOperator bool
 		if job.Annotations["ci-chat-bot.openshift.io/IsOperator"] == "true" {
@@ -1802,7 +1808,11 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		return "", fmt.Errorf("configuration error, unable to find prow job matching %s with parameters=%v", selector, paramsToString(job.JobParams))
 	}
 	job.JobName = prowJob.Spec.Job
-	job.BuildCluster = prowJob.Spec.Cluster
+	job.BuildCluster, err = m.schedule(prowJob)
+	if err != nil {
+		klog.Errorf(err.Error())
+		job.BuildCluster = prowJob.Spec.Cluster
+	}
 
 	klog.Infof("Job %q requested by user %q with mode %s prow job %s(%s) - params=%s, inputs=%#v", job.Name, req.User, job.Mode, job.JobName, job.BuildCluster, paramsToString(job.JobParams), job.Inputs)
 
@@ -2347,4 +2357,12 @@ func (m *jobManager) LookupRosaInputs(versionPrefix string) (string, error) {
 	} else {
 		return fmt.Sprintf("Found the following version with a prefix of `%s`: %v", versionPrefix, matchedVersions), nil
 	}
+}
+
+func (m *jobManager) schedule(pj *prowapiv1.ProwJob) (string, error) {
+	cluster, err := strategy.Get(m.prowConfigLoader.Config(), logrus.WithField("interface", "scheduler")).Schedule(context.TODO(), pj)
+	if err != nil {
+		return "", fmt.Errorf("Failed to schedule job %s: %v", pj.Name, err)
+	}
+	return cluster.Cluster, nil
 }

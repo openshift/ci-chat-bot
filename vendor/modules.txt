@@ -2327,6 +2327,7 @@ sigs.k8s.io/prow/pkg/pod-utils/downwardapi
 sigs.k8s.io/prow/pkg/pod-utils/gcs
 sigs.k8s.io/prow/pkg/pod-utils/wrapper
 sigs.k8s.io/prow/pkg/repoowners
+sigs.k8s.io/prow/pkg/scheduler/strategy
 sigs.k8s.io/prow/pkg/secretutil
 sigs.k8s.io/prow/pkg/sidecar
 sigs.k8s.io/prow/pkg/simplifypath
