@@ -507,7 +507,7 @@ func RosaDescribe(client *slack.Client, jobManager manager.JobManager, event *sl
 }
 
 func MceCreate(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
-	from, err := ParseImageInput(properties.StringParam("imageset", ""))
+	from, err := ParseImageInput(properties.StringParam("version", ""))
 	if err != nil {
 		return err.Error()
 	}
@@ -567,9 +567,16 @@ func MceDelete(client *slack.Client, jobManager manager.JobManager, event *slack
 }
 
 func MceImageSets(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
-	return jobManager.ListImagesets()
+	return jobManager.ListMceVersions()
 }
 
 func MceList(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
-	return jobManager.ListManagedClusters()
+	all, err := ParseImageInput(properties.StringParam("all", ""))
+	if err != nil {
+		return err.Error()
+	}
+	if len(all) > 0 && all[0] == "all" {
+		return jobManager.ListManagedClusters("")
+	}
+	return jobManager.ListManagedClusters(event.User)
 }

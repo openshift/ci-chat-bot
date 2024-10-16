@@ -224,7 +224,7 @@ func (m *jobManager) createManagedCluster(providedImageSet, platform, user, slac
 		return nil, fmt.Errorf("failed to create managed cluster object: %v", err)
 	}
 
-	attemptLimit := int32(1)
+	attemptLimit := int32(2)
 	clusterDeployment := hivev1.ClusterDeployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      clusterName,

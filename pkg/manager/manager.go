@@ -338,15 +338,22 @@ func (m *jobManager) mceSync() error {
 	clusterDeployments := map[string]*hivev1.ClusterDeployment{}
 	provisions := map[string]*hivev1.ClusterProvision{}
 	for _, deployment := range deployments {
-		clusterDeployments[deployment.Name] = deployment
-		if deployment.Status.ProvisionRef != nil {
-			provision := hivev1.ClusterProvision{}
-			if err := m.dpcrHiveClient.Get(context.TODO(), crclient.ObjectKey{Name: deployment.Status.ProvisionRef.Name, Namespace: deployment.Namespace}, &provision); err != nil {
-				klog.Errorf("Failed to get cluster provision ref: %v", err)
-				continue
-			}
-			provisions[deployment.Name] = &provision
+		provisionList := &hivev1.ClusterProvisionList{}
+		if err := m.dpcrHiveClient.List(context.TODO(), provisionList, &crclient.ListOptions{LabelSelector: labels.SelectorFromSet(labels.Set{"hive.openshift.io/cluster-deployment-name": deployment.Name})}); err != nil {
+			klog.Errorf("Failed to get cluster provision ref: %v", err)
+			continue
 		}
+		if len(provisionList.Items) == 0 {
+			klog.Warningf("No matching provision found for cluster %s", deployment.Name)
+			continue
+		}
+		newestProvision := &provisionList.Items[0]
+		for _, extraProvision := range provisionList.Items {
+			if extraProvision.CreationTimestamp.After(newestProvision.CreationTimestamp.Time) {
+				newestProvision = &extraProvision
+			}
+		}
+		provisions[deployment.Name] = newestProvision
 	}
 	for name, cluster := range managedClusters {
 		m.mceClusters.lock.RLock()
@@ -2225,7 +2232,7 @@ func (m *jobManager) GetManagedClustersForUser(user string) (map[string]*cluster
 	return managed, deployments, provisions, kubeconfigs, passwords
 }
 
-func (m *jobManager) ListManagedClusters() string {
+func (m *jobManager) ListManagedClusters(user string) string {
 	m.mceClusters.lock.RLock()
 	defer m.mceClusters.lock.RUnlock()
 	numClusters := len(m.mceClusters.clusters)
@@ -2235,6 +2242,13 @@ func (m *jobManager) ListManagedClusters() string {
 	}
 	fmt.Fprintf(buf, "%d clusters currently running:\n", numClusters)
 	for name, cluster := range m.mceClusters.clusters {
+		if user != "" {
+			if userTag, ok := cluster.Annotations[utils.UserTag]; ok {
+				if userTag != user {
+					continue
+				}
+			}
+		}
 		expiryTimeTag := cluster.Annotations[utils.ExpiryTimeTag]
 		expiryTime, err := time.Parse(time.RFC3339, expiryTimeTag)
 		if err != nil {
@@ -2264,7 +2278,7 @@ func (m *jobManager) ListManagedClusters() string {
 	return buf.String()
 }
 
-func (m *jobManager) ListImagesets() string {
+func (m *jobManager) ListMceVersions() string {
 	m.mceClusters.lock.RLock()
 	defer m.mceClusters.lock.RUnlock()
 	imagesets := m.mceClusters.imagesets.UnsortedList()
@@ -2284,7 +2298,7 @@ func (m *jobManager) ListImagesets() string {
 	for _, version := range imageSemVers {
 		imageVersions = append(imageVersions, fmt.Sprintf("%d.%d.%d", version.Major, version.Minor, version.Patch))
 	}
-	return fmt.Sprintf("Available imagesets for MCE clusters: %s", strings.Join(imageVersions, ", "))
+	return fmt.Sprintf("Available versions for MCE clusters: %s", strings.Join(imageVersions, ", "))
 }
 
 func (m *jobManager) CreateRosaCluster(user, channel, version string, duration time.Duration) (string, error) {
