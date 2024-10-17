@@ -296,8 +296,8 @@ type JobManager interface {
 	CreateMceCluster(user, channel, platform, imageset string, duration time.Duration) (string, error)
 	DeleteMceCluster(user, clusterName string) (string, error)
 	GetManagedClustersForUser(user string) (map[string]*clusterv1.ManagedCluster, map[string]*hivev1.ClusterDeployment, map[string]*hivev1.ClusterProvision, map[string]string, map[string]string)
-	ListManagedClusters() string
-	ListImagesets() string
+	ListManagedClusters(user string) string
+	ListMceVersions() string
 	GetMceUserConfig() *MceConfig
 }
 

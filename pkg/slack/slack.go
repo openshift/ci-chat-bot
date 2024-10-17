@@ -78,12 +78,14 @@ func (b *Bot) MceResponder(s *slack.Client) func(*clusterv1.ManagedCluster, *hiv
 			return
 		}
 		var failedProvisionCondition bool
-		for _, provisionCondition := range clusterDeployment.Status.Conditions {
-			if provisionCondition.Type == hivev1.ProvisionFailedCondition {
-				if provisionCondition.Status == "True" {
-					failedProvisionCondition = true
+		if clusterDeployment != nil {
+			for _, provisionCondition := range clusterDeployment.Status.Conditions {
+				if provisionCondition.Type == hivev1.ProvisionFailedCondition {
+					if provisionCondition.Status == "True" {
+						failedProvisionCondition = true
+					}
+					break
 				}
-				break
 			}
 		}
 		if !failedProvisionCondition {
@@ -196,7 +198,7 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Example:     "catalog build openshift/aws-efs-csi-driver-operator#75 aws-efs-csi-driver-operator-bundle",
 			Handler:     CatalogBuild,
 		}, false),
-		parser.NewBotCommand("mce create <imageset> <duration> <platform>", &parser.CommandDefinition{
+		parser.NewBotCommand("mce create <version> <duration> <platform>", &parser.CommandDefinition{
 			Description: "Create a new cluster using Hive and MCE.",
 			Example:     "mce create 4.16.7 6h aws",
 			Handler:     MceCreate,
@@ -211,12 +213,13 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Example:     "mce delete mycluster",
 			Handler:     MceDelete,
 		}, true),
-		parser.NewBotCommand("mce list", &parser.CommandDefinition{
-			Description: "List active MCE clusters.",
+		parser.NewBotCommand("mce list <all>", &parser.CommandDefinition{
+			Description: "List active MCE clusters. Append `all` to list clusters for all users.",
 			Handler:     MceList,
+			Example:     "mce list all",
 		}, true),
-		parser.NewBotCommand("mce imagesets", &parser.CommandDefinition{
-			Description: "List available imagesets for MCE clusters.",
+		parser.NewBotCommand("mce lookup", &parser.CommandDefinition{
+			Description: "List available versions for MCE clusters.",
 			Handler:     MceImageSets,
 		}, true),
 	}
@@ -582,7 +585,7 @@ func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterD
 			availability = string(condition.Status)
 		}
 	}
-	if clusterProvision != nil && clusterProvision.Spec.Stage == "Failed" {
+	if clusterProvision != nil && clusterProvision.Spec.Stage == hivev1.ClusterProvisionStageFailed {
 		failedCondition := hivev1.ClusterProvisionCondition{}
 		for _, condition := range clusterProvision.Status.Conditions {
 			if condition.ConditionType() == hivev1.ClusterProvisionFailedCondition {
@@ -590,22 +593,39 @@ func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterD
 			}
 		}
 		message := fmt.Sprintf("your cluster (name: `%s`) has failed to provision. Reason for failure is: `%s`. Error message is:\n```%s```", cluster.GetName(), failedCondition.Reason, failedCondition.Message)
-		if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
-			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+		if clusterProvision.Spec.InstallLog == nil {
+			if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
+				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+			}
+			return
+		}
+		params := slack.FileUploadParameters{
+			Content:        *clusterProvision.Spec.InstallLog,
+			Channels:       []string{channel},
+			Filename:       fmt.Sprintf("%s-error.txt", cluster.Name),
+			Filetype:       "text",
+			InitialComment: message,
+		}
+		_, err := client.UploadFile(params)
+		if err != nil {
+			klog.Errorf("error: unable to send attachment with message: %v", err)
+			return
 		}
 		return
 	}
 	// in some cases, an early provisioning fail may result in a ClusterProvision not being created
-	for _, provisionCondition := range clusterDeployment.Status.Conditions {
-		if provisionCondition.Type == hivev1.ProvisionFailedCondition {
-			if provisionCondition.Status == "True" {
-				message := fmt.Sprintf("your cluster (name: `%s`) has failed to provision. Reason for failure is: `%s`.  Error message is:\n```%s```", cluster.GetName(), provisionCondition.Reason, provisionCondition.Message)
-				if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
-					klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+	if clusterDeployment != nil {
+		for _, provisionCondition := range clusterDeployment.Status.Conditions {
+			if provisionCondition.Type == hivev1.ProvisionFailedCondition {
+				if provisionCondition.Status == "True" {
+					message := fmt.Sprintf("your cluster (name: `%s`) has failed to provision. Reason for failure is: `%s`.  Error message is:\n```%s```", cluster.GetName(), provisionCondition.Reason, provisionCondition.Message)
+					if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
+						klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+					}
+					return
 				}
-				return
+				break
 			}
-			break
 		}
 	}
 	if availability == "True" {
