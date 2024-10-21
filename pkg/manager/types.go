@@ -23,6 +23,7 @@ import (
 	prowjobClient "sigs.k8s.io/prow/pkg/client/clientset/versioned/typed/prowjobs/v1"
 	prowjobLister "sigs.k8s.io/prow/pkg/client/listers/prowjobs/v1"
 	"sigs.k8s.io/prow/pkg/github"
+	"sigs.k8s.io/prow/pkg/scheduler/strategy"
 )
 
 const (
@@ -173,6 +174,7 @@ type jobManager struct {
 	prowConfigLoader    prow.ProwConfigLoader
 	prowClient          prowjobClient.ProwV1Interface
 	prowLister          prowjobLister.ProwJobLister
+	prowScheduler       strategy.Interface
 	imageClient         imageclientset.Interface
 	hiveConfigMapClient corev1.ConfigMapInterface
 	clusterClients      utils.BuildClusterClientConfigMap
