@@ -150,6 +150,7 @@ func NewJobManager(
 		githubClient:     githubClient,
 		prowConfigLoader: prowConfigLoader,
 		prowClient:       prowClient,
+		prowScheduler:    strategy.Get(prowConfigLoader.Config(), logrus.WithField("interface", "scheduler")),
 		prowLister:       prowInformer.Lister(),
 		imageClient:      imageClient,
 		clusterClients:   buildClusterClientConfigMap,
@@ -2374,7 +2375,7 @@ func (m *jobManager) LookupRosaInputs(versionPrefix string) (string, error) {
 }
 
 func (m *jobManager) schedule(pj *prowapiv1.ProwJob) (string, error) {
-	cluster, err := strategy.Get(m.prowConfigLoader.Config(), logrus.WithField("interface", "scheduler")).Schedule(context.TODO(), pj)
+	cluster, err := m.prowScheduler.Schedule(context.TODO(), pj)
 	if err != nil {
 		return "", fmt.Errorf("Failed to schedule job %s: %v", pj.Name, err)
 	}
