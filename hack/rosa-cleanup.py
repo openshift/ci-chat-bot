@@ -84,6 +84,37 @@ def prune_load_balancers(clusters, resources):
         client.delete_load_balancer(LoadBalancerArn=arn)
 
 
+def get_elb_target_groups():
+    client = boto3.client('elbv2')
+
+    tags = []
+    target_groups = get_aws_paginated_resources(client, 'describe_target_groups', 'TargetGroups')
+
+    for chunk in chunks(target_groups, 20):
+        arns = []
+        for tg in chunk:
+            arns.append(tg['TargetGroupArn'])
+
+        response = client.describe_tags(ResourceArns=arns)
+        tags.extend(response['TagDescriptions'])
+
+    return {
+        'targetGroupTags': tags,
+    }
+
+
+def prune_elb_target_groups(clusters, resources):
+    client = boto3.client('elbv2')
+    arns = []
+    for tg in resources['targetGroupTags']:
+        if not associated_with_active_cluster(tg['Tags'], clusters):
+            arns.append(tg["ResourceArn"])
+
+    for arn in arns:
+        logger.info(f' Deleting target group: {arn}')
+        client.delete_target_group(TargetGroupArn=arn)
+
+
 def get_iam_roles():
     client = boto3.client('iam')
     return get_aws_paginated_resources(client, 'list_roles', 'Roles')
@@ -392,6 +423,9 @@ if __name__ == '__main__':
 
     # Load Balancers
     prune_load_balancers(rosa_clusters, get_load_balancer_tags())
+
+    # Target Groups
+    prune_elb_target_groups(rosa_clusters, get_elb_target_groups())
 
     # EC2 Volumes
     prune_ec2_volumes(rosa_clusters, get_ec2_volumes())
