@@ -394,7 +394,11 @@ func (m *jobManager) mceSync() error {
 				if err != nil {
 					return fmt.Errorf("Failed to get mce cluster auth: %v", err)
 				}
-				m.mceNotifierFn(cluster, clusterDeployments[name], provisions[name], kubeconfig, password)
+				if _, ok := clusterDeployments[name]; !ok {
+					klog.Errorf("Cluster Deployment %s not found", name)
+				} else {
+					m.mceNotifierFn(cluster, clusterDeployments[name], provisions[name], kubeconfig, password)
+				}
 			}
 		} else {
 			if provision, ok := provisions[name]; ok {
