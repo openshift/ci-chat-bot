@@ -341,6 +341,7 @@ func (m *jobManager) mceSync() error {
 	clusterDeployments := map[string]*hivev1.ClusterDeployment{}
 	provisions := map[string]*hivev1.ClusterProvision{}
 	for _, deployment := range deployments {
+		clusterDeployments[deployment.Name] = deployment
 		provisionList := &hivev1.ClusterProvisionList{}
 		if err := m.dpcrHiveClient.List(context.TODO(), provisionList, &crclient.ListOptions{LabelSelector: labels.SelectorFromSet(labels.Set{"hive.openshift.io/cluster-deployment-name": deployment.Name})}); err != nil {
 			klog.Errorf("Failed to get cluster provision ref: %v", err)
