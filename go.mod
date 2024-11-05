@@ -49,7 +49,7 @@ require (
 	github.com/openshift/oc v0.0.0-alpha.0.0.20230410203846-b68ac7c39057
 	github.com/operator-framework/operator-registry v1.28.0
 	github.com/sirupsen/logrus v1.9.3
-	github.com/slack-go/slack v0.12.1
+	github.com/slack-go/slack v0.15.0
 	github.com/spf13/afero v1.11.0
 	github.com/spf13/pflag v1.0.6-0.20210604193023-d5e0c0615ace
 	gopkg.in/yaml.v2 v2.4.0
