@@ -3,6 +3,7 @@ package workflowSubmissionEvents
 import (
 	"bytes"
 	"fmt"
+
 	jiraClient "github.com/andygrunwald/go-jira"
 	"github.com/openshift/ci-chat-bot/pkg/jira"
 	"github.com/openshift/ci-chat-bot/pkg/slack/events"

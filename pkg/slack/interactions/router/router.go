@@ -1,6 +1,8 @@
 package router
 
 import (
+	"net/http"
+
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
@@ -11,7 +13,6 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/stepsFromApp"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
-	"net/http"
 )
 
 // ForModals returns a Handler that appropriately routes
