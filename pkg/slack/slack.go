@@ -462,14 +462,13 @@ func NotifyJob(client *slack.Client, job *manager.Job) {
 }
 
 func SendKubeConfig(client *slack.Client, channel, contents, comment, identifier string) {
-	params := slack.FileUploadParameters{
+	params := slack.UploadFileV2Parameters{
 		Content:        contents,
-		Channels:       []string{channel},
+		Channel:        channel,
 		Filename:       fmt.Sprintf("cluster-bot-%s.kubeconfig", identifier),
-		Filetype:       "text",
 		InitialComment: comment,
 	}
-	_, err := client.UploadFile(params)
+	_, err := client.UploadFileV2(params)
 	if err != nil {
 		klog.Errorf("error: unable to send attachment with message: %v", err)
 		return
@@ -599,14 +598,13 @@ func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterD
 			}
 			return
 		}
-		params := slack.FileUploadParameters{
+		params := slack.UploadFileV2Parameters{
 			Content:        *clusterProvision.Spec.InstallLog,
-			Channels:       []string{channel},
+			Channel:        channel,
 			Filename:       fmt.Sprintf("%s-error.txt", cluster.Name),
-			Filetype:       "text",
 			InitialComment: message,
 		}
-		_, err := client.UploadFile(params)
+		_, err := client.UploadFileV2(params)
 		if err != nil {
 			klog.Errorf("error: unable to send attachment with message: %v", err)
 			return

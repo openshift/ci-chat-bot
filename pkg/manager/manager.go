@@ -1819,7 +1819,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	job.JobName = prowJob.Spec.Job
 	job.BuildCluster, err = m.schedule(prowJob)
 	if err != nil {
-		klog.Errorf(err.Error())
+		klog.Error(err.Error())
 		job.BuildCluster = prowJob.Spec.Cluster
 	}
 
