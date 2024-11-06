@@ -464,6 +464,7 @@ func NotifyJob(client *slack.Client, job *manager.Job) {
 func SendKubeConfig(client *slack.Client, channel, contents, comment, identifier string) {
 	params := slack.UploadFileV2Parameters{
 		Content:        contents,
+		FileSize:       len(contents),
 		Channel:        channel,
 		Filename:       fmt.Sprintf("cluster-bot-%s.kubeconfig", identifier),
 		InitialComment: comment,
@@ -600,6 +601,7 @@ func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterD
 		}
 		params := slack.UploadFileV2Parameters{
 			Content:        *clusterProvision.Spec.InstallLog,
+			FileSize:       len(*clusterProvision.Spec.InstallLog),
 			Channel:        channel,
 			Filename:       fmt.Sprintf("%s-error.txt", cluster.Name),
 			InitialComment: message,
