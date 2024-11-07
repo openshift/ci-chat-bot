@@ -1,9 +1,10 @@
 package steps
 
 import (
+	"strings"
+
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/launch"
 	"github.com/slack-go/slack"
-	"strings"
 )
 
 func callbackContext(callback *slack.InteractionCallback) map[string]string {

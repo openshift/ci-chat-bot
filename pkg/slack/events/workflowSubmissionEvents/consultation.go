@@ -1,9 +1,10 @@
 package workflowSubmissionEvents
 
 import (
+	"text/template"
+
 	"github.com/openshift/ci-chat-bot/pkg/jira"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
-	"text/template"
 )
 
 const ConsultationIdentifier Identifier = "consultation"

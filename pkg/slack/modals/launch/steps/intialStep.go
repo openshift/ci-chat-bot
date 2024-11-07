@@ -2,13 +2,14 @@ package steps
 
 import (
 	"encoding/json"
+	"net/http"
+
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/launch"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
-	"net/http"
 )
 
 func RegisterFirstStep(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {

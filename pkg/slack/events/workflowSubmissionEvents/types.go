@@ -1,8 +1,9 @@
 package workflowSubmissionEvents
 
 import (
-	"github.com/slack-go/slack"
 	"text/template"
+
+	"github.com/slack-go/slack"
 )
 
 type workflowSubmit interface {

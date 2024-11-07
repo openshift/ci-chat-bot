@@ -1,8 +1,9 @@
 package workflowSubmissionEvents
 
 import (
-	"github.com/openshift/ci-chat-bot/pkg/jira"
 	"text/template"
+
+	"github.com/openshift/ci-chat-bot/pkg/jira"
 )
 
 const BugIdentifier Identifier = "bug"
