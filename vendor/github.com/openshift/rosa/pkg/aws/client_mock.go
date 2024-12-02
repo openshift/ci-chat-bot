@@ -5,6 +5,7 @@
 //
 //	mockgen -source=client.go -package=aws -destination=client_mock.go
 //
+
 // Package aws is a generated GoMock package.
 package aws
 
@@ -1260,6 +1261,21 @@ func (m *MockClient) ListOperatorRoles(version, clusterID, prefix string) (map[s
 func (mr *MockClientMockRecorder) ListOperatorRoles(version, clusterID, prefix any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOperatorRoles", reflect.TypeOf((*MockClient)(nil).ListOperatorRoles), version, clusterID, prefix)
+}
+
+// ListPolicyVersions mocks base method.
+func (m *MockClient) ListPolicyVersions(policyArn string) ([]PolicyVersion, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPolicyVersions", policyArn)
+	ret0, _ := ret[0].([]PolicyVersion)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPolicyVersions indicates an expected call of ListPolicyVersions.
+func (mr *MockClientMockRecorder) ListPolicyVersions(policyArn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPolicyVersions", reflect.TypeOf((*MockClient)(nil).ListPolicyVersions), policyArn)
 }
 
 // ListSubnets mocks base method.

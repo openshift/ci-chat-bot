@@ -985,7 +985,7 @@ github.com/openshift-online/ocm-common/pkg/ocm/validations
 github.com/openshift-online/ocm-common/pkg/rosa/accountroles
 github.com/openshift-online/ocm-common/pkg/rosa/operatorroles
 github.com/openshift-online/ocm-common/pkg/utils
-# github.com/openshift-online/ocm-sdk-go v0.1.440
+# github.com/openshift-online/ocm-sdk-go v0.1.447
 ## explicit; go 1.21
 github.com/openshift-online/ocm-sdk-go
 github.com/openshift-online/ocm-sdk-go/accesstransparency
@@ -1126,7 +1126,7 @@ github.com/openshift/library-go/pkg/oauth/oauthdiscovery
 github.com/openshift/oc/pkg/helpers/term
 github.com/openshift/oc/pkg/helpers/tokencmd
 github.com/openshift/oc/pkg/version
-# github.com/openshift/rosa v1.2.47
+# github.com/openshift/rosa v1.2.48
 ## explicit; go 1.21
 github.com/openshift/rosa/assets
 github.com/openshift/rosa/pkg/arguments
