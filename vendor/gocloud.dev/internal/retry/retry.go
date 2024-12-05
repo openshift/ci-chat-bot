@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	gax "github.com/googleapis/gax-go"
+	"github.com/googleapis/gax-go/v2"
 )
 
 // Call calls the supplied function f repeatedly, using the isRetryable function and
@@ -42,7 +42,8 @@ func Call(ctx context.Context, bo gax.Backoff, isRetryable func(error) bool, f f
 
 // Split out for testing.
 func call(ctx context.Context, bo gax.Backoff, isRetryable func(error) bool, f func() error,
-	sleep func(context.Context, time.Duration) error) error {
+	sleep func(context.Context, time.Duration) error,
+) error {
 	// Do nothing if context is done on entry.
 	if err := ctx.Err(); err != nil {
 		return &ContextError{CtxErr: err}
@@ -73,6 +74,7 @@ func (e *ContextError) Error() string {
 	return fmt.Sprintf("%v; last error: %v", e.CtxErr, e.FuncErr)
 }
 
+// Is returns true iff one of the two errors held in e is equal to target.
 func (e *ContextError) Is(target error) bool {
 	return e.CtxErr == target || e.FuncErr == target
 }
