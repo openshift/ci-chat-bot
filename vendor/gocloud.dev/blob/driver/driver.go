@@ -50,9 +50,22 @@ type Reader interface {
 	As(interface{}) bool
 }
 
+// Downloader has an optional extra method for readers.
+// It is similar to io.WriteTo, but without the count of bytes returned.
+type Downloader interface {
+	// Download is similar to io.WriteTo, but without the count of bytes returned.
+	Download(w io.Writer) error
+}
+
 // Writer writes an object to the blob.
 type Writer interface {
 	io.WriteCloser
+}
+
+// Uploader has an optional extra method for writers.
+type Uploader interface {
+	// Upload is similar to io.ReadFrom, but without the count of bytes returned.
+	Upload(r io.Reader) error
 }
 
 // WriterOptions controls behaviors of Writer.
@@ -61,6 +74,8 @@ type WriterOptions struct {
 	// write in a single request, if supported. Larger objects will be split into
 	// multiple requests.
 	BufferSize int
+	// MaxConcurrency changes the default concurrency for uploading parts.
+	MaxConcurrency int
 	// CacheControl specifies caching attributes that services may use
 	// when serving the blob.
 	// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control
@@ -85,6 +100,10 @@ type WriterOptions struct {
 	// Metadata holds key/value strings to be associated with the blob.
 	// Keys are guaranteed to be non-empty and lowercased.
 	Metadata map[string]string
+	// When true, the driver should attempt to disable any automatic
+	// content-type detection that the provider applies on writes with an
+	// empty ContentType.
+	DisableContentTypeDetection bool
 	// BeforeWrite is a callback that must be called exactly once before
 	// any data is written, unless NewTypedWriter returns an error, in
 	// which case it should not be called.
@@ -138,12 +157,17 @@ type Attributes struct {
 	// "foo" and "FOO"), only one value will be kept, and it is undefined
 	// which one.
 	Metadata map[string]string
+	// CreateTime is the time the blob object was created. If not available,
+	// leave as the zero time.
+	CreateTime time.Time
 	// ModTime is the time the blob object was last modified.
 	ModTime time.Time
 	// Size is the size of the object in bytes.
 	Size int64
 	// MD5 is an MD5 hash of the blob contents or nil if not available.
 	MD5 []byte
+	// ETag for the blob; see https://en.wikipedia.org/wiki/HTTP_ETag.
+	ETag string
 	// AsFunc allows drivers to expose driver-specific types;
 	// see Bucket.As for more details.
 	// If not set, no driver-specific types are supported.
@@ -256,6 +280,11 @@ type Bucket interface {
 	// exist, NewRangeReader must return an error for which ErrorCode returns
 	// gcerrors.NotFound.
 	// opts is guaranteed to be non-nil.
+	//
+	// The returned Reader *may* also implement Downloader if the underlying
+	// implementation can take advantage of that. The Download call is guaranteed
+	// to be the only call to the Reader. For such readers, offset will always
+	// be 0 and length will always be -1.
 	NewRangeReader(ctx context.Context, key string, offset, length int64, opts *ReaderOptions) (Reader, error)
 
 	// NewTypedWriter returns Writer that writes to an object associated with key.
@@ -265,13 +294,17 @@ type Bucket interface {
 	// The object may not be available (and any previous object will remain)
 	// until Close has been called.
 	//
-	// contentType sets the MIME type of the object to be written. It must not be
-	// empty. opts is guaranteed to be non-nil.
+	// contentType sets the MIME type of the object to be written.
+	// opts is guaranteed to be non-nil.
 	//
 	// The caller must call Close on the returned Writer when done writing.
 	//
 	// Implementations should abort an ongoing write if ctx is later canceled,
 	// and do any necessary cleanup in Close. Close should then return ctx.Err().
+	//
+	// The returned Writer *may* also implement Uploader if the underlying
+	// implementation can take advantage of that. The Upload call is guaranteed
+	// to be the only non-Close call to the Writer..
 	NewTypedWriter(ctx context.Context, key, contentType string, opts *WriterOptions) (Writer, error)
 
 	// Copy copies the object associated with srcKey to dstKey.
@@ -330,6 +363,12 @@ type SignedURLOptions struct {
 	//
 	// This field will always be false for non-PUT requests.
 	EnforceAbsentContentType bool
+
+	// BeforeSign is a callback that will be called before each call to the
+	// the underlying service's sign functionality.
+	// asFunc converts its argument to driver-specific types.
+	// See https://gocloud.dev/concepts/as/ for background information.
+	BeforeSign func(asFunc func(interface{}) bool) error
 }
 
 // prefixedBucket implements Bucket by prepending prefix to all keys.
@@ -350,6 +389,7 @@ func (b *prefixedBucket) ErrorAs(err error, i interface{}) bool  { return b.base
 func (b *prefixedBucket) Attributes(ctx context.Context, key string) (*Attributes, error) {
 	return b.base.Attributes(ctx, b.prefix+key)
 }
+
 func (b *prefixedBucket) ListPaged(ctx context.Context, opts *ListOptions) (*ListPage, error) {
 	var myopts ListOptions
 	if opts != nil {
@@ -365,22 +405,70 @@ func (b *prefixedBucket) ListPaged(ctx context.Context, opts *ListOptions) (*Lis
 	}
 	return page, nil
 }
+
 func (b *prefixedBucket) NewRangeReader(ctx context.Context, key string, offset, length int64, opts *ReaderOptions) (Reader, error) {
 	return b.base.NewRangeReader(ctx, b.prefix+key, offset, length, opts)
 }
+
 func (b *prefixedBucket) NewTypedWriter(ctx context.Context, key, contentType string, opts *WriterOptions) (Writer, error) {
 	if key == "" {
 		return nil, errors.New("invalid key (empty string)")
 	}
 	return b.base.NewTypedWriter(ctx, b.prefix+key, contentType, opts)
 }
+
 func (b *prefixedBucket) Copy(ctx context.Context, dstKey, srcKey string, opts *CopyOptions) error {
 	return b.base.Copy(ctx, b.prefix+dstKey, b.prefix+srcKey, opts)
 }
+
 func (b *prefixedBucket) Delete(ctx context.Context, key string) error {
 	return b.base.Delete(ctx, b.prefix+key)
 }
+
 func (b *prefixedBucket) SignedURL(ctx context.Context, key string, opts *SignedURLOptions) (string, error) {
 	return b.base.SignedURL(ctx, b.prefix+key, opts)
 }
 func (b *prefixedBucket) Close() error { return b.base.Close() }
+
+// singleKeyBucket implements Bucket by hardwiring a specific key.
+type singleKeyBucket struct {
+	base Bucket
+	key  string
+}
+
+// NewSingleKeyBucket returns a Bucket based on b that always references key.
+func NewSingleKeyBucket(b Bucket, key string) Bucket {
+	return &singleKeyBucket{base: b, key: key}
+}
+
+func (b *singleKeyBucket) ErrorCode(err error) gcerrors.ErrorCode { return b.base.ErrorCode(err) }
+func (b *singleKeyBucket) As(i interface{}) bool                  { return b.base.As(i) }
+func (b *singleKeyBucket) ErrorAs(err error, i interface{}) bool  { return b.base.ErrorAs(err, i) }
+func (b *singleKeyBucket) Attributes(ctx context.Context, _ string) (*Attributes, error) {
+	return b.base.Attributes(ctx, b.key)
+}
+
+func (b *singleKeyBucket) ListPaged(ctx context.Context, opts *ListOptions) (*ListPage, error) {
+	return nil, errors.New("List not supported for SingleKey buckets")
+}
+
+func (b *singleKeyBucket) NewRangeReader(ctx context.Context, _ string, offset, length int64, opts *ReaderOptions) (Reader, error) {
+	return b.base.NewRangeReader(ctx, b.key, offset, length, opts)
+}
+
+func (b *singleKeyBucket) NewTypedWriter(ctx context.Context, _, contentType string, opts *WriterOptions) (Writer, error) {
+	return b.base.NewTypedWriter(ctx, b.key, contentType, opts)
+}
+
+func (b *singleKeyBucket) Copy(ctx context.Context, dstKey, _ string, opts *CopyOptions) error {
+	return b.base.Copy(ctx, dstKey, b.key, opts)
+}
+
+func (b *singleKeyBucket) Delete(ctx context.Context, _ string) error {
+	return b.base.Delete(ctx, b.key)
+}
+
+func (b *singleKeyBucket) SignedURL(ctx context.Context, _ string, opts *SignedURLOptions) (string, error) {
+	return b.base.SignedURL(ctx, b.key, opts)
+}
+func (b *singleKeyBucket) Close() error { return b.base.Close() }

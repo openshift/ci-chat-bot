@@ -18,9 +18,9 @@ package gcerrors
 
 import (
 	"context"
+	"errors"
 
 	"gocloud.dev/internal/gcerr"
-	"golang.org/x/xerrors"
 )
 
 // An ErrorCode describes the error's category. Programs should act upon an error's
@@ -28,43 +28,43 @@ import (
 type ErrorCode = gcerr.ErrorCode
 
 const (
-	// Returned by the Code function on a nil error. It is not a valid
+	// OK is returned by the Code function on a nil error. It is not a valid
 	// code for an error.
 	OK ErrorCode = gcerr.OK
 
-	// The error could not be categorized.
+	// Unknown means that the error could not be categorized.
 	Unknown ErrorCode = gcerr.Unknown
 
-	// The resource was not found.
+	// NotFound means that the resource was not found.
 	NotFound ErrorCode = gcerr.NotFound
 
-	// The resource exists, but it should not.
+	// AlreadyExists means that the resource exists, but it should not.
 	AlreadyExists ErrorCode = gcerr.AlreadyExists
 
-	// A value given to a Go CDK API is incorrect.
+	// InvalidArguments means that a value given to a Go CDK API is incorrect.
 	InvalidArgument ErrorCode = gcerr.InvalidArgument
 
-	// Something unexpected happened. Internal errors always indicate
+	// Internal means that something unexpected happened. Internal errors always indicate
 	// bugs in the Go CDK (or possibly the underlying service).
 	Internal ErrorCode = gcerr.Internal
 
-	// The feature is not implemented.
+	// Unimplemented means that the feature is not implemented.
 	Unimplemented ErrorCode = gcerr.Unimplemented
 
-	// The system was in the wrong state.
+	// FailedPrecondition means that the system was in the wrong state.
 	FailedPrecondition ErrorCode = gcerr.FailedPrecondition
 
-	// The caller does not have permission to execute the specified operation.
+	// PermissionDenied means that the caller does not have permission to execute the specified operation.
 	PermissionDenied ErrorCode = gcerr.PermissionDenied
 
-	// Some resource has been exhausted, typically because a service resource limit
+	// ResourceExhausted means that some resource has been exhausted, typically because a service resource limit
 	// has been reached.
 	ResourceExhausted ErrorCode = gcerr.ResourceExhausted
 
-	// The operation was canceled.
+	// Canceled means that the operation was canceled.
 	Canceled ErrorCode = gcerr.Canceled
 
-	// The operation timed out.
+	// DeadlinedExceeded means that the operation timed out.
 	DeadlineExceeded ErrorCode = gcerr.DeadlineExceeded
 )
 
@@ -78,13 +78,13 @@ func Code(err error) ErrorCode {
 		return OK
 	}
 	var e *gcerr.Error
-	if xerrors.As(err, &e) {
+	if errors.As(err, &e) {
 		return e.Code
 	}
-	if xerrors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) {
 		return Canceled
 	}
-	if xerrors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return DeadlineExceeded
 	}
 	return Unknown

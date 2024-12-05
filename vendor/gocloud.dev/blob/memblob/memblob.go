@@ -15,14 +15,14 @@
 // Package memblob provides an in-memory blob implementation.
 // Use OpenBucket to construct a *blob.Bucket.
 //
-// URLs
+// # URLs
 //
 // For blob.OpenBucket memblob registers for the scheme "mem".
 // To customize the URL opener, or for more details on the URL format,
 // see URLOpener.
 // See https://gocloud.dev/concepts/urls/ for background information.
 //
-// As
+// # As
 //
 // memblob does not support any types for As.
 package memblob // import "gocloud.dev/blob/memblob"
@@ -256,6 +256,14 @@ func (r *reader) Read(p []byte) (int, error) {
 	return r.r.Read(p)
 }
 
+func (r *reader) Download(w io.Writer) error {
+	// This should always work because r.r was created from a bytes.Reader.
+	// It's only not a WriterTo when we wrap it with a LimitReader,
+	// which is guaranteed not to happen by the driver interface.
+	_, err := r.r.(io.WriterTo).WriteTo(w)
+	return err
+}
+
 func (r *reader) Close() error {
 	return nil
 }
@@ -267,7 +275,7 @@ func (r *reader) Attributes() *driver.ReaderAttributes {
 func (r *reader) As(i interface{}) bool { return false }
 
 // NewTypedWriter implements driver.NewTypedWriter.
-func (b *bucket) NewTypedWriter(ctx context.Context, key string, contentType string, opts *driver.WriterOptions) (driver.Writer, error) {
+func (b *bucket) NewTypedWriter(ctx context.Context, key, contentType string, opts *driver.WriterOptions) (driver.Writer, error) {
 	if key == "" {
 		return nil, errors.New("invalid key (empty string)")
 	}
@@ -314,6 +322,11 @@ func (w *writer) Write(p []byte) (n int, err error) {
 	return w.buf.Write(p)
 }
 
+func (w *writer) Upload(r io.Reader) error {
+	_, err := w.buf.ReadFrom(r)
+	return err
+}
+
 func (w *writer) Close() error {
 	// Check if the write was cancelled.
 	if err := w.ctx.Err(); err != nil {
@@ -322,6 +335,7 @@ func (w *writer) Close() error {
 
 	md5sum := w.md5hash.Sum(nil)
 	content := w.buf.Bytes()
+	now := time.Now()
 	entry := &blobEntry{
 		Content: content,
 		Attributes: &driver.Attributes{
@@ -332,12 +346,17 @@ func (w *writer) Close() error {
 			ContentType:        w.contentType,
 			Metadata:           w.metadata,
 			Size:               int64(len(content)),
-			ModTime:            time.Now(),
+			CreateTime:         now,
+			ModTime:            now,
 			MD5:                md5sum,
+			ETag:               fmt.Sprintf("\"%x-%x\"", now.UnixNano(), len(content)),
 		},
 	}
 	w.b.mu.Lock()
 	defer w.b.mu.Unlock()
+	if prev := w.b.blobs[w.key]; prev != nil {
+		entry.Attributes.CreateTime = prev.Attributes.CreateTime
+	}
 	w.b.blobs[w.key] = entry
 	return nil
 }
@@ -348,7 +367,9 @@ func (b *bucket) Copy(ctx context.Context, dstKey, srcKey string, opts *driver.C
 	defer b.mu.Unlock()
 
 	if opts.BeforeCopy != nil {
-		return opts.BeforeCopy(func(interface{}) bool { return false })
+		if err := opts.BeforeCopy(func(interface{}) bool { return false }); err != nil {
+			return err
+		}
 	}
 	v := b.blobs[srcKey]
 	if v == nil {
