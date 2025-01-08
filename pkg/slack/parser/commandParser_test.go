@@ -59,6 +59,11 @@ var supportedCommands = []BotCommand{
 		Example:     "catalog build openshift/aws-efs-csi-driver-operator#75 aws-efs-csi-driver-operator-bundle",
 		Handler:     emptyHandler,
 	}, false),
+	NewBotCommand("workflow-launch <name> <image_or_version_or_prs> <parameters>", &CommandDefinition{
+		Description: "Launch a cluster using the requested workflow from an image or release or built PRs. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org.",
+		Example:     "workflow-launch openshift-e2e-gcp-windows-node 4.18 gcp",
+		Handler:     emptyHandler,
+	}, false),
 }
 
 func codeSlice(items []string) []string {
@@ -200,6 +205,16 @@ func TestMatch(t *testing.T) {
 			PropertyMap: map[string]string{
 				"pullrequest": "openshift/aws-efs-csi-driver-operator#75",
 				"bundle_name": "aws-efs-csi-driver-operator-bundle",
+			},
+		},
+	}, {
+		command: "workflow-launch openshift-e2e-gcp 4.18 \"BASELINE_CAPABILITY_SET=None\",\"ADDITIONAL_ENABLED_CAPABILITIES=CloudControllerManager CloudCredential Console Ingress MachineAPI\"",
+		match:   9,
+		properties: &Properties{
+			PropertyMap: map[string]string{
+				"name":                    "openshift-e2e-gcp",
+				"image_or_version_or_prs": "4.18",
+				"parameters":              "\"BASELINE_CAPABILITY_SET=None\",\"ADDITIONAL_ENABLED_CAPABILITIES=CloudControllerManager CloudCredential Console Ingress MachineAPI\"",
 			},
 		},
 	}}

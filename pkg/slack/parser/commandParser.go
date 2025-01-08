@@ -11,14 +11,14 @@ import (
 
 const (
 	escapeCharacter      = "\\"
-	ignoreCase           = "(?i)"
+	ignoreCase           = "(?iU)"
 	parameterPattern     = "<\\S+>"
 	lazyParameterPattern = "<\\S+\\?>"
 	spacePattern         = "\\s+"
 	inputPattern         = "(.+)"
 	lazyInputPattern     = "(.+?)"
 	preCommandPattern    = "(^)"
-	postCommandPattern   = "(\\s|$)"
+	postCommandPattern   = "$"
 )
 
 const (
@@ -176,7 +176,7 @@ func (c *Command) Match(text string) (*Properties, bool) {
 			continue
 		}
 
-		values := matches[2 : len(matches)-1]
+		values := matches[2:]
 
 		valueIndex := 0
 		parameters := make(map[string]string)

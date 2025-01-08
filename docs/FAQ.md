@@ -39,6 +39,10 @@
 
    `workflow-launch openshift-e2e-azure 4.18 "SIZE_VARIANT=compact","OPENSHIFT_INSTALL_PRESERVE_BOOTSTRAP=1"`
 
+   The parameters can also be space separated, for example in the case of capabilities:
+ 
+   `workflow-launch openshift-e2e-gcp 4.18 "BASELINE_CAPABILITY_SET=None","ADDITIONAL_ENABLED_CAPABILITIES=CloudControllerManager CloudCredential Console Ingress MachineAPI"`
+
    To add a workflow to be supported by the command, the workflow must be added to the workflow config file via a PR to `openshift/release`. For most workflows, only the following will need to be added:
    ```
    workflow_name:
