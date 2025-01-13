@@ -2488,8 +2488,8 @@ github.com/opencontainers/runtime-spec v1.2.0 h1:z97+pHb3uELt/yiAWD691HNHQIF07bE
 github.com/opencontainers/runtime-spec v1.2.0/go.mod h1:jwyrGlmzljRJv/Fgzds9SsS/C5hL+LL3ko9hs6T5lQ0=
 github.com/openshift-online/ocm-common v0.0.12 h1:2oGZCXd8O/nZVlM0pvTtm3hDGbW/ncTtvSLLB+nuQf0=
 github.com/openshift-online/ocm-common v0.0.12/go.mod h1:6MWje2NFNJ3IWpGs7BYj6DWagWXHyp8EnmYY7XFTtI4=
-github.com/openshift-online/ocm-sdk-go v0.1.447 h1:PLau6NVgTpwL+L5OcKrBZm+HbET34tjHbENd2GsFhRw=
-github.com/openshift-online/ocm-sdk-go v0.1.447/go.mod h1:CiAu2jwl3ITKOxkeV0Qnhzv4gs35AmpIzVABQLtcI2Y=
+github.com/openshift-online/ocm-sdk-go v0.1.448 h1:U7zXZER/2nBR25AnAxENgB3wS0O/NB6mZnQjT6qQ85Y=
+github.com/openshift-online/ocm-sdk-go v0.1.448/go.mod h1:CiAu2jwl3ITKOxkeV0Qnhzv4gs35AmpIzVABQLtcI2Y=
 github.com/openshift/api v0.0.0-20210730095913-85e1d547cdee/go.mod h1:ntkQrC1Z6AxxkhDlVpDVjkD+pzdwVUalWyfH40rSyyM=
 github.com/openshift/api v0.0.0-20210816181336-8ff39b776da3/go.mod h1:x81TFA31x1OMT9SYWukQqJ/KbmeveRN6fo+XeGRK8g0=
 github.com/openshift/api v0.0.0-20240527133614-ba11c1587003/go.mod h1:OOh6Qopf21pSzqNVCB5gomomBXb8o5sGKZxG2KNpaXM=
@@ -2527,8 +2527,8 @@ github.com/openshift/moby-moby v1.4.2-0.20190308215630-da810a85109d h1:1LuQzDKgi
 github.com/openshift/moby-moby v1.4.2-0.20190308215630-da810a85109d/go.mod h1:LJM49W8fBVSj+rvcopJZu9mgH5Tx6HwLHySIYeGeu4k=
 github.com/openshift/oc v0.0.0-alpha.0.0.20230410203846-b68ac7c39057 h1:qPCovANfcKaI45rXB/TcIgoaJtufe/W9LcCBc5PaXVM=
 github.com/openshift/oc v0.0.0-alpha.0.0.20230410203846-b68ac7c39057/go.mod h1:XpOVZsTmYlQz/ndFR/FOfPLm4/k13XMafwYNkfA8wLc=
-github.com/openshift/rosa v1.2.48 h1:Wu35li10DQ21kfgLVcju2GKVpWFDKWn3X2uHU6SyJaM=
-github.com/openshift/rosa v1.2.48/go.mod h1:lZaAjhCj+8oklBODolna8G0dqjlISq5+djzyfcx5gG0=
+github.com/openshift/rosa v1.2.49 h1:T2huoTbe8QMC1+jPh7C9QwJoYqSxkEDxo7S6Wy9ouTU=
+github.com/openshift/rosa v1.2.49/go.mod h1:M3IFsaGMz7v1VNO6saWHl8/rv0Nuis88UkJV3Jr64rI=
 github.com/opentracing/opentracing-go v1.1.0/go.mod h1:UkNAQd3GIcIGf0SeVgPpRdFStlNbqXla1AfSYxPUl2o=
 github.com/operator-framework/api v0.17.6 h1:E6+vlvYUKafvoXYtCuHlDZrXX4vl8AT+r93OxNlzjpU=
 github.com/operator-framework/api v0.17.6/go.mod h1:l/cuwtPxkVUY7fzYgdust2m9tlmb8I4pOvbsUufRb24=
