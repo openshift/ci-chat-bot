@@ -599,11 +599,11 @@ github.com/go-git/gcfg
 github.com/go-git/gcfg/scanner
 github.com/go-git/gcfg/token
 github.com/go-git/gcfg/types
-# github.com/go-git/go-billy/v5 v5.5.0
-## explicit; go 1.19
+# github.com/go-git/go-billy/v5 v5.6.1
+## explicit; go 1.21
 github.com/go-git/go-billy/v5
-# github.com/go-git/go-git/v5 v5.12.0
-## explicit; go 1.19
+# github.com/go-git/go-git/v5 v5.13.1
+## explicit; go 1.21
 github.com/go-git/go-git/v5/internal/path_util
 github.com/go-git/go-git/v5/plumbing/format/config
 github.com/go-git/go-git/v5/plumbing/format/gitignore
@@ -1300,9 +1300,10 @@ github.com/spf13/viper/internal/features
 # github.com/stoewer/go-strcase v1.3.0
 ## explicit; go 1.11
 github.com/stoewer/go-strcase
-# github.com/stretchr/testify v1.9.0
+# github.com/stretchr/testify v1.10.0
 ## explicit; go 1.17
 github.com/stretchr/testify/assert
+github.com/stretchr/testify/assert/yaml
 github.com/stretchr/testify/require
 # github.com/subosito/gotenv v1.6.0
 ## explicit; go 1.18
@@ -1457,7 +1458,7 @@ gocloud.dev/internal/gcerr
 gocloud.dev/internal/oc
 gocloud.dev/internal/openurl
 gocloud.dev/internal/retry
-# golang.org/x/crypto v0.27.0
+# golang.org/x/crypto v0.31.0
 ## explicit; go 1.20
 golang.org/x/crypto/bcrypt
 golang.org/x/crypto/blowfish
@@ -1476,7 +1477,7 @@ golang.org/x/exp/slices
 golang.org/x/exp/slog
 golang.org/x/exp/slog/internal
 golang.org/x/exp/slog/internal/buffer
-# golang.org/x/net v0.29.0
+# golang.org/x/net v0.33.0
 ## explicit; go 1.18
 golang.org/x/net/context
 golang.org/x/net/context/ctxhttp
@@ -1503,12 +1504,12 @@ golang.org/x/oauth2/google/internal/stsexchange
 golang.org/x/oauth2/internal
 golang.org/x/oauth2/jws
 golang.org/x/oauth2/jwt
-# golang.org/x/sync v0.8.0
+# golang.org/x/sync v0.10.0
 ## explicit; go 1.18
 golang.org/x/sync/errgroup
 golang.org/x/sync/semaphore
 golang.org/x/sync/singleflight
-# golang.org/x/sys v0.25.0
+# golang.org/x/sys v0.28.0
 ## explicit; go 1.18
 golang.org/x/sys/cpu
 golang.org/x/sys/execabs
@@ -1516,10 +1517,10 @@ golang.org/x/sys/plan9
 golang.org/x/sys/unix
 golang.org/x/sys/windows
 golang.org/x/sys/windows/registry
-# golang.org/x/term v0.24.0
+# golang.org/x/term v0.27.0
 ## explicit; go 1.18
 golang.org/x/term
-# golang.org/x/text v0.18.0
+# golang.org/x/text v0.21.0
 ## explicit; go 1.18
 golang.org/x/text/cases
 golang.org/x/text/encoding
