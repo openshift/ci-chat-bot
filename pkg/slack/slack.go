@@ -310,6 +310,25 @@ func BuildJobParams(params string) (map[string]string, error) {
 	}
 	jobParams := make(map[string]string)
 	for _, combinedParam := range splitParams {
+		// Check for DEVSCRIPTS_CONFIG_CLUSTERBOT ; if found, we know we're dealing with newline separated parameters.
+		if strings.Contains(combinedParam, "DEVSCRIPTS_CONFIG_CLUSTERBOT") {
+			// Split by the equal, treat the first part as the key, treat the rest as the value
+			parts := strings.SplitN(combinedParam, "=", 2)
+			if len(parts) == 2 {
+				nParts := strings.Split(parts[1], "\\n")
+				// Go through all of the nParts; if any of them contain more than one equal, we don't
+				// have proper separation of parameters.
+				for _, parameter := range nParts {
+					if strings.Count(parameter, "=") > 1 {
+						return nil, fmt.Errorf("unable to interpret `%s` as a parameter. Please ensure that parameters are separated by newlines", combinedParam)
+					}
+				}
+				jobParams["DEVSCRIPTS_CONFIG_CLUSTERBOT"] = strings.Join(nParts, " ")
+				continue
+			} else {
+				return nil, fmt.Errorf("unable to interpret `%s` as a parameter. Missing equal sign", combinedParam)
+			}
+		}
 		split := strings.Split(combinedParam, "=")
 		if len(split) != 2 {
 			return nil, fmt.Errorf("unable to interpret `%s` as a parameter. Please ensure that all parameters are in the form of KEY=VALUE", combinedParam)

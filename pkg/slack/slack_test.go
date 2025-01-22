@@ -43,6 +43,24 @@ func TestBuildJobParams(t *testing.T) {
 			expected:    map[string]string{"KEY1": "VALUE1"},
 			errorString: "",
 		},
+		{
+			name:        "One DEVSCRIPTSParameter",
+			params:      "\"DEVSCRIPTS_CONFIG_CLUSTERBOT=KEY1=VALUE1\"",
+			expected:    map[string]string{"DEVSCRIPTS_CONFIG_CLUSTERBOT": "KEY1=VALUE1"},
+			errorString: "",
+		},
+		{
+			name:        "Two DEVSCRIPTSParameters",
+			params:      "\"DEVSCRIPTS_CONFIG_CLUSTERBOT=KEY1=VALUE1\\nKEY2=VALUE2\"",
+			expected:    map[string]string{"DEVSCRIPTS_CONFIG_CLUSTERBOT": "KEY1=VALUE1 KEY2=VALUE2"},
+			errorString: "",
+		},
+		{
+			name:        "DEVSCRIPTSParametersBad",
+			params:      "\"DEVSCRIPTS_CONFIG_CLUSTERBOT=KEY1=VALUE1,KEY2=VALUE2\"",
+			expected:    nil,
+			errorString: "unable to interpret `DEVSCRIPTS_CONFIG_CLUSTERBOT=KEY1=VALUE1,KEY2=VALUE2` as a parameter. Please ensure that parameters are separated by newlines",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
