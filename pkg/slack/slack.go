@@ -311,10 +311,24 @@ func BuildJobParams(params string) (map[string]string, error) {
 	jobParams := make(map[string]string)
 	for _, combinedParam := range splitParams {
 		split := strings.Split(combinedParam, "=")
-		if len(split) != 2 {
+		if len(split) > 2 {
+			// We detected nested parameters so process them.
+			multiParams := strings.Join(split[1:], "=")
+			multiSplit := strings.Split(multiParams, ";")
+			value := multiSplit[0]
+			for _, param := range multiSplit[1:] {
+				variable := strings.Split(param, "=")
+				if len(variable) != 2 {
+					return nil, fmt.Errorf("unable to interpret parameter in `%s`. Each nested parameter must be in the form of KEY=VALUE", param)
+				}
+				value += fmt.Sprintf("\n%s=%s", variable[0], variable[1])
+			}
+			jobParams[split[0]] = value
+		} else if len(split) == 2 {
+			jobParams[split[0]] = parseParameterValue(split[1])
+		} else {
 			return nil, fmt.Errorf("unable to interpret `%s` as a parameter. Please ensure that all parameters are in the form of KEY=VALUE", combinedParam)
 		}
-		jobParams[split[0]] = parseParameterValue(split[1])
 	}
 	return jobParams, nil
 }
