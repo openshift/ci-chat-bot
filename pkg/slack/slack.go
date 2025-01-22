@@ -309,7 +309,31 @@ func BuildJobParams(params string) (map[string]string, error) {
 		splitParams[len(splitParams)-1] = strings.TrimSuffix(splitParams[len(splitParams)-1], "\"")
 	}
 	jobParams := make(map[string]string)
+
+	// A regex to look for a parameter of the form KEY=KEY1=VALUE1
+	multiValuePattern := regexp.MustCompile(`^[^=]+=[^=]+=.+`)
 	for _, combinedParam := range splitParams {
+		// Check for a parameter of the form KEY=KEY1=VALUE1
+		if multiValuePattern.MatchString(combinedParam) {
+			// Split by the equal, treat the first part as the key, treat the rest as the value
+			parts := strings.SplitN(combinedParam, "=", 2)
+			if len(parts) == 2 {
+				nParts := strings.Split(parts[1], ";")
+				// Ensure each key/value pair has the form KEY=VALUE
+				var validatedKeyPairs []string
+				for _, part := range nParts {
+					keyValue := strings.Split(part, "=")
+					if len(keyValue) != 2 {
+						return nil, fmt.Errorf("unable to interpret parameter in `%s`. Each parameter must be in the form of KEY=VALUE", part)
+					}
+					validatedKeyPairs = append(validatedKeyPairs, part)
+				}
+				jobParams[parts[0]] = strings.Join(validatedKeyPairs, "\n")
+				continue
+			} else {
+				return nil, fmt.Errorf("unable to interpret parameters in `%s`. Please ensure that parameters are in the form of KEY=KEY1=VALUE1;KEY2=VALUE2", combinedParam)
+			}
+		}
 		split := strings.Split(combinedParam, "=")
 		if len(split) != 2 {
 			return nil, fmt.Errorf("unable to interpret `%s` as a parameter. Please ensure that all parameters are in the form of KEY=VALUE", combinedParam)
