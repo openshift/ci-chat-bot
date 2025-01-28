@@ -43,6 +43,28 @@
  
    `workflow-launch openshift-e2e-gcp 4.18 "BASELINE_CAPABILITY_SET=None","ADDITIONAL_ENABLED_CAPABILITIES=CloudControllerManager CloudCredential Console Ingress MachineAPI"`
 
+   The parameters can have "nested parameters". When you want a parameter to contain multiple parameters, we need to nest them. To do this, set
+   a parameter equal to a semi-colon separated list of parameters. For example:
+
+   `DEVSCRIPTS_CONFIG=AGENT_E2E_TEST_SCENARIO=HA_IPV4V6_DHCP;MIRROR_IMAGES=true"`
+
+   The parameter can then be treated as a `bash` array of the nested parameters as in this [example](https://github.com/openshift/release/blob/7c9e17caab51f23303d648a5f2f491f770c72c35/ci-operator/step-registry/baremetalds/devscripts/setup/baremetalds-devscripts-setup-commands.sh#L167-L178):
+
+   ```bash
+   if [[ -n "${DEVSCRIPTS_CONFIG:-}" ]]; then
+     readarray -t config <<< "${DEVSCRIPTS_CONFIG}"
+     for var in "${config[@]}"; do
+       if [[ ! -z "${var}" ]]; then
+         echo "export ${var}" >> "${SHARED_DIR}/dev-scripts-additional-config"
+       fi
+     done
+   fi
+   ```
+
+   Here's an example of a nested parameter in a workflow:
+
+   `workflow-launch openshift-e2e-gcp 4.18 "BASELINE_CAPABILITY_SET=None","ADDITIONAL_ENABLED_CAPABILITIES=CloudControllerManager CloudCredential Console Ingress MachineAPI","DEVSCRIPTS_CONFIG=AGENT_E2E_TEST_SCENARIO=HA_IPV4V6_DHCP;MIRROR_IMAGES=true"`
+
    To add a workflow to be supported by the command, the workflow must be added to the workflow config file via a PR to `openshift/release`. For most workflows, only the following will need to be added:
    ```
    workflow_name:
