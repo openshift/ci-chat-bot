@@ -20,11 +20,13 @@ import (
 
 var LaunchLabel = "ci-chat-bot.openshift.io/launch"
 
+const BaseDomain = "ci-chat-bot/base-domain"
 const CoreOSURL = "https://coreos.slack.com"
 const UserTag = "ci-chat-bot/user"
 const ChannelTag = "ci-chat-bot/channel"
 const ExpiryTimeTag = "ci-chat-bot/expiry-time"
 const RequestTimeTag = "ci-chat-bot/request-time"
+const CustomImageTag = "ci-chat-bot/custom-image"
 
 type BuildClusterClientConfig struct {
 	CoreConfig        *rest.Config

@@ -109,7 +109,7 @@ func MceAuth(client *slack.Client, jobManager manager.JobManager, event *slackev
 	if _, ok := managed[name]; !ok {
 		return fmt.Sprintf("No cluster called `%s` for your user found", name)
 	}
-	NotifyMce(client, managed[name], deployments[name], provisions[name], kubeconfigs[name], passwords[name])
+	NotifyMce(client, managed[name], deployments[name], provisions[name], kubeconfigs[name], passwords[name], nil)
 	return " "
 }
 
@@ -507,16 +507,13 @@ func RosaDescribe(client *slack.Client, jobManager manager.JobManager, event *sl
 }
 
 func MceCreate(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
-	from, err := ParseImageInput(properties.StringParam("version", ""))
+	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
 	if err != nil {
 		return err.Error()
 	}
-	providedImageset := ""
-	if len(from) > 1 {
-		return "mce create only takes one version"
-	}
-	if len(from) == 1 {
-		providedImageset = from[0]
+	var inputs [][]string
+	if len(from) > 0 {
+		inputs = [][]string{from}
 	}
 
 	platformInput, err := ParseImageInput(properties.StringParam("platform", ""))
@@ -543,7 +540,7 @@ func MceCreate(client *slack.Client, jobManager manager.JobManager, event *slack
 		}
 	}
 
-	msg, err := jobManager.CreateMceCluster(event.User, event.Channel, platform, providedImageset, duration)
+	msg, err := jobManager.CreateMceCluster(event.User, event.Channel, platform, inputs, duration)
 	if err != nil {
 		return err.Error()
 	}

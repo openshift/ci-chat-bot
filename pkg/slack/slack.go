@@ -71,8 +71,8 @@ func (b *Bot) RosaResponder(s *slack.Client) func(*clustermgmtv1.Cluster, string
 	}
 }
 
-func (b *Bot) MceResponder(s *slack.Client) func(*clusterv1.ManagedCluster, *hivev1.ClusterDeployment, *hivev1.ClusterProvision, string, string) {
-	return func(cluster *clusterv1.ManagedCluster, clusterDeployment *hivev1.ClusterDeployment, clusterProvision *hivev1.ClusterProvision, kubeconfig, password string) {
+func (b *Bot) MceResponder(s *slack.Client) func(*clusterv1.ManagedCluster, *hivev1.ClusterDeployment, *hivev1.ClusterProvision, string, string, error) {
+	return func(cluster *clusterv1.ManagedCluster, clusterDeployment *hivev1.ClusterDeployment, clusterProvision *hivev1.ClusterProvision, kubeconfig, password string, errMsg error) {
 		if len(cluster.Annotations[utils.UserTag]) == 0 || len(cluster.Annotations[utils.ChannelTag]) == 0 {
 			klog.Infof("mce cluster %s has no requested channel or user, can't notify", cluster.Name)
 			return
@@ -88,7 +88,7 @@ func (b *Bot) MceResponder(s *slack.Client) func(*clusterv1.ManagedCluster, *hiv
 				}
 			}
 		}
-		if !failedProvisionCondition {
+		if !failedProvisionCondition && errMsg == nil {
 			if clusterProvision != nil {
 				if clusterProvision.Spec.Stage != hivev1.ClusterProvisionStageComplete && clusterProvision.Spec.Stage != hivev1.ClusterProvisionStageFailed {
 					klog.Infof("no credentials or failure, still pending")
@@ -99,7 +99,7 @@ func (b *Bot) MceResponder(s *slack.Client) func(*clusterv1.ManagedCluster, *hiv
 				return
 			}
 		}
-		NotifyMce(s, cluster, clusterDeployment, clusterProvision, kubeconfig, password)
+		NotifyMce(s, cluster, clusterDeployment, clusterProvision, kubeconfig, password, errMsg)
 	}
 }
 
@@ -198,7 +198,7 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Example:     "catalog build openshift/aws-efs-csi-driver-operator#75 aws-efs-csi-driver-operator-bundle",
 			Handler:     CatalogBuild,
 		}, false),
-		parser.NewBotCommand("mce create <version> <duration> <platform>", &parser.CommandDefinition{
+		parser.NewBotCommand("mce create <image_or_version_or_prs> <duration> <platform>", &parser.CommandDefinition{
 			Description: "Create a new cluster using Hive and MCE.",
 			Example:     "mce create 4.16.7 6h aws",
 			Handler:     MceCreate,
@@ -591,8 +591,15 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 	return platform, architecture, params, nil
 }
 
-func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterDeployment *hivev1.ClusterDeployment, clusterProvision *hivev1.ClusterProvision, kubeconfig, password string) {
+func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterDeployment *hivev1.ClusterDeployment, clusterProvision *hivev1.ClusterProvision, kubeconfig, password string, errMsg error) {
 	channel := cluster.Annotations[utils.ChannelTag]
+	if errMsg != nil {
+		msg := fmt.Sprintf("Creation of your cluster has failed with the following message: ```%s```\nExisting cluster resources will be deleted.", errMsg.Error())
+		if _, _, err := client.PostMessage(channel, slack.MsgOptionText(msg, false)); err != nil {
+			klog.Warningf("Failed to post the message to the channel: %s.", channel)
+		}
+		return
+	}
 	var availability string
 	for _, condition := range cluster.Status.Conditions {
 		if condition.Type == "ManagedClusterConditionAvailable" {
