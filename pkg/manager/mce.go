@@ -3,10 +3,13 @@ package manager
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,15 +29,24 @@ import (
 
 var mcePlatforms = sets.New[string]([]string{"aws", "gcp"}...)
 
-func (m *jobManager) createManagedCluster(providedImageSet, platform, user, slackChannel string, duration time.Duration) (*clusterv1.ManagedCluster, error) {
+func (m *jobManager) createManagedCluster(imageSet, platform, user, slackChannel string, req *JobRequest, duration time.Duration) (*clusterv1.ManagedCluster, error) {
 	m.mceConfig.Mutex.RLock()
 	mceUserConfig := m.mceConfig.Users[user]
 	m.mceConfig.Mutex.RUnlock()
-	clusterName, err := generateRandomString(15, true)
+	clusterName, err := generateRandomString(12, true)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate random name: %v", err)
 	}
 	clusterName = fmt.Sprintf("chat-bot-%s", clusterName)
+
+	// try to create prowjob early so we can fail before creation of resources
+	if req != nil {
+		req.ManagedClusterName = clusterName
+		// the LaunchJobForUser function returns an error on successful creation of build jobs, so we need an extra check on the error text...
+		if _, err := m.LaunchJobForUser(req); err != nil && !strings.Contains(err.Error(), "you will be notified on completion") {
+			return nil, fmt.Errorf("Failed to create job to generate requested image: %w", err)
+		}
+	}
 
 	// All managed clusters get their own namespace. The namespace is automatically deleted when the ManagedCluster within it is deleted.
 	if _, err := m.dpcrNamespaceClient.Create(context.TODO(), &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: clusterName, Labels: map[string]string{utils.LaunchLabel: "true"}}}, metav1.CreateOptions{}); err != nil {
@@ -204,12 +216,16 @@ func (m *jobManager) createManagedCluster(providedImageSet, platform, user, slac
 				utils.UserTag:        user,
 				utils.ChannelTag:     slackChannel,
 				utils.ExpiryTimeTag:  expiryTime,
+				utils.BaseDomain:     baseDomain,
 				utils.RequestTimeTag: time.Now().Format(time.RFC3339),
 			},
 		},
 		Spec: clusterv1.ManagedClusterSpec{
 			HubAcceptsClient: true,
 		},
+	}
+	if req != nil {
+		managedCluster.Annotations[utils.CustomImageTag] = "true"
 	}
 
 	if platform == "aws" {
@@ -224,6 +240,17 @@ func (m *jobManager) createManagedCluster(providedImageSet, platform, user, slac
 		return nil, fmt.Errorf("failed to create managed cluster object: %v", err)
 	}
 
+	// if the user requerted a release that exists as GA, we can start deployment immediately
+	if req == nil {
+		if err := m.createClusterDeployment(clusterName, imageSet, baseDomain, platform); err != nil {
+			return nil, err
+		}
+	}
+
+	return &managedCluster, nil
+}
+
+func (m *jobManager) createClusterDeployment(clusterName, imageset, baseDomain, platform string) error {
 	attemptLimit := int32(2)
 	clusterDeployment := hivev1.ClusterDeployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -247,7 +274,7 @@ func (m *jobManager) createManagedCluster(providedImageSet, platform, user, slac
 					Name: fmt.Sprintf("%s-install-config", clusterName),
 				},
 				ImageSetRef: &hivev1.ClusterImageSetReference{
-					Name: providedImageSet,
+					Name: imageset,
 				},
 			},
 			PullSecretRef: &v1.LocalObjectReference{
@@ -281,10 +308,9 @@ func (m *jobManager) createManagedCluster(providedImageSet, platform, user, slac
 	}
 
 	if err := m.dpcrHiveClient.Create(context.TODO(), &clusterDeployment, &client.CreateOptions{}); err != nil {
-		return nil, fmt.Errorf("failed to create cluster deployment: %v", err)
+		return fmt.Errorf("failed to create cluster deployment: %v", err)
 	}
-
-	return &managedCluster, nil
+	return nil
 }
 
 func (m *jobManager) listManagedClusters() ([]*clusterv1.ManagedCluster, []*hivev1.ClusterDeployment, error) {
@@ -303,7 +329,7 @@ func (m *jobManager) listManagedClusters() ([]*clusterv1.ManagedCluster, []*hive
 		}
 		clusterDeployment := hivev1.ClusterDeployment{}
 		if err := m.dpcrHiveClient.Get(context.TODO(), client.ObjectKey{Namespace: namespace.Name, Name: namespace.Name}, &clusterDeployment); err != nil {
-			klog.Warningf("Failed to get managed cluster %s; cluster is likely being deleted: %v", namespace.Name, err)
+			klog.Warningf("Failed to get cluster deployment %s; cluster is likely being deleted or waiting for a custom image build: %v", namespace.Name, err)
 		} else {
 			clusterDeployments = append(clusterDeployments, &clusterDeployment)
 		}
@@ -350,12 +376,31 @@ func (m *jobManager) getClusterAuth(name string) (string, string, error) {
 	return string(kubeconfigSecret.Data["kubeconfig"]), string(passwordSecret.Data["password"]), nil
 }
 
-func (m *jobManager) deleteManagedCluster(name string) error {
-	if err := m.dpcrHiveClient.Delete(context.TODO(), &hivev1.ClusterDeployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: name}}, &client.DeleteOptions{}); err != nil {
-		return fmt.Errorf("failed to delete clusterdeployment object: %v", err)
+func (m *jobManager) deleteManagedCluster(cluster *clusterv1.ManagedCluster) error {
+	name := cluster.Name
+	errs := []error{}
+	if val, ok := cluster.Annotations[utils.CustomImageTag]; ok && val == "true" {
+		if err := m.dpcrHiveClient.Delete(context.TODO(), &hivev1.ClusterImageSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: name}}, &client.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			errs = append(errs, fmt.Errorf("failed to delete clusterdeployment object: %v", err))
+		}
 	}
-	if err := m.dpcrOcmClient.Delete(context.TODO(), &clusterv1.ManagedCluster{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: name}}, &client.DeleteOptions{}); err != nil {
-		return fmt.Errorf("failed to delete managed cluster object: %v", err)
+	if err := m.dpcrHiveClient.Delete(context.TODO(), &hivev1.ClusterDeployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: name}}, &client.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("failed to delete clusterdeployment object: %v", err))
 	}
-	return nil
+	if err := m.dpcrOcmClient.Delete(context.TODO(), &clusterv1.ManagedCluster{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: name}}, &client.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("failed to delete managed cluster object: %v", err))
+	}
+	return utilerrors.NewAggregate(errs)
+}
+
+func (m *jobManager) createCustomImageset(releaseURL, imagesetName string) error {
+	imageset := hivev1.ClusterImageSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: imagesetName,
+		},
+		Spec: hivev1.ClusterImageSetSpec{
+			ReleaseImage: releaseURL,
+		},
+	}
+	return m.dpcrHiveClient.Create(context.TODO(), &imageset)
 }
