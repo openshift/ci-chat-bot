@@ -1,8 +1,6 @@
 module github.com/openshift/ci-chat-bot
 
-go 1.22.4
-
-toolchain go1.22.5
+go 1.23.2
 
 replace (
 	github.com/Sirupsen/logrus => github.com/sirupsen/logrus v1.6.0
