@@ -268,7 +268,8 @@ type JobRequest struct {
 	JobName   string
 	JobParams map[string]string
 
-	Architecture string
+	Architecture       string
+	ManagedClusterName string
 }
 
 type JobType string
@@ -295,7 +296,7 @@ type JobManager interface {
 	ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion, architecture string) (string, string, string, error)
 	ResolveAsPullRequest(spec string) (*prowapiv1.Refs, error)
 
-	CreateMceCluster(user, channel, platform, imageset string, duration time.Duration) (string, error)
+	CreateMceCluster(user, channel, platform string, from [][]string, duration time.Duration) (string, error)
 	DeleteMceCluster(user, clusterName string) (string, error)
 	GetManagedClustersForUser(user string) (map[string]*clusterv1.ManagedCluster, map[string]*hivev1.ClusterDeployment, map[string]*hivev1.ClusterProvision, map[string]string, map[string]string)
 	ListManagedClusters(user string) string
@@ -313,7 +314,7 @@ type RosaCallbackFunc func(*clustermgmtv1.Cluster, string)
 
 // RosaCallbackFunc is invoked when the rosa cluster changes state in a significant
 // way. Takes the ManagedCluster object, kubeconfig, and admin password.
-type MCECallbackFunc func(*clusterv1.ManagedCluster, *hivev1.ClusterDeployment, *hivev1.ClusterProvision, string, string)
+type MCECallbackFunc func(*clusterv1.ManagedCluster, *hivev1.ClusterDeployment, *hivev1.ClusterProvision, string, string, error)
 
 // JobInput defines the input to a job. Different modes need different inputs.
 type JobInput struct {
@@ -365,6 +366,8 @@ type Job struct {
 	Operator        OperatorInfo
 	CatalogComplete bool
 	CatalogError    bool
+
+	ManagedClusterName string
 }
 
 type OperatorInfo struct {

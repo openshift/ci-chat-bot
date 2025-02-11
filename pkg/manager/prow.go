@@ -327,6 +327,9 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			"prow.k8s.io/job":  pj.Spec.Job,
 		},
 	}
+	if job.ManagedClusterName != "" {
+		pj.Annotations["ci-chat-bot.openshift.io/managedClusterName"] = job.ManagedClusterName
+	}
 
 	// sort the variant inputs
 	var variants []string
@@ -351,6 +354,10 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		// keep the built payload images around for a week
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "168h")
 		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "168h")
+	} else if job.Mode == JobTypeMCECustomImage {
+		// set preserve long enough for 2 install attempts of an mce cluster
+		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "2h")
+		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "12h")
 	} else {
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "1h")
 		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "12h")
@@ -531,6 +538,17 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			} else {
 				return "", fmt.Errorf("unknown test type %s", job.JobParams["test"])
 			}
+		}
+		if job.Mode == JobTypeMCECustomImage {
+			// only run the rbac configuration step for mce custom images
+			installRBACStep := "ipi-install-rbac"
+			matchedTarget.MultiStageTestConfiguration.Test = []citools.TestStep{{
+				Reference: &installRBACStep,
+			}}
+			matchedTarget.MultiStageTestConfiguration.Pre = nil
+			matchedTarget.MultiStageTestConfiguration.Post = nil
+			matchedTarget.MultiStageTestConfiguration.Workflow = nil
+			matchedTarget.MultiStageTestConfiguration.Environment = nil
 		}
 
 		if targetName != "launch" {
@@ -1714,7 +1732,7 @@ func convertToAccount2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuil
 		return fmt.Errorf("invalid job; `launch` test is not a multistage test")
 	}
 	matchedTarget.MultiStageTestConfiguration.ClusterProfile = citools.ClusterProfile(profileName)
-	if accountDomain != "" {
+	if accountDomain != "" && matchedTarget.MultiStageTestConfiguration != nil && matchedTarget.MultiStageTestConfiguration.Environment != nil {
 		matchedTarget.MultiStageTestConfiguration.Environment["BASE_DOMAIN"] = accountDomain
 	}
 	return nil
