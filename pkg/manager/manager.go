@@ -88,6 +88,7 @@ const (
 	JobTypeWorkflowLaunch  = "workflow-launch"
 	JobTypeWorkflowTest    = "workflow-test"
 	JobTypeWorkflowUpgrade = "workflow-upgrade"
+	JobTypeMCECustomImage  = "mce-custom-image"
 )
 
 var CurrentRelease = semver.Version{
@@ -189,9 +190,20 @@ func (m *jobManager) updateImageSetList() error {
 		return err
 	}
 	updatedImageSets := sets.Set[string]{}
+	m.mceClusters.lock.RLock()
 	for _, imageset := range imagesetList.Items {
+		// clean up orphaned imagesets; wait until managed cluster list is not empty to avoid deleting in-use imagesets on restart
+		if len(m.mceClusters.clusters) > 0 && strings.HasPrefix(imageset.Name, "chat-bot") {
+			if _, ok := m.mceClusters.clusters[imageset.Name]; !ok {
+				if err := m.dpcrHiveClient.Delete(context.TODO(), &imageset); err != nil {
+					klog.Errorf("Failed to delete orphaned imageset %s: %v", imageset.Name, err)
+				}
+				continue
+			}
+		}
 		updatedImageSets.Insert(imageset.GetName())
 	}
+	m.mceClusters.lock.RUnlock()
 	m.mceClusters.lock.Lock()
 	defer m.mceClusters.lock.Unlock()
 	m.mceClusters.imagesets = updatedImageSets
@@ -332,7 +344,7 @@ func (m *jobManager) mceSync() error {
 			return err
 		}
 		if expiryTime.Before(now) {
-			if err := m.deleteManagedCluster(cluster.GetName()); err != nil {
+			if err := m.deleteManagedCluster(cluster); err != nil {
 				return err
 			}
 		}
@@ -395,12 +407,12 @@ func (m *jobManager) mceSync() error {
 				if err != nil {
 					return fmt.Errorf("Failed to get mce cluster auth: %v", err)
 				}
-				m.mceNotifierFn(cluster, clusterDeployments[name], provisions[name], kubeconfig, password)
+				m.mceNotifierFn(cluster, clusterDeployments[name], provisions[name], kubeconfig, password, nil)
 			}
 		} else {
 			if provision, ok := provisions[name]; ok {
 				if previousProvision != nil && previousProvision.Spec.Stage != provision.Spec.Stage && provision.Spec.Stage == hivev1.ClusterProvisionStageFailed {
-					m.mceNotifierFn(cluster, clusterDeployments[name], provisions[name], "", "")
+					m.mceNotifierFn(cluster, clusterDeployments[name], provisions[name], "", "", nil)
 				}
 			} else {
 				// in some cases, an early provisioning fail may result in a ClusterProvision not being created
@@ -420,7 +432,7 @@ func (m *jobManager) mceSync() error {
 									}
 								}
 								if !prevFailed {
-									m.mceNotifierFn(cluster, currentDeployment, provision, "", "")
+									m.mceNotifierFn(cluster, currentDeployment, provision, "", "", nil)
 								}
 							}
 							break
@@ -430,6 +442,26 @@ func (m *jobManager) mceSync() error {
 			}
 		}
 	}
+	m.lock.Lock()
+	for name, cluster := range managedClusters {
+		if _, exists := clusterDeployments[name]; !exists {
+			hasJob := false
+			for _, job := range m.jobs {
+				if job.ManagedClusterName == name {
+					hasJob = true
+					break
+				}
+			}
+			if !hasJob {
+				klog.Infof("Deleting stale cluster %s", name)
+				if err := m.deleteManagedCluster(cluster); err != nil {
+					klog.Errorf("Failed to delete stale managed cluster: %v", err)
+				}
+				delete(managedClusters, name)
+			}
+		}
+	}
+	m.lock.Unlock()
 	klog.Infof("Found %d chat-bot owned mce clusters", len(managedClusters))
 	m.mceClusters.lock.Lock()
 	m.mceClusters.clusters = managedClusters
@@ -681,6 +713,7 @@ func (m *jobManager) sync() error {
 				HasIndex:   hasIndex,
 				BundleName: job.Annotations["ci-chat-bot.openshift.io/OperatorBundleName"],
 			},
+			ManagedClusterName: job.Annotations["ci-chat-bot.openshift.io/managedClusterName"],
 		}
 
 		var err error
@@ -714,12 +747,83 @@ func (m *jobManager) sync() error {
 			if previous == nil || previous.State != j.State {
 				go m.finishedJob(*j)
 			}
+			m.mceClusters.lock.RLock()
+			if mCluster, ok := m.mceClusters.clusters[j.ManagedClusterName]; ok {
+				errMsg := fmt.Sprintf("Failed to generate imageset for managed cluster. See logs for details: %s", job.Status.URL)
+				if err := m.deleteManagedCluster(mCluster); err != nil {
+					errMsg = fmt.Sprintf(" An error also occurred when attempting to delete the previously created resources: %v", err)
+					klog.Errorf("Failed to delete managed cluster %s: %v", j.ManagedClusterName, err)
+				}
+				go m.mceSync() // nolint:errcheck
+				m.mceNotifierFn(mCluster, nil, nil, "", "", errors.New(errMsg))
+				m.mceClusters.lock.RUnlock()
+				break
+			}
+			m.mceClusters.lock.RUnlock()
 		case prowapiv1.SuccessState:
 			j.Failure = ""
 
 			m.jobs[job.Name] = j
-			if previous == nil || previous.State != j.State {
+			if (previous == nil || previous.State != j.State) && j.ManagedClusterName == "" {
 				go m.finishedJob(*j)
+			} else if j.ManagedClusterName != "" {
+				m.mceClusters.lock.RLock()
+				if mCluster, ok := m.mceClusters.clusters[j.ManagedClusterName]; ok {
+					if _, ok := m.mceClusters.deployments[j.ManagedClusterName]; ok {
+						// deployment already exists; ignore
+						m.mceClusters.lock.RUnlock()
+						break
+					}
+					ciOpNamespace, ok := job.Annotations["ci-chat-bot.openshift.io/ns"]
+					if !ok {
+						// this shouldn't happen
+						msg := fmt.Sprintf("Could not identify ci-operator namespace for job %s.", job.Name)
+						klog.Error(msg)
+						if err := m.deleteManagedCluster(mCluster); err != nil {
+							msg += fmt.Sprintf(" An error also occurred when attempting to delete the previously created resources: %v", err)
+							klog.Errorf("Failed to delete managed cluster %s: %v", j.ManagedClusterName, err)
+						}
+						go m.mceSync() // nolint:errcheck
+						m.mceNotifierFn(mCluster, nil, nil, "", "", errors.New(msg))
+						m.mceClusters.lock.RUnlock()
+						break
+					}
+					registryURL := fmt.Sprintf("registry.%s.ci.openshift.org/%s/release:latest", j.BuildCluster, ciOpNamespace)
+					if err := m.createCustomImageset(registryURL, j.ManagedClusterName); err != nil {
+						msg := fmt.Sprintf("Failed to create imageset for release created by ci-operator: %v", err)
+						klog.Errorf("Failed to create cluster imageset: %v", err)
+						if err := m.deleteManagedCluster(mCluster); err != nil {
+							msg += fmt.Sprintf(" An error also occurred when attempting to delete the previously created resources: %v", err)
+							klog.Errorf("Failed to delete managed cluster %s: %v", j.ManagedClusterName, err)
+						}
+						go m.mceSync() // nolint:errcheck
+						m.mceNotifierFn(mCluster, nil, nil, "", "", errors.New(msg))
+						m.mceClusters.lock.RUnlock()
+						break
+					}
+					klog.Infof("Created imageset %s pointing to %s", j.ManagedClusterName, registryURL)
+					platform := ""
+					switch mCluster.Labels["Cloud"] {
+					case "Amazon":
+						platform = "aws"
+					case "Google":
+						platform = "gcp"
+					}
+					if err := m.createClusterDeployment(j.ManagedClusterName, j.ManagedClusterName, mCluster.Annotations[utils.BaseDomain], platform); err != nil {
+						msg := fmt.Sprintf("Failed to create Cluster Deployment: %v", err)
+						klog.Errorf("Failed to create cluster deployment: %v", err)
+						if err := m.deleteManagedCluster(mCluster); err != nil {
+							msg += fmt.Sprintf(" An error also occurred when attempting to delete the previously created resources: %v", err)
+							klog.Errorf("Failed to delete managed cluster %s: %v", j.ManagedClusterName, err)
+						}
+						go m.mceSync() // nolint:errcheck
+						m.mceNotifierFn(mCluster, nil, nil, "", "", errors.New(msg))
+						m.mceClusters.lock.RUnlock()
+						break
+					}
+					klog.Infof("Created cluster deployment %s", j.ManagedClusterName)
+				}
+				m.mceClusters.lock.RUnlock()
 			}
 
 		case prowapiv1.TriggeredState, prowapiv1.PendingState, "":
@@ -731,7 +835,7 @@ func (m *jobManager) sync() error {
 					// Check if the user has an existing request.  If they do, then move on
 					if _, ok := m.requests[user]; !ok {
 						// If not, then most likely, the clusterbot has recently (re)started, and we need to populate the
-						// request to ensure that the user can't start a second cluster (instead of waiting for the second
+						// request to ensure that the user can't start a second cluster (instead of aiting for the second
 						// invocation of the sync loop to populate it accordingly).
 						// The 2 scenarios where we need to handle populating the request entry are:
 						//  * A new request (i.e. there is no "previous" job for this user)
@@ -1496,6 +1600,8 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 
 		Architecture: req.Architecture,
 		WorkflowName: req.WorkflowName,
+
+		ManagedClusterName: req.ManagedClusterName,
 	}
 
 	jobInputs, _, err := m.lookupInputs(req.Inputs, job.Architecture)
@@ -1524,6 +1630,20 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 	}
 
 	switch req.Type {
+	case JobTypeMCECustomImage: // currently identical to JobTypeBuild
+		if req.Architecture != "amd64" {
+			return nil, fmt.Errorf("builds are not currently supported for non-amd64 releases")
+		}
+		var prs int
+		for _, input := range jobInputs {
+			for _, ref := range input.Refs {
+				prs += len(ref.Pulls)
+			}
+		}
+		if len(jobInputs) != 1 {
+			return nil, fmt.Errorf("at least one input is required to build a release image")
+		}
+		job.Mode = JobTypeMCECustomImage
 	case JobTypeBuild:
 		if req.Architecture != "amd64" {
 			return nil, fmt.Errorf("builds are not currently supported for non-amd64 releases")
@@ -1648,7 +1768,7 @@ func multistageParamsForPlatform(platform string) sets.Set[string] {
 }
 
 func multistageNameFromParams(params map[string]string, platform, jobType string) (string, error) {
-	if jobType == JobTypeWorkflowLaunch || jobType == JobTypeBuild || jobType == JobTypeCatalog {
+	if jobType == JobTypeWorkflowLaunch || jobType == JobTypeBuild || jobType == JobTypeCatalog || jobType == JobTypeMCECustomImage {
 		return "launch", nil
 	}
 	if jobType == JobTypeWorkflowUpgrade {
@@ -2164,8 +2284,12 @@ func UseSpotInstances(job *Job) bool {
 	return job.Mode == JobTypeLaunch && len(job.JobParams) == 0 && (job.Platform == "aws" || job.Platform == "aws-2")
 }
 
-func (m *jobManager) CreateMceCluster(user, channel, platform, version string, duration time.Duration) (string, error) {
-	imageset := fmt.Sprintf("img%s-multi-appsub", version)
+func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]string, duration time.Duration) (string, error) {
+	imageset := ""
+	if len(from) > 0 && len(from[0]) == 1 {
+		imageset = fmt.Sprintf("img%s-multi-appsub", from[0][0])
+	}
+	var req *JobRequest
 	if err := func() error {
 		m.mceConfig.Mutex.RLock()
 		// this section is nested to allow the defer to be executed before calling the createManagedCluster function
@@ -2187,18 +2311,32 @@ func (m *jobManager) CreateMceCluster(user, channel, platform, version string, d
 			return fmt.Errorf("%s is not a supported platform for MCE.", platform)
 		}
 		if !m.mceClusters.imagesets.Has(imageset) {
-			return fmt.Errorf("Imageset %s not found", imageset)
+			// user is requesting a non-GA release or PR; create a job request to generate the requested images/release
+			req = &JobRequest{
+				User:         user,
+				Inputs:       from,
+				Type:         JobTypeMCECustomImage,
+				Platform:     platform,
+				RequestedAt:  time.Now(),
+				Architecture: "amd64",
+			}
 		}
 		return nil
 	}(); err != nil {
 		return "", err
 	}
-	cluster, err := m.createManagedCluster(imageset, platform, user, channel, duration)
+	cluster, err := m.createManagedCluster(imageset, platform, user, channel, req, duration)
 	if err != nil {
 		return "", fmt.Errorf("Failed to create cluster: %v", err)
 	}
 	go m.mceSync() // nolint:errcheck
-	return fmt.Sprintf("Installing cluster `%s` using imageset `%s`.", cluster.GetName(), imageset), nil
+	msg := fmt.Sprintf("Installing cluster `%s`.", cluster.GetName())
+	if req != nil {
+		msg += "\nThe release version you have selected is non-GA. In order to create an MCE cluster with the requested release, a prowjob has been created"
+		msg += " to allow MCE to access the images during install. To see this build job, use the `list` command. The MCE cluster will begin installation once"
+		msg += " image build is complete. It may take up to 5 minutes after completion of the job for the cluster to begin provisioning."
+	}
+	return msg, nil
 }
 
 func (m *jobManager) DeleteMceCluster(user, clusterName string) (string, error) {
@@ -2217,7 +2355,7 @@ func (m *jobManager) DeleteMceCluster(user, clusterName string) (string, error) 
 	if cluster == nil {
 		return fmt.Sprintf("Cluster `%s` not found", clusterName), nil
 	}
-	if err := m.deleteManagedCluster(clusterName); err != nil {
+	if err := m.deleteManagedCluster(cluster); err != nil {
 		return "", fmt.Errorf("Failed to delete cluster: %v", err)
 	}
 	go m.mceSync() // nolint:errcheck
@@ -2270,17 +2408,21 @@ func (m *jobManager) ListManagedClusters(user string) string {
 		}
 		remainingTime := time.Until(expiryTime)
 		provisionStage := "unknown"
-		if provision, ok := m.mceClusters.provisions[name]; ok {
-			provisionStage = string(provision.Spec.Stage)
-		}
-		if provisionStage == "unknown" {
-			if deployment, ok := m.mceClusters.deployments[name]; ok {
-				for _, condition := range deployment.Status.Conditions {
-					if condition.Type == hivev1.ProvisionFailedCondition {
-						if condition.Status == "True" {
-							provisionStage = "failed"
+		if _, ok := m.mceClusters.deployments[name]; !ok {
+			provisionStage = "waiting for imageset generation"
+		} else {
+			if provision, ok := m.mceClusters.provisions[name]; ok {
+				provisionStage = string(provision.Spec.Stage)
+			}
+			if provisionStage == "unknown" {
+				if deployment, ok := m.mceClusters.deployments[name]; ok {
+					for _, condition := range deployment.Status.Conditions {
+						if condition.Type == hivev1.ProvisionFailedCondition {
+							if condition.Status == "True" {
+								provisionStage = "failed"
+							}
+							break
 						}
-						break
 					}
 				}
 			}
