@@ -240,7 +240,7 @@ func (m *jobManager) createManagedCluster(imageSet, platform, user, slackChannel
 		return nil, fmt.Errorf("failed to create managed cluster object: %v", err)
 	}
 
-	// if the user requerted a release that exists as GA, we can start deployment immediately
+	// if the user requested a release that exists as GA, we can start deployment immediately
 	if req == nil {
 		if err := m.createClusterDeployment(clusterName, imageSet, baseDomain, platform); err != nil {
 			return nil, err

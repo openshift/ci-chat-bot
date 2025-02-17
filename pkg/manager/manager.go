@@ -749,9 +749,9 @@ func (m *jobManager) sync() error {
 			}
 			m.mceClusters.lock.RLock()
 			if mCluster, ok := m.mceClusters.clusters[j.ManagedClusterName]; ok {
-				errMsg := fmt.Sprintf("Failed to generate imageset for managed cluster. See logs for details: %s", job.Status.URL)
+				errMsg := fmt.Sprintf("Failed to generate imageset for managed cluster. See logs for details: %s.", job.Status.URL)
 				if err := m.deleteManagedCluster(mCluster); err != nil {
-					errMsg = fmt.Sprintf(" An error also occurred when attempting to delete the previously created resources: %v", err)
+					errMsg = fmt.Sprintf("\nAn error also occurred when attempting to delete the previously created resources: %v", err)
 					klog.Errorf("Failed to delete managed cluster %s: %v", j.ManagedClusterName, err)
 				}
 				go m.mceSync() // nolint:errcheck
@@ -780,7 +780,7 @@ func (m *jobManager) sync() error {
 						msg := fmt.Sprintf("Could not identify ci-operator namespace for job %s.", job.Name)
 						klog.Error(msg)
 						if err := m.deleteManagedCluster(mCluster); err != nil {
-							msg += fmt.Sprintf(" An error also occurred when attempting to delete the previously created resources: %v", err)
+							msg += fmt.Sprintf("\nAn error also occurred when attempting to delete the previously created resources: %v", err)
 							klog.Errorf("Failed to delete managed cluster %s: %v", j.ManagedClusterName, err)
 						}
 						go m.mceSync() // nolint:errcheck
@@ -790,10 +790,10 @@ func (m *jobManager) sync() error {
 					}
 					registryURL := fmt.Sprintf("registry.%s.ci.openshift.org/%s/release:latest", j.BuildCluster, ciOpNamespace)
 					if err := m.createCustomImageset(registryURL, j.ManagedClusterName); err != nil {
-						msg := fmt.Sprintf("Failed to create imageset for release created by ci-operator: %v", err)
+						msg := fmt.Sprintf("Failed to create imageset for release created by ci-operator: %v.", err)
 						klog.Errorf("Failed to create cluster imageset: %v", err)
 						if err := m.deleteManagedCluster(mCluster); err != nil {
-							msg += fmt.Sprintf(" An error also occurred when attempting to delete the previously created resources: %v", err)
+							msg += fmt.Sprintf("\nAn error also occurred when attempting to delete the previously created resources: %v", err)
 							klog.Errorf("Failed to delete managed cluster %s: %v", j.ManagedClusterName, err)
 						}
 						go m.mceSync() // nolint:errcheck
@@ -813,7 +813,7 @@ func (m *jobManager) sync() error {
 						msg := fmt.Sprintf("Failed to create Cluster Deployment: %v", err)
 						klog.Errorf("Failed to create cluster deployment: %v", err)
 						if err := m.deleteManagedCluster(mCluster); err != nil {
-							msg += fmt.Sprintf(" An error also occurred when attempting to delete the previously created resources: %v", err)
+							msg += fmt.Sprintf("\nAn error also occurred when attempting to delete the previously created resources: %v", err)
 							klog.Errorf("Failed to delete managed cluster %s: %v", j.ManagedClusterName, err)
 						}
 						go m.mceSync() // nolint:errcheck
@@ -835,7 +835,7 @@ func (m *jobManager) sync() error {
 					// Check if the user has an existing request.  If they do, then move on
 					if _, ok := m.requests[user]; !ok {
 						// If not, then most likely, the clusterbot has recently (re)started, and we need to populate the
-						// request to ensure that the user can't start a second cluster (instead of aiting for the second
+						// request to ensure that the user can't start a second cluster (instead of waiting for the second
 						// invocation of the sync loop to populate it accordingly).
 						// The 2 scenarios where we need to handle populating the request entry are:
 						//  * A new request (i.e. there is no "previous" job for this user)
