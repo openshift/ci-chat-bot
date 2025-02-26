@@ -13,21 +13,21 @@ import (
 // this is a partial copy of pkg/slack/slack.go
 var supportedCommands = []BotCommand{
 	NewBotCommand("launch <image_or_version_or_prs> <options>", &CommandDefinition{
-		Description: fmt.Sprintf("Launch an OpenShift cluster using a known image, version, or PR(s). You may omit both arguments. Arguments can be specified as any number of comma-delimited values. Use `nightly` for the latest OCP build, `ci` for the the latest CI build, provide a version directly from any listed on https://amd64.ocp.releases.ci.openshift.org, a stream name (4.18.0-0.ci, 4.18.0-0.nightly, etc), a major/minor `X.Y` to load the \"next stable\" version, from nightly, for that version (`4.18`), `<org>/<repo>#<pr>` to launch from any combination of PRs, or an image for the first argument. Options is a comma-delimited list of variations including platform (%s), architecture (%s), and variant (%s).",
+		Description: fmt.Sprintf("Launch an OpenShift cluster using a known image, version, or PR(s). You may omit both arguments. Arguments can be specified as any number of comma-delimited values. Use `nightly` for the latest OCP build, `ci` for the the latest CI build, provide a version directly from any listed on https://amd64.ocp.releases.ci.openshift.org, a stream name (4.19.0-0.ci, 4.19.0-0.nightly, etc), a major/minor `X.Y` to load the \"next stable\" version, from nightly, for that version (`4.19`), `<org>/<repo>#<pr>` to launch from any combination of PRs, or an image for the first argument. Options is a comma-delimited list of variations including platform (%s), architecture (%s), and variant (%s).",
 			strings.Join(codeSlice(manager.SupportedPlatforms), ", "),
 			strings.Join(codeSlice(manager.SupportedArchitectures), ", "),
 			strings.Join(codeSlice(manager.SupportedParameters), ", ")),
-		Example: "launch 4.18,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
+		Example: "launch 4.19,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
 		Handler: emptyHandler,
 	}, false),
 	NewBotCommand("rosa create <version> <duration>", &CommandDefinition{
 		Description: "Launch an cluster in ROSA. Only GA Openshift versions are supported at the moment.",
-		Example:     "rosa create 4.18 3h",
+		Example:     "rosa create 4.19 3h",
 		Handler:     emptyHandler,
 	}, false),
 	NewBotCommand("rosa lookup <version>", &CommandDefinition{
 		Description: "Find openshift version(s) with provided prefix that is supported in ROSA.",
-		Example:     "rosa lookup 4.18",
+		Example:     "rosa lookup 4.19",
 		Handler:     emptyHandler,
 	}, false),
 	NewBotCommand("list", &CommandDefinition{
@@ -36,12 +36,12 @@ var supportedCommands = []BotCommand{
 	}, false),
 	NewBotCommand("test upgrade <from> <to> <options>", &CommandDefinition{
 		Description: fmt.Sprintf("Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org. You may change the upgrade test by passing `test=NAME` in options with one of %s", strings.Join(codeSlice(manager.SupportedUpgradeTests), ", ")),
-		Example:     "test upgrade 4.17 4.18 aws",
+		Example:     "test upgrade 4.17 4.19 aws",
 		Handler:     emptyHandler,
 	}, false),
 	NewBotCommand("test <name> <image_or_version_or_prs> <options>", &CommandDefinition{
 		Description: fmt.Sprintf("Run the requested test suite from an image or release or built PRs. Supported test suites are %s. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org. ", strings.Join(codeSlice(manager.SupportedTests), ", ")),
-		Example:     "test e2e 4.18 vsphere",
+		Example:     "test e2e 4.19 vsphere",
 		Handler:     emptyHandler,
 	}, false),
 	NewBotCommand("build <pullrequest>", &CommandDefinition{
@@ -51,7 +51,7 @@ var supportedCommands = []BotCommand{
 	}, false),
 	NewBotCommand("lookup <image_or_version_or_prs> <architecture>", &CommandDefinition{
 		Description: "Get info about a version.",
-		Example:     "lookup 4.18 arm64",
+		Example:     "lookup 4.19 arm64",
 		Handler:     emptyHandler,
 	}, false),
 	NewBotCommand("catalog build <pullrequest> <bundle_name>", &CommandDefinition{
@@ -61,7 +61,7 @@ var supportedCommands = []BotCommand{
 	}, false),
 	NewBotCommand("workflow-launch <name> <image_or_version_or_prs> <parameters>", &CommandDefinition{
 		Description: "Launch a cluster using the requested workflow from an image or release or built PRs. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org.",
-		Example:     "workflow-launch openshift-e2e-gcp-windows-node 4.18 gcp",
+		Example:     "workflow-launch openshift-e2e-gcp-windows-node 4.19 gcp",
 		Handler:     emptyHandler,
 	}, false),
 }
@@ -91,11 +91,11 @@ func TestMatch(t *testing.T) {
 			PropertyMap: map[string]string{},
 		},
 	}, {
-		command: "launch 4.18,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
+		command: "launch 4.19,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
 		match:   0,
 		properties: &Properties{
 			PropertyMap: map[string]string{
-				"image_or_version_or_prs": "4.18,openshift/installer#7160,openshift/machine-config-operator#3688",
+				"image_or_version_or_prs": "4.19,openshift/installer#7160,openshift/machine-config-operator#3688",
 				"options":                 "gcp,techpreview",
 			},
 		},
@@ -106,32 +106,32 @@ func TestMatch(t *testing.T) {
 			PropertyMap: map[string]string{},
 		},
 	}, {
-		command: "rosa create 4.18",
+		command: "rosa create 4.19",
 		match:   1,
 		properties: &Properties{
 			PropertyMap: map[string]string{
-				"version": "4.18",
+				"version": "4.19",
 			},
 		},
 	}, {
-		command: "rosa create 4.18 3h",
+		command: "rosa create 4.19 3h",
 		match:   1,
 		properties: &Properties{
 			PropertyMap: map[string]string{
-				"version":  "4.18",
+				"version":  "4.19",
 				"duration": "3h",
 			},
 		},
 	}, {
-		command: "rosa lookup 4.18",
+		command: "rosa lookup 4.19",
 		match:   2,
 		properties: &Properties{
 			PropertyMap: map[string]string{
-				"version": "4.18",
+				"version": "4.19",
 			},
 		},
 	}, {
-		command:    "rosa launch 4.18",
+		command:    "rosa launch 4.19",
 		match:      -1,
 		properties: nil,
 	}, {
@@ -141,43 +141,43 @@ func TestMatch(t *testing.T) {
 			PropertyMap: map[string]string{},
 		},
 	}, {
-		command:       "test upgrade 4.17 4.18 aws",
+		command:       "test upgrade 4.17 4.19 aws",
 		match:         4,
 		allowMultiple: true,
 		properties: &Properties{
 			PropertyMap: map[string]string{
 				"from":    "4.17",
-				"to":      "4.18",
+				"to":      "4.19",
 				"options": "aws",
 			},
 		},
 	}, {
-		command: "test e2e 4.18 vsphere",
+		command: "test e2e 4.19 vsphere",
 		match:   5,
 		properties: &Properties{
 			PropertyMap: map[string]string{
 				"name":                    "e2e",
-				"image_or_version_or_prs": "4.18",
+				"image_or_version_or_prs": "4.19",
 				"options":                 "vsphere",
 			},
 		},
 	}, {
-		command: "test e2e 4.18 alibaba",
+		command: "test e2e 4.19 alibaba",
 		match:   5,
 		properties: &Properties{
 			PropertyMap: map[string]string{
 				"name":                    "e2e",
-				"image_or_version_or_prs": "4.18",
+				"image_or_version_or_prs": "4.19",
 				"options":                 "alibaba",
 			},
 		},
 	}, {
-		command: "test e2e 4.18 azure-stackhub",
+		command: "test e2e 4.19 azure-stackhub",
 		match:   5,
 		properties: &Properties{
 			PropertyMap: map[string]string{
 				"name":                    "e2e",
-				"image_or_version_or_prs": "4.18",
+				"image_or_version_or_prs": "4.19",
 				"options":                 "azure-stackhub",
 			},
 		},
@@ -190,11 +190,11 @@ func TestMatch(t *testing.T) {
 			},
 		},
 	}, {
-		command: "lookup 4.18 arm64",
+		command: "lookup 4.19 arm64",
 		match:   7,
 		properties: &Properties{
 			PropertyMap: map[string]string{
-				"image_or_version_or_prs": "4.18",
+				"image_or_version_or_prs": "4.19",
 				"architecture":            "arm64",
 			},
 		},
@@ -208,12 +208,12 @@ func TestMatch(t *testing.T) {
 			},
 		},
 	}, {
-		command: "workflow-launch openshift-e2e-gcp 4.18 \"BASELINE_CAPABILITY_SET=None\",\"ADDITIONAL_ENABLED_CAPABILITIES=CloudControllerManager CloudCredential Console Ingress MachineAPI\"",
+		command: "workflow-launch openshift-e2e-gcp 4.19 \"BASELINE_CAPABILITY_SET=None\",\"ADDITIONAL_ENABLED_CAPABILITIES=CloudControllerManager CloudCredential Console Ingress MachineAPI\"",
 		match:   9,
 		properties: &Properties{
 			PropertyMap: map[string]string{
 				"name":                    "openshift-e2e-gcp",
-				"image_or_version_or_prs": "4.18",
+				"image_or_version_or_prs": "4.19",
 				"parameters":              "\"BASELINE_CAPABILITY_SET=None\",\"ADDITIONAL_ENABLED_CAPABILITIES=CloudControllerManager CloudCredential Console Ingress MachineAPI\"",
 			},
 		},
