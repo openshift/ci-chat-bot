@@ -58,7 +58,7 @@ func Test_processOperatorPR(t *testing.T) {
 			},
 			InputConfiguration: citools.InputConfiguration{
 				BuildRootImage: &citools.BuildRootImageConfiguration{FromRepository: true},
-				BaseImages:     map[string]citools.ImageStreamTagReference{"an-image": {Namespace: "ci", Name: "test-image", Tag: "4.18"}},
+				BaseImages:     map[string]citools.ImageStreamTagReference{"an-image": {Namespace: "ci", Name: "test-image", Tag: "4.19"}},
 			},
 			Images: []citools.ProjectDirectoryImageBuildStepConfiguration{{
 				From: "base",
@@ -126,7 +126,7 @@ func Test_processOperatorPR(t *testing.T) {
 			InputConfiguration: citools.InputConfiguration{
 				BuildRootImage: &citools.BuildRootImageConfiguration{FromRepository: true},
 				BaseImages: map[string]citools.ImageStreamTagReference{
-					"an-image":    {Namespace: "ci", Name: "test-image", Tag: "4.18"},
+					"an-image":    {Namespace: "ci", Name: "test-image", Tag: "4.19"},
 					"my-operator": {Namespace: "$(NAMESPACE)", Name: "stable", Tag: "my-operator"},
 				},
 			},
@@ -165,7 +165,7 @@ func Test_processOperatorPR(t *testing.T) {
 			},
 			InputConfiguration: citools.InputConfiguration{
 				BuildRootImage: &citools.BuildRootImageConfiguration{FromRepository: true},
-				BaseImages:     map[string]citools.ImageStreamTagReference{"an-image": {Namespace: "ci", Name: "test-image", Tag: "4.18"}},
+				BaseImages:     map[string]citools.ImageStreamTagReference{"an-image": {Namespace: "ci", Name: "test-image", Tag: "4.19"}},
 			},
 			Images: []citools.ProjectDirectoryImageBuildStepConfiguration{{
 				From: "base",
@@ -210,7 +210,7 @@ func Test_processOperatorPR(t *testing.T) {
 			InputConfiguration: citools.InputConfiguration{
 				BuildRootImage: &citools.BuildRootImageConfiguration{FromRepository: true},
 				BaseImages: map[string]citools.ImageStreamTagReference{
-					"an-image":    {Namespace: "ci", Name: "test-image", Tag: "4.18"},
+					"an-image":    {Namespace: "ci", Name: "test-image", Tag: "4.19"},
 					"my-operator": {Namespace: "$(NAMESPACE)", Name: "stable", Tag: "my-operator"},
 				},
 			},

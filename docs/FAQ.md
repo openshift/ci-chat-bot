@@ -35,13 +35,13 @@
 
    `workflow-launch {workflow_name} {image_or_version_or_prs} {parameters}`
 
-   The parameters option in the slack command is a list of double-quoted environment variable settings separated by commas. For instance, if I want to launch a 4.18 cluster using the openshift-e2e-azure workflow with a compact cluster size and preserved bootstrap resources, I would run this command:
+   The parameters option in the slack command is a list of double-quoted environment variable settings separated by commas. For instance, if I want to launch a 4.19 cluster using the openshift-e2e-azure workflow with a compact cluster size and preserved bootstrap resources, I would run this command:
 
-   `workflow-launch openshift-e2e-azure 4.18 "SIZE_VARIANT=compact","OPENSHIFT_INSTALL_PRESERVE_BOOTSTRAP=1"`
+   `workflow-launch openshift-e2e-azure 4.19 "SIZE_VARIANT=compact","OPENSHIFT_INSTALL_PRESERVE_BOOTSTRAP=1"`
 
    The parameters can also be space separated, for example in the case of capabilities:
  
-   `workflow-launch openshift-e2e-gcp 4.18 "BASELINE_CAPABILITY_SET=None","ADDITIONAL_ENABLED_CAPABILITIES=CloudControllerManager CloudCredential Console Ingress MachineAPI"`
+   `workflow-launch openshift-e2e-gcp 4.19 "BASELINE_CAPABILITY_SET=None","ADDITIONAL_ENABLED_CAPABILITIES=CloudControllerManager CloudCredential Console Ingress MachineAPI"`
 
    The parameters can have "nested parameters". When you want a parameter to contain multiple parameters, we need to nest them. To do this, set
    a parameter equal to a semi-colon separated list of parameters. For example:
@@ -63,7 +63,7 @@
 
    Here's an example of a nested parameter in a workflow:
 
-   `workflow-launch openshift-e2e-gcp 4.18 "BASELINE_CAPABILITY_SET=None","ADDITIONAL_ENABLED_CAPABILITIES=CloudControllerManager CloudCredential Console Ingress MachineAPI","DEVSCRIPTS_CONFIG=AGENT_E2E_TEST_SCENARIO=HA_IPV4V6_DHCP;MIRROR_IMAGES=true"`
+   `workflow-launch openshift-e2e-gcp 4.19 "BASELINE_CAPABILITY_SET=None","ADDITIONAL_ENABLED_CAPABILITIES=CloudControllerManager CloudCredential Console Ingress MachineAPI","DEVSCRIPTS_CONFIG=AGENT_E2E_TEST_SCENARIO=HA_IPV4V6_DHCP;MIRROR_IMAGES=true"`
 
    To add a workflow to be supported by the command, the workflow must be added to the workflow config file via a PR to `openshift/release`. For most workflows, only the following will need to be added:
    ```
