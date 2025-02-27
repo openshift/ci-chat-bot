@@ -1551,7 +1551,7 @@ const permissionsScript = `
 # prow doesn't allow init containers or a second container
 export PATH=$PATH:/tmp/bin
 mkdir /tmp/bin
-curl -sL https://mirror.openshift.com/pub/openshift-v4/$(uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/')/clients/ocp/4.18.0/openshift-client-linux.tar.gz | tar xvzf - -C /tmp/bin/ oc
+curl -sL https://mirror.openshift.com/pub/openshift-v4/$(uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/')/clients/ocp/4.18.1/openshift-client-linux.tar.gz | tar xvzf - -C /tmp/bin/ oc
 chmod ug+x /tmp/bin/oc
 
 # grant all authenticated users access to the images in this namespace
