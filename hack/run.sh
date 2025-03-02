@@ -10,11 +10,15 @@ tmp_kube=$tmp_dir/kubeconfigs
 mkdir -p $tmp_kube
 tmp_boskos=$tmp_dir/boskos
 tmp_subnets=$tmp_dir/subnets
+tmp_oidc_config_id=$tmp_dir/rosa_oidc_config_id
+tmp_billing_account_id=$tmp_dir/rosa_billing_account_id
 trap 'rm -rf $tmp_dir' EXIT
 
 oc --context app.ci -n ci extract secrets/ci-chat-bot-kubeconfigs --to=${tmp_kube} --confirm
 oc --context app.ci -n ci get secrets boskos-credentials -ogo-template={{.data.credentials}} | base64 -d > $tmp_boskos
 oc --context app.ci -n ci get secrets ci-chat-bot-slack-app --template='{{index .data "rosa-subnet-ids"}}' | base64 -d > $tmp_subnets
+oc --context app.ci -n ci get secrets ci-chat-bot-slack-app --template='{{index .data "rosa-oidc-config-id"}}' | base64 -d > $tmp_oidc_config_id
+oc --context app.ci -n ci get secrets ci-chat-bot-slack-app --template='{{index .data "rosa-billing-account-id"}}' | base64 -d > $tmp_billing_account_id
 oc --context app.ci -n ci get secrets ci-chat-bot-slack-app --template='{{index .data "sa.ci-chat-bot-mce.dpcr.config"}}' | base64 -d > $tmp_kube/sa.ci-chat-bot-mce.dpcr.config
 oc --context app.ci -n ci get secrets ci-chat-bot-slack-app --template='{{index .data "sa.ci-chat-bot-mce.dpcr.token.txt"}}' | base64 -d > $tmp_kube/sa.ci-chat-bot-mce.dpcr.token.txt
 
@@ -31,4 +35,6 @@ make
   --override-rosa-secret-name "ci-chat-bot-rosa-clusters-${USER}" \
   --kubeconfig-dir $tmp_kube \
   --kubeconfig-suffix=.config \
+  --rosa-oidcConfigId-path=$tmp_oidc_config_id \
+  --rosa-billingAccount-path=$tmp_billing_account_id \
   --v=2
