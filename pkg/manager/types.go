@@ -161,7 +161,7 @@ type LeaseClient interface {
 }
 
 type jobManager struct {
-	lock                 sync.Mutex
+	lock                 sync.RWMutex
 	requests             map[string]*JobRequest
 	jobs                 map[string]*Job
 	started              time.Time
