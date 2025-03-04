@@ -27,6 +27,7 @@ const ChannelTag = "ci-chat-bot/channel"
 const ExpiryTimeTag = "ci-chat-bot/expiry-time"
 const RequestTimeTag = "ci-chat-bot/request-time"
 const CustomImageTag = "ci-chat-bot/custom-image"
+const UserNotifiedTag = "ci-chat-bot/user-notified"
 
 type BuildClusterClientConfig struct {
 	CoreConfig        *rest.Config

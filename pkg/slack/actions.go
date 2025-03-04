@@ -101,16 +101,29 @@ func MceAuth(client *slack.Client, jobManager manager.JobManager, event *slackev
 	if err != nil {
 		return err.Error()
 	}
-	if len(nameInput) != 1 {
-		return "mce auth take exactly 1 argument"
+	var name string
+	if len(nameInput) == 1 {
+		name = nameInput[0]
+	} else if len(nameInput) > 1 {
+		return "mce auth take only 0 or 1 argument (cluster name)"
 	}
-	name := nameInput[0]
 	managed, deployments, provisions, kubeconfigs, passwords := jobManager.GetManagedClustersForUser(event.User)
-	if _, ok := managed[name]; !ok {
+	if name == "" {
+		if len(managed) == 0 {
+			return "You have no running MCE clusters."
+		} else if len(managed) == 1 {
+			// we need to get the key of the 1 cluster the user has
+			for clusterName := range managed {
+				name = clusterName
+			}
+		} else {
+			return "You user has multiple running clusters. Please specify the name of the cluster your are requested credentials for."
+		}
+	} else if _, ok := managed[name]; !ok {
 		return fmt.Sprintf("No cluster called `%s` for your user found", name)
 	}
 	NotifyMce(client, managed[name], deployments[name], provisions[name], kubeconfigs[name], passwords[name], nil)
-	return " "
+	return ""
 }
 
 func Auth(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
@@ -552,10 +565,24 @@ func MceDelete(client *slack.Client, jobManager manager.JobManager, event *slack
 	if err != nil {
 		return err.Error()
 	}
-	if len(nameInput) != 1 {
-		return "cluster_name takes 1 input"
+	var name string
+	if len(nameInput) == 1 {
+		name = nameInput[0]
+	} else if len(nameInput) > 1 {
+		return "mce delete take only 0 or 1 argument (cluster name)"
 	}
-	name := nameInput[0]
+	if name == "" {
+		managed, _, _, _, _ := jobManager.GetManagedClustersForUser(event.User)
+		if len(managed) == 1 {
+			// we need to get the key of the 1 cluster the user has
+			for clusterName := range managed {
+				name = clusterName
+			}
+		} else {
+			return "You user has multiple running clusters. Please specify the name of the cluster your are requesting to delete."
+		}
+	}
+	// DeleteMceCluster function checks that the user who is requesting deletion matches user who requested its creation, so a check here isn't necessary
 	msg, err := jobManager.DeleteMceCluster(event.User, name)
 	if err != nil {
 		return err.Error()

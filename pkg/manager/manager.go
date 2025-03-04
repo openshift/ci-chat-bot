@@ -375,7 +375,6 @@ func (m *jobManager) mceSync() error {
 		m.mceClusters.lock.RLock()
 		_, ok := m.mceClusters.clusterKubeconfigs[name]
 		_, ok2 := m.mceClusters.clusterPasswords[name]
-		previous := m.mceClusters.clusters[name]
 		previousProvision := m.mceClusters.provisions[name]
 		previousDeployment := m.mceClusters.deployments[name]
 		m.mceClusters.lock.RUnlock()
@@ -386,28 +385,25 @@ func (m *jobManager) mceSync() error {
 			}
 		}
 
-		var availability, prevAvailability string
+		var availability string
 		for _, condition := range cluster.Status.Conditions {
 			if condition.Type == "ManagedClusterConditionAvailable" {
 				availability = string(condition.Status)
 			}
 		}
-		if previous != nil {
-			for _, condition := range previous.Status.Conditions {
-				if condition.Type == "ManagedClusterConditionAvailable" {
-					prevAvailability = string(condition.Status)
-				}
-			}
-		}
 
 		if availability == "True" {
-			if prevAvailability != "True" {
+			if notified, ok := cluster.Annotations[utils.UserNotifiedTag]; !ok || notified != "true" {
 				// notify that the cluster is available and retrieve auth
 				kubeconfig, password, err := m.getClusterAuth(name)
 				if err != nil {
 					return fmt.Errorf("Failed to get mce cluster auth: %v", err)
 				}
 				m.mceNotifierFn(cluster, clusterDeployments[name], provisions[name], kubeconfig, password, nil)
+				cluster.Annotations[utils.UserNotifiedTag] = "true"
+				if err := m.dpcrOcmClient.Update(context.TODO(), cluster); err != nil {
+					klog.Errorf("Failed to update managed cluster annotations: %v", err)
+				}
 			}
 		} else {
 			if provision, ok := provisions[name]; ok {
@@ -442,7 +438,7 @@ func (m *jobManager) mceSync() error {
 			}
 		}
 	}
-	m.lock.Lock()
+	m.lock.RLock()
 	for name, cluster := range managedClusters {
 		if _, exists := clusterDeployments[name]; !exists {
 			hasJob := false
@@ -461,7 +457,7 @@ func (m *jobManager) mceSync() error {
 			}
 		}
 	}
-	m.lock.Unlock()
+	m.lock.RUnlock()
 	klog.Infof("Found %d chat-bot owned mce clusters", len(managedClusters))
 	m.mceClusters.lock.Lock()
 	m.mceClusters.clusters = managedClusters
