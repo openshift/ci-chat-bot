@@ -2298,6 +2298,13 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 		if !ok {
 			return fmt.Errorf("User `%s` is currently unauthorized to use MCE.", user)
 		}
+		// configure defaults
+		if platform == "" {
+			platform = "aws"
+		}
+		if duration == 0 {
+			duration = time.Duration(min(userConfig.MaxClusterAge, 6)) * time.Hour
+		}
 		m.mceClusters.lock.RLock()
 		defer m.mceClusters.lock.RUnlock()
 		managed, _, _, _, _ := m.GetManagedClustersForUser(user)
@@ -2330,13 +2337,51 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 		return "", fmt.Errorf("Failed to create cluster: %v", err)
 	}
 	go m.mceSync() // nolint:errcheck
-	msg := fmt.Sprintf("Installing cluster `%s`.", cluster.GetName())
 	if req != nil {
-		msg += "\nThe release version you have selected is non-GA. In order to create an MCE cluster with the requested release, a prowjob has been created"
+		imageset = m.GetMceCustomVersion(cluster)
+	}
+	msg := fmt.Sprintf("Installing cluster `%s` on platform %s using image %s. Cluster will be alive for %d minutes", cluster.GetName(), platform, imageset, int(duration.Minutes()))
+	if req != nil {
+		msg += "\nThe release version you have selected is not in the default imageset list. In order to create an MCE cluster with the requested release, a prowjob has been created"
 		msg += " to allow MCE to access the images during install. To see this build job, use the `list` command. The MCE cluster will begin installation once"
 		msg += " image build is complete. It may take up to 5 minutes after completion of the job for the cluster to begin provisioning."
 	}
 	return msg, nil
+}
+
+func (m *jobManager) GetMceCustomVersion(cluster *clusterv1.ManagedCluster) string {
+	var version string
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	var job *Job
+	for _, listedJob := range m.jobs {
+		if listedJob.ManagedClusterName == cluster.Name {
+			job = listedJob
+			break
+		}
+	}
+	if job == nil {
+		version = "unspecified version"
+	} else {
+		var jobInput JobInput
+		if len(job.Inputs) > 0 {
+			jobInput = job.Inputs[0]
+		}
+		var inputParts []string
+		switch {
+		case len(jobInput.Version) > 0:
+			inputParts = append(inputParts, fmt.Sprintf("<https://%s.ocp.releases.ci.openshift.org/releasetag/%s|%s>", job.Architecture, url.PathEscape(jobInput.Version), jobInput.Version))
+		case len(jobInput.Image) > 0:
+			inputParts = append(inputParts, "(image)")
+		}
+		for _, ref := range jobInput.Refs {
+			for _, pull := range ref.Pulls {
+				inputParts = append(inputParts, fmt.Sprintf(" <https://github.com/%s/%s/pull/%d|%s/%s#%d>", url.PathEscape(ref.Org), url.PathEscape(ref.Repo), pull.Number, ref.Org, ref.Repo, pull.Number))
+			}
+		}
+		version = strings.Join(inputParts, ",")
+	}
+	return version
 }
 
 func (m *jobManager) DeleteMceCluster(user, clusterName string) (string, error) {
@@ -2408,9 +2453,16 @@ func (m *jobManager) ListManagedClusters(user string) string {
 		}
 		remainingTime := time.Until(expiryTime)
 		provisionStage := "unknown"
-		if _, ok := m.mceClusters.deployments[name]; !ok {
+		var version string
+		if deployment, ok := m.mceClusters.deployments[name]; !ok {
 			provisionStage = "waiting for imageset generation"
+			version = m.GetMceCustomVersion(cluster)
 		} else {
+			if strings.HasSuffix(deployment.Spec.Provisioning.ImageSetRef.Name, "appsub") {
+				version = deployment.Spec.Provisioning.ImageSetRef.Name
+			} else {
+				version = m.GetMceCustomVersion(cluster)
+			}
 			if provision, ok := m.mceClusters.provisions[name]; ok {
 				provisionStage = string(provision.Spec.Stage)
 			}
@@ -2427,7 +2479,14 @@ func (m *jobManager) ListManagedClusters(user string) string {
 				}
 			}
 		}
-		fmt.Fprintf(buf, "- %s (Requested by <@%s>; Provision Status: %s; Remaining Time: %d minutes)\n", name, cluster.Annotations[utils.UserTag], provisionStage, int(remainingTime/time.Minute))
+		platform := ""
+		switch cluster.Labels["Cloud"] {
+		case "Amazon":
+			platform = "aws"
+		case "Google":
+			platform = "gcp"
+		}
+		fmt.Fprintf(buf, "- %s (Requested by <@%s>; Provision Status: %s; Remaining Time: %d minutes; Version: %s; Platform: %s)\n", name, cluster.Annotations[utils.UserTag], provisionStage, int(remainingTime/time.Minute), version, platform)
 	}
 	return buf.String()
 }
