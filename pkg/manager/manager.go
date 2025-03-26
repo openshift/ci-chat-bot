@@ -1191,16 +1191,19 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 	case "amd64":
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "release"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "4-dev-preview"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "konflux-release"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "origin", Imagestream: "release"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "origin", Imagestream: "release-scos"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "origin", Imagestream: "release-scos-next"})
 	case "arm64":
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-arm64", Imagestream: "release-arm64", ArchSuffix: "-arm64"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-arm64", Imagestream: "4-dev-preview-arm64", ArchSuffix: "-arm64"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-arm64", Imagestream: "konflux-release-arm64", ArchSuffix: "-arm64"})
 	case "multi":
 		// the release-controller cannot assemble multi-arch release, so we must use the `art-latest` streams instead of `release-multi`
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "release-multi", ArchSuffix: "-multi"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4-dev-preview-multi", ArchSuffix: "-multi"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "konflux-release-multi", ArchSuffix: "-multi"})
 		HypershiftSupportedVersions.Mu.RLock()
 		defer HypershiftSupportedVersions.Mu.RUnlock()
 		for version := range HypershiftSupportedVersions.Versions {
@@ -1279,7 +1282,7 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 			// identify nightly stream for runspec if not amd64
 			installSpec := buildPullSpec(ns, tag.Image, isName)
 			runSpec := ""
-			if architecture == "amd64" || architecture == "multi" {
+			if architecture == "amd64" || architecture == "multi" || strings.Contains(unresolved, "konflux") {
 				runSpec = installSpec
 			} else {
 				// if it's a nightly, just get the latest image from the nightly stream
@@ -1686,7 +1689,7 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		}
 		job.Mode = JobTypeLaunch
 	case JobTypeUpgrade:
-		if req.Architecture != "amd64" {
+		if req.Architecture != "amd64" && !strings.Contains(req.OriginalMessage, "konflux") {
 			return nil, fmt.Errorf("upgrade tests are not currently supported for non-amd64 releases")
 		}
 		if len(jobInputs) != 2 {
@@ -1700,7 +1703,7 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 			return nil, fmt.Errorf("a test type is required for upgrading, default is e2e-upgrade")
 		}
 	case JobTypeTest:
-		if req.Architecture != "amd64" {
+		if req.Architecture != "amd64" && !strings.Contains(req.OriginalMessage, "konflux") {
 			return nil, fmt.Errorf("tests are not currently supported for non-amd64 releases")
 		}
 		if len(jobInputs) != 1 {
