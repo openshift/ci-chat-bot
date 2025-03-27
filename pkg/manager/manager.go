@@ -1176,6 +1176,10 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 	}
 
 	unresolved := imageOrVersion
+	// Sanitize against linkified pullSpecs because they will fail the resultant prowjob...
+	unresolved = strings.TrimPrefix(unresolved, "http://")
+	unresolved = strings.TrimPrefix(unresolved, "https://")
+
 	if strings.Contains(unresolved, "/") {
 		return unresolved, "", "", nil
 	}
@@ -1485,7 +1489,7 @@ func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]Job
 				if len(jobInput.Image) > 0 {
 					return nil, defaultedVersion, fmt.Errorf("only one image or version may be specified in a list of installs")
 				}
-				if architecture == "arm64" && (len(runImage) == 0 || len(version) == 0) {
+				if architecture == "arm64" && (len(runImage) == 0 || len(version) == 0) && !strings.Contains(image, "konflux") {
 					return nil, defaultedVersion, fmt.Errorf("only version numbers (like: 4.19.0) may be used for arm64 based clusters")
 				}
 				jobInput.Image = image
