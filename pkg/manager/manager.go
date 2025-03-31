@@ -1890,9 +1890,66 @@ func (m *jobManager) CheckValidJobConfiguration(req *JobRequest) error {
 	return nil
 }
 
+// validVersionRegexes represents all the valid version formats we recognize for OpenShift.
+// We allow an optional comma in the front so we can account for both 4.19,xxxx and xxxx,4.19
+var validVersionRegexes = []*regexp.Regexp{
+	regexp.MustCompile(`^\d+\.\d+`),               // 4.19
+	regexp.MustCompile(`^nightly`),                // nightly
+	regexp.MustCompile(`^ci`),                     // ci
+	regexp.MustCompile(`^\d+\.\d+\.nightly`),      // 4.19.nightly
+	regexp.MustCompile(`^\d+\.\d+\.ci`),           // 4.19.ci
+	regexp.MustCompile(`^\d+\.\d+\.0-0\.nightly`), // 4.19.0-0.nightly
+	regexp.MustCompile(`^\d+\.\d+\.0-0\.ci`),      // 4.19.0-0.ci
+
+	// Release specs for nightly and ci
+	regexp.MustCompile(`^(quay\.io|registry\.ci\.openshift\.org).*release:\d+\.\d+\.\d+-0\.nightly-\d{4}-\d{2}-\d{2}-\d{6}$`),
+	regexp.MustCompile(`^(quay\.io|registry\.ci\.openshift\.org).*release:\d+\.\d+\.\d+-0\.ci-\d{4}-\d{2}-\d{2}-\d{6}$`),
+
+	// Quay.io pullspecs
+	regexp.MustCompile(`^quay\.io/openshift-release-dev/.+:(\d+\.\d+\.\d+(-ec\.\d+)?|.+-0\.(nightly|ci)(-priv)?-\d{4}-\d{2}-\d{2}-\d{6})$`),
+
+	// quay.io/openshift-release-dev/ocp-release:4.19.0-ec.4-x86_64
+	regexp.MustCompile(`^quay\.io/openshift-release-dev/ocp-release:\d+\.\d+\.\d+-ec\.\d+(-\w+)?$`),
+
+	// OKD versions
+	// quay.io/okd/scos-release:4.19.0-okd-scos.ec.8
+	regexp.MustCompile(`^quay\.io/okd/scos-release:\d+\.\d+\.\d+-okd-scos\.ec\.\d+$`),
+	regexp.MustCompile(`^(quay\.io/okd|quay\.io/openshift/okd|registry\.ci\.openshift\.org/origin/release-scos):\d+\.\d+\.\d+-0\.okd(-scos)?(\.ec\.\d+)?(-\d{4}-\d{2}-\d{2}-\d{6})?$`),
+
+	// Private releases
+	regexp.MustCompile(`^registry\.ci\.openshift\.org/ocp-priv/release-priv:\d+\.\d+\.\d+-0\.nightly-priv-\d{4}-\d{2}-\d{2}-\d{6}`),
+
+	// Konflux releases
+	regexp.MustCompile(`^registry\.ci\.openshift\.org/ocp/konflux-release:\d+\.\d+\.\d+-0\.konflux-nightly-\d{4}-\d{2}-\d{2}-\d{6}`),
+}
+
+// containsValidVersion checks if the provided list of images, versions, or PRs contains a valid version.
+// A valid version is of the list of patterns in validVersions.
+// The function returns true if any of the items in the list matches a valid version pattern.
+// This ensures that we definitively know what version of Openshift to use when creating a cluster.
+// When a user says "launch openshift/installer#7160,4.19", when this function is called, listOfImageOrVersionOrPRs
+// will be a slice of images, versions, or PRs and look like []{"openshift/installer#7160", "4.19"}
+func containsValidVersion(listOfImageOrVersionOrPRs []string) bool {
+	for _, item := range listOfImageOrVersionOrPRs {
+		for _, re := range validVersionRegexes {
+			if re.MatchString(item) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	if cluster, _ := m.getROSAClusterForUser(req.User); cluster != nil {
 		return "", fmt.Errorf("you have already requested a cluster via the `rosa create` command; %d minutes have elapsed", int(time.Since(cluster.CreationTimestamp())/time.Minute))
+	}
+
+	// Check the req.Inputs and ensure they all contain a valid version.
+	for _, input := range req.Inputs {
+		if !containsValidVersion(input) {
+			return "", fmt.Errorf("each use of the `image_or_version_or_prs` parameter must specify a valid OpenShift version.\n\n`%s` has no valid OpenShift version", input)
+		}
 	}
 
 	job, err := m.resolveToJob(req)
