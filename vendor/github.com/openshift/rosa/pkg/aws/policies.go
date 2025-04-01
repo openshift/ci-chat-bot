@@ -877,6 +877,9 @@ func (c *awsClient) mapToAccountRole(version string, role iamtypes.Role) (Role, 
 func (c *awsClient) mapToAccountRoles(version string, roles []iamtypes.Role) ([]Role, error) {
 	emptyRole := Role{}
 	var accountRoles []Role
+
+	sortAccountRolesByHCPSuffix(roles)
+
 	for _, role := range roles {
 		if !checkIfAccountRole(role.RoleName) {
 			continue
@@ -1427,6 +1430,10 @@ func (c *awsClient) GetAttachedPolicyWithTags(role *string,
 	)
 	if err != nil && !awserr.IsNoSuchEntityException(err) {
 		return policies, excludedPolicies, err
+	}
+	if attachedPoliciesOutput == nil || attachedPoliciesOutput.AttachedPolicies == nil {
+		return policies, excludedPolicies, errors.UserErrorf("Unable to get attached policies for cluster (possibly " +
+			"missing account roles, try running 'rosa create account-roles' again)")
 	}
 
 	for _, policy := range attachedPoliciesOutput.AttachedPolicies {
