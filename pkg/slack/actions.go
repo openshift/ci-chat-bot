@@ -15,6 +15,20 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
+// containsValidVersion checks if the provided list of images, versions, or PRs contains a valid version.
+func containsValidVersion(listOfImageOrVersionOrPRs []string) bool {
+	manager.HypershiftSupportedVersions.Mu.RLock()
+	defer manager.HypershiftSupportedVersions.Mu.RUnlock()
+	for _, currentString := range listOfImageOrVersionOrPRs {
+		for version := range manager.HypershiftSupportedVersions.Versions {
+			if strings.HasPrefix(currentString, version) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func LaunchCluster(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	userName := GetUserName(client, event.User)
 	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
@@ -22,9 +36,12 @@ func LaunchCluster(client *slack.Client, jobManager manager.JobManager, event *s
 		return err.Error()
 	}
 	var inputs [][]string
-	if len(from) > 0 {
-		inputs = [][]string{from}
+
+	// An openshift version needs to be specified in image_or_version_or_prs.
+	if !containsValidVersion(from) {
+		return "The `launch` command requires a supported Openshift version in the image_or_version_or_prs argument"
 	}
+	inputs = [][]string{from}
 
 	platform, architecture, params, err := ParseOptions(properties.StringParam("options", ""), inputs, manager.JobTypeInstall)
 	if err != nil {
@@ -150,6 +167,12 @@ func TestUpgrade(client *slack.Client, jobManager manager.JobManager, event *sla
 	if len(from) == 0 {
 		return "you must specify an image to upgrade from and to"
 	}
+
+	// An openshift version needs to be specified in the 'from' argument.
+	if !containsValidVersion(from) {
+		return "The `test upgrade` command requires a supported Openshift version in the `from` argument"
+	}
+
 	to, err := ParseImageInput(properties.StringParam("to", ""))
 	if err != nil {
 		return err.Error()
@@ -157,6 +180,11 @@ func TestUpgrade(client *slack.Client, jobManager manager.JobManager, event *sla
 	// default to to from
 	if len(to) == 0 {
 		to = from
+	}
+
+	// An openshift version needs to be specified in the 'to' argument.
+	if !containsValidVersion(to) {
+		return "The `test upgrade` command requires a supported Openshift version in the 'to' argument"
 	}
 	platform, architecture, params, err := ParseOptions(properties.StringParam("options", ""), [][]string{from, to}, manager.JobTypeUpgrade)
 	if err != nil {
@@ -193,6 +221,11 @@ func Test(client *slack.Client, jobManager manager.JobManager, event *slackevent
 	}
 	if len(from) == 0 {
 		return "you must specify what will be tested"
+	}
+
+	// An openshift version needs to be specified in image_or_version_or_prs.
+	if !containsValidVersion(from) {
+		return "The `test` command requires a supported Openshift version in the image_or_version_or_prs argument"
 	}
 
 	test := properties.StringParam("name", "")
@@ -242,6 +275,10 @@ func CatalogBuild(client *slack.Client, jobManager manager.JobManager, event *sl
 		return "you must specify at least one pull request to build an operator catalog"
 	}
 
+	// An openshift version needs to be specified in image_or_version_or_prs.
+	if !containsValidVersion(from) {
+		return "The `catalog build` command requires a supported Openshift version in the image_or_version_or_prs argument"
+	}
 	bundleName, err := ParseImageInput(properties.StringParam("bundle_name", ""))
 	if err != nil {
 		return err.Error()
@@ -283,6 +320,10 @@ func Build(client *slack.Client, jobManager manager.JobManager, event *slackeven
 		return "you must specify at least one pull request to build a release image"
 	}
 
+	// An openshift version needs to be specified in image_or_version_or_prs.
+	if !containsValidVersion(from) {
+		return "The `build` command requires a supported Openshift version in the image_or_version_or_prs argument"
+	}
 	platform, architecture, params, err := ParseOptions(properties.StringParam("options", ""), [][]string{from}, manager.JobTypeBuild)
 	if err != nil {
 		return err.Error()
@@ -318,6 +359,11 @@ func WorkflowLaunch(client *slack.Client, jobManager manager.JobManager, event *
 	}
 	if len(from) == 0 {
 		return "you must specify what will be tested"
+	}
+
+	// An openshift version needs to be specified in image_or_version_or_prs.
+	if !containsValidVersion(from) {
+		return "The `workflow-launch` command requires a supported Openshift version in the image_or_version_or_prs argument"
 	}
 
 	name := properties.StringParam("name", "")
@@ -364,6 +410,11 @@ func WorkflowTest(client *slack.Client, jobManager manager.JobManager, event *sl
 		return "you must specify what will be tested"
 	}
 
+	// An openshift version needs to be specified in image_or_version_or_prs.
+	if !containsValidVersion(from) {
+		return "The `workflow-test` command requires a supported Openshift version in the image_or_version_or_prs argument"
+	}
+
 	name := properties.StringParam("name", "")
 	if len(name) == 0 {
 		return fmt.Sprintf("you must specify the name of a workflow: %s", strings.Join(CodeSlice(manager.SupportedTests), ", "))
@@ -408,12 +459,22 @@ func WorkflowUpgrade(client *slack.Client, jobManager manager.JobManager, event 
 		return "you must specify initial release"
 	}
 
+	// An openshift version needs to be specified in from_image_or_version_or_prs.
+	if !containsValidVersion(from) {
+		return "The `workflow-upgrade` command requires a supported Openshift version in the from_image_or_version_or_prs argument"
+	}
+
 	to, err := ParseImageInput(properties.StringParam("to_image_or_version_or_prs", ""))
 	if err != nil {
 		return err.Error()
 	}
 	if len(to) == 0 {
 		return "you must specify the target release"
+	}
+
+	// An openshift version needs to be specified in to_image_or_version_or_prs.
+	if !containsValidVersion(to) {
+		return "The `workflow-upgrade` command requires a supported Openshift version in the to_image_or_version_or_prs argument"
 	}
 
 	name := properties.StringParam("name", "")
@@ -461,6 +522,12 @@ func RosaCreate(client *slack.Client, jobManager manager.JobManager, event *slac
 	if len(from) == 1 {
 		providedVersion = from[0]
 	}
+
+	// An openshift version needs to be specified in image_or_version_or_prs.
+	if !containsValidVersion(from) {
+		return "The `rosa create` command requires a supported Openshift version in the image_or_version_or_prs argument"
+	}
+
 	rawDuration, err := ParseImageInput(properties.StringParam("duration", ""))
 	if err != nil {
 		return err.Error()
@@ -525,9 +592,13 @@ func MceCreate(client *slack.Client, jobManager manager.JobManager, event *slack
 		return err.Error()
 	}
 	var inputs [][]string
-	if len(from) > 0 {
-		inputs = [][]string{from}
+
+	// An openshift version needs to be specified in image_or_version_or_prs.
+	if !containsValidVersion(from) {
+		return "The `mce create` command requires a supported Openshift version in the image_or_version_or_prs argument"
 	}
+
+	inputs = [][]string{from}
 
 	platformInput, err := ParseImageInput(properties.StringParam("platform", ""))
 	if err != nil {
