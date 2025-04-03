@@ -31,6 +31,34 @@ func Test_containsValidVersion(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "Valid version by itself: 'launch registry.ci.openshift.org/ocp/release:4.20.0-0.nightly-2025-04-02-081925'",
+			args: args{
+				parameters: []string{"registry.ci.openshift.org/ocp/release:4.20.0-0.nightly-2025-04-02-081925"},
+			},
+			want: true,
+		},
+		{
+			name: "Valid version by itself: 'launch 4.20.0-0.nightly-2025-04-02-081925'",
+			args: args{
+				parameters: []string{"4.20.0-0.nightly-2025-04-02-081925"},
+			},
+			want: true,
+		},
+		{
+			name: "Valid version by itself: 'launch 4.20.0-0.nightly'",
+			args: args{
+				parameters: []string{"4.20.0-0.nightly"},
+			},
+			want: true,
+		},
+		{
+			name: "Valid version by itself: 'launch 4.20-ci'",
+			args: args{
+				parameters: []string{"4.20-ci"},
+			},
+			want: true,
+		},
+		{
 			name: "Using a pull request without version specified: 'launch openshift/installer#7160'",
 			args: args{
 				parameters: []string{"openshift/installer#7160"},
