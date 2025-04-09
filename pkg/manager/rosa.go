@@ -333,7 +333,7 @@ func (m *jobManager) removeAssociatedAWSResources(clusterID string) error {
 }
 
 func (m *jobManager) waitForConsole(cluster *clustermgmtv1.Cluster, readyTime time.Time) error {
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		updatedCluster, err := m.rClient.OCMClient.GetCluster(cluster.ID(), m.rClient.Creator)
 		if err != nil {
 			metrics.RecordError(errorRosaGetSingle, m.errorMetric)
@@ -364,7 +364,7 @@ func (m *jobManager) addClusterAuthAndWait(cluster *clustermgmtv1.Cluster, ready
 		Password: password,
 	}
 	authReady := false
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if _, err := tokencmd.RequestToken(&clientConfig, nil, m.rosaClusterAdminUsername, password); err != nil {
 			if k8serrors.IsUnauthorized(err) || errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) {
 				klog.Infof("Cluster auth for %s not ready yet", cluster.ID())

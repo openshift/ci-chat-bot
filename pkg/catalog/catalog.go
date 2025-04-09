@@ -38,6 +38,7 @@ import (
 	fbcutil "github.com/openshift/ci-chat-bot/pkg/catalog/fbcutil"
 	operator "github.com/openshift/ci-chat-bot/pkg/catalog/operator"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
+	"maps"
 )
 
 var dockerfile = `FROM registry.ci.openshift.org/origin/ubi-minimal:8 AS builder
@@ -202,17 +203,15 @@ func UpdateDockerConfigJSON(secretData []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to read container auth file: %w", err)
 	}
-	authMap := make(map[string]interface{})
+	authMap := make(map[string]any)
 	if err := json.Unmarshal(raw, &authMap); err != nil {
 		return fmt.Errorf("failed to parse existing container auth config: %w", err)
 	}
-	newAuths := make(map[string]interface{})
+	newAuths := make(map[string]any)
 	if err := json.Unmarshal(secretData, &newAuths); err != nil {
 		return fmt.Errorf("failed to parse new container auth config: %w", err)
 	}
-	for key, value := range newAuths {
-		authMap[key] = value
-	}
+	maps.Copy(authMap, newAuths)
 	updatedRaw, err := json.Marshal(authMap)
 	if err != nil {
 		return fmt.Errorf("failed to marshal new auth map: %w", err)

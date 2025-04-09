@@ -123,7 +123,7 @@ func (t Token) IsParameter() bool {
 
 func create(tokens []*Token, boundary int) []*Token {
 	var newTokens []*Token
-	for i := 0; i < len(tokens); i++ {
+	for i := range tokens {
 		if !tokens[i].IsParameter() || i <= boundary {
 			newTokens = append(newTokens, tokens[i])
 		}

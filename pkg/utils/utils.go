@@ -16,6 +16,7 @@ import (
 	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"slices"
 )
 
 var LaunchLabel = "ci-chat-bot.openshift.io/launch"
@@ -90,12 +91,7 @@ func ParamsFromAnnotation(value string) (map[string]string, error) {
 }
 
 func Contains(arr []string, s string) bool {
-	for _, item := range arr {
-		if s == item {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(arr, s)
 }
 
 // LoadKubeconfig loads connection configuration
@@ -126,7 +122,7 @@ func LoadKubeconfigFromFlagOrDefault(path string, def *rest.Config) (*rest.Confi
 
 func UpdateSecret(name string, client v1.SecretInterface, fn func(*corev1.Secret)) error {
 	var updateSuccess bool
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		currentMap, err := client.Get(context.TODO(), name, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {

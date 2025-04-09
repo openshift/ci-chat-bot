@@ -54,7 +54,9 @@ import (
 
 	"github.com/blang/semver"
 	"gopkg.in/yaml.v2"
+	"maps"
 	prowInformer "sigs.k8s.io/prow/pkg/client/informers/externalversions/prowjobs/v1"
+	slices0 "slices"
 )
 
 func init() {
@@ -1020,9 +1022,7 @@ func (m *jobManager) ListJobs(user string, filters ListFilters) string {
 			// summarize the job parameters
 			var options string
 			params := make(map[string]string)
-			for k, v := range job.JobParams {
-				params[k] = v
-			}
+			maps.Copy(params, job.JobParams)
 			if len(job.Platform) > 0 {
 				params[job.Platform] = ""
 			}
@@ -2247,9 +2247,7 @@ func (m *jobManager) finishedJob(job Job) {
 		if len(m.recentStartEstimates) > 10 {
 			m.recentStartEstimates = m.recentStartEstimates[:10]
 		}
-		sort.Slice(m.recentStartEstimates, func(i, j int) bool {
-			return m.recentStartEstimates[i] < m.recentStartEstimates[j]
-		})
+		slices0.Sort(m.recentStartEstimates)
 	}
 
 	if len(job.RequestedChannel) > 0 && len(job.RequestedBy) > 0 {

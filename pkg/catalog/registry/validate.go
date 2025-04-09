@@ -26,6 +26,7 @@ import (
 	k8svalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"maps"
 	"sigs.k8s.io/yaml"
 )
 
@@ -84,7 +85,7 @@ func ValidateBundleContent(logger *log.Entry, bundle *apimanifests.Bundle, media
 	}
 
 	// Validate all CRD versions in the bundle together.
-	var crds []interface{}
+	var crds []any
 	for _, crd := range bundle.V1beta1CRDs {
 		crds = append(crds, crd)
 	}
@@ -142,9 +143,7 @@ func RewriteAnnotationsYaml(filename string, content map[string]string) error {
 	}
 
 	// Append the contents to annotationsYaml
-	for key, val := range content {
-		metadata.Annotations[key] = val
-	}
+	maps.Copy(metadata.Annotations, content)
 
 	err = writeAnnotationFile(filename, metadata)
 	if err != nil {

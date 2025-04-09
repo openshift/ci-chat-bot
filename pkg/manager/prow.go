@@ -41,6 +41,7 @@ import (
 	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 
 	citools "github.com/openshift/ci-tools/pkg/api"
+	"maps"
 )
 
 var errJobCompleted = fmt.Errorf("job is complete")
@@ -457,9 +458,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			}
 		}
 		environment := citools.TestEnvironment{}
-		for name, value := range job.JobParams {
-			environment[name] = value
-		}
+		maps.Copy(environment, job.JobParams)
 		test := citools.TestStepConfiguration{
 			As: "launch",
 			MultiStageTestConfiguration: &citools.MultiStageTestConfiguration{
@@ -480,9 +479,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		if sourceConfig.BaseImages == nil {
 			baseImages = make(map[string]citools.ImageStreamTagReference, 0)
 		}
-		for imageName, imageDef := range m.workflowConfig.Workflows[job.WorkflowName].BaseImages {
-			baseImages[imageName] = imageDef
-		}
+		maps.Copy(baseImages, m.workflowConfig.Workflows[job.WorkflowName].BaseImages)
 		sourceConfig.BaseImages = baseImages
 		sourceConfig.Tests = []citools.TestStepConfiguration{test}
 	} else {
@@ -1372,7 +1369,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 func (m *jobManager) clearNotificationAnnotations(job *Job, created bool, startDuration time.Duration) {
 	var patch []byte
 	if created {
-		patch = []byte(fmt.Sprintf(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":"","ci-chat-bot.openshift.io/expires":"%d"}}}`, int(startDuration.Seconds()+m.maxAge.Seconds())))
+		patch = fmt.Appendf(nil, `{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":"","ci-chat-bot.openshift.io/expires":"%d"}}}`, int(startDuration.Seconds()+m.maxAge.Seconds()))
 	} else {
 		patch = []byte(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":""}}}`)
 	}

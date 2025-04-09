@@ -14,6 +14,7 @@ import (
 
 	"github.com/openshift/ci-chat-bot/pkg/jira"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
+	"maps"
 )
 
 const (
@@ -296,12 +297,8 @@ func CallBackInputAll(callback *slack.InteractionCallback) map[string]string {
 	merged := make(map[string]string, 0)
 	selectionValues := CallbackSelection(callback)
 	inputValues := CallbackInput(callback)
-	for key, value := range selectionValues {
-		merged[key] = value
-	}
-	for key, value := range inputValues {
-		merged[key] = value
-	}
+	maps.Copy(merged, selectionValues)
+	maps.Copy(merged, inputValues)
 	return merged
 }
 
