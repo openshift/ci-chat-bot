@@ -2,9 +2,9 @@ package prow
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
-	"github.com/openshift/ci-chat-bot/pkg/utils"
 	"sigs.k8s.io/prow/pkg/pjutil"
 
 	corev1 "k8s.io/api/core/v1"
@@ -96,7 +96,7 @@ func RemoveJobEnvVar(spec *prowapiv1.ProwJobSpec, names ...string) {
 		c := &spec.PodSpec.Containers[i]
 		changed := make([]corev1.EnvVar, 0, len(c.Env))
 		for _, env := range c.Env {
-			if utils.Contains(names, env.Name) {
+			if slices.Contains(names, env.Name) {
 				continue
 			}
 			changed = append(changed, env)

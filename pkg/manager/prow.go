@@ -24,6 +24,7 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 
 	"k8s.io/klog"
+	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/yaml"
 
 	corev1 "k8s.io/api/core/v1"
@@ -40,8 +41,9 @@ import (
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 
-	citools "github.com/openshift/ci-tools/pkg/api"
 	"maps"
+
+	citools "github.com/openshift/ci-tools/pkg/api"
 )
 
 var errJobCompleted = fmt.Errorf("job is complete")
@@ -339,7 +341,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	// sort the variant inputs
 	var variants []string
 	for k := range job.JobParams {
-		if utils.Contains(SupportedParameters, k) {
+		if slices.Contains(SupportedParameters, k) {
 			variants = append(variants, k)
 		}
 	}

@@ -35,7 +35,6 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/utils/strings/slices"
 
 	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	imagev1 "github.com/openshift/api/image/v1"
@@ -52,11 +51,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog"
 
+	"maps"
+	"slices"
+
 	"github.com/blang/semver"
 	"gopkg.in/yaml.v2"
-	"maps"
 	prowInformer "sigs.k8s.io/prow/pkg/client/informers/externalversions/prowjobs/v1"
-	slices0 "slices"
 )
 
 func init() {
@@ -1798,7 +1798,7 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 	platformParams := multistageParamsForPlatform(platform)
 	variants := sets.New[string]()
 	for k := range params {
-		if utils.Contains(SupportedParameters, k) && !platformParams.Has(k) && k != "test" && k != "bundle" && k != "no-spot" { // we only need parameters that are not configured via multistage env vars
+		if slices.Contains(SupportedParameters, k) && !platformParams.Has(k) && k != "test" && k != "bundle" && k != "no-spot" { // we only need parameters that are not configured via multistage env vars
 			variants.Insert(k)
 		}
 	}
@@ -2247,7 +2247,7 @@ func (m *jobManager) finishedJob(job Job) {
 		if len(m.recentStartEstimates) > 10 {
 			m.recentStartEstimates = m.recentStartEstimates[:10]
 		}
-		slices0.Sort(m.recentStartEstimates)
+		slices.Sort(m.recentStartEstimates)
 	}
 
 	if len(job.RequestedChannel) > 0 && len(job.RequestedBy) > 0 {

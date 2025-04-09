@@ -2,6 +2,7 @@ package slack
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -9,7 +10,6 @@ import (
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
-	"github.com/openshift/ci-chat-bot/pkg/utils"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -200,7 +200,7 @@ func Test(client *slack.Client, jobManager manager.JobManager, event *slackevent
 		return fmt.Sprintf("you must specify the name of a test: %s", strings.Join(CodeSlice(manager.SupportedTests), ", "))
 	}
 	switch {
-	case utils.Contains(manager.SupportedTests, test):
+	case slices.Contains(manager.SupportedTests, test):
 	default:
 		return fmt.Sprintf("warning: You are using a custom test name, may not be supported for all platforms: %s", strings.Join(CodeSlice(manager.SupportedTests), ", "))
 	}

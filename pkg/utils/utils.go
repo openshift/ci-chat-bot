@@ -16,7 +16,6 @@ import (
 	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"slices"
 )
 
 var LaunchLabel = "ci-chat-bot.openshift.io/launch"
@@ -88,10 +87,6 @@ func ParamsFromAnnotation(value string) (map[string]string, error) {
 		values[key] = parts[1]
 	}
 	return values, nil
-}
-
-func Contains(arr []string, s string) bool {
-	return slices.Contains(arr, s)
 }
 
 // LoadKubeconfig loads connection configuration
