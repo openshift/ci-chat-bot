@@ -586,7 +586,7 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 		}
 	}
 	if architecture != "multi" && platform == "hypershift-hosted" {
-		return "", "", nil, fmt.Errorf("The hypershift-hosted platform requires a multiarch image. See: https://docs.ci.openshift.org/docs/architecture/ci-operator/#testing-with-a-cluster-from-hypershift")
+		return "", "", nil, fmt.Errorf("The hypershift-hosted platform requires a multiarch image. See: https://docs.ci.openshift.org/docs/architecture/ci-operator/#testing-with-a-cluster-from-hypershift") //nolint:staticcheck
 	}
 	return platform, architecture, params, nil
 }

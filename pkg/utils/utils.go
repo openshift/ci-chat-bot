@@ -139,11 +139,11 @@ func UpdateSecret(name string, client v1.SecretInterface, fn func(*corev1.Secret
 				fn(newMap)
 				_, err := client.Create(context.TODO(), newMap, metav1.CreateOptions{})
 				if err != nil {
-					return fmt.Errorf("Failed to create `%s` configmap: %w", name, err)
+					return fmt.Errorf("failed to create `%s` configmap: %w", name, err)
 				}
 				return nil
 			}
-			return fmt.Errorf("Failed to update `%s` configmap: %w", name, err)
+			return fmt.Errorf("failed to update `%s` configmap: %w", name, err)
 		}
 		if currentMap.Data == nil {
 			currentMap.Data = map[string][]byte{}
@@ -155,14 +155,14 @@ func UpdateSecret(name string, client v1.SecretInterface, fn func(*corev1.Secret
 				time.Sleep(time.Second)
 				continue
 			} else {
-				return fmt.Errorf("Failed to update `%s` configmap: %w", name, err)
+				return fmt.Errorf("failed to update `%s` configmap: %w", name, err)
 			}
 		}
 		updateSuccess = true
 		break
 	}
 	if !updateSuccess {
-		return fmt.Errorf("Failed to update `%s` configmap after 10 retries", name)
+		return fmt.Errorf("failed to update `%s` configmap after 10 retries", name)
 	}
 	return nil
 }

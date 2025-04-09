@@ -26,7 +26,6 @@ import (
 
 	"github.com/operator-framework/operator-registry/alpha/action"
 	"github.com/operator-framework/operator-registry/alpha/declcfg"
-	declarativeconfig "github.com/operator-framework/operator-registry/alpha/declcfg"
 	"github.com/operator-framework/operator-registry/pkg/image/containerdregistry"
 	log "github.com/sirupsen/logrus"
 )
@@ -63,7 +62,7 @@ type FBCContext struct {
 	Package       string
 	ChannelName   string
 	Refs          []string
-	ChannelEntry  declarativeconfig.ChannelEntry
+	ChannelEntry  declcfg.ChannelEntry
 	SkipTLSVerify bool
 	UseHTTP       bool
 }
@@ -72,31 +71,31 @@ type FBCContext struct {
 func (f *FBCContext) CreateFBC(ctx context.Context) (BundleDeclcfg, error) {
 	var bundleDC BundleDeclcfg
 	// Rendering the bundle image into a declarative config format.
-	declcfg, err := RenderRefs(ctx, f.Refs, f.SkipTLSVerify, f.UseHTTP)
+	cfg, err := RenderRefs(ctx, f.Refs, f.SkipTLSVerify, f.UseHTTP)
 	if err != nil {
 		return BundleDeclcfg{}, err
 	}
 
 	// Ensuring a valid bundle size.
-	if len(declcfg.Bundles) != 1 {
+	if len(cfg.Bundles) != 1 {
 		return BundleDeclcfg{}, fmt.Errorf("bundle image should contain exactly one bundle blob")
 	}
 
-	bundleDC.Bundle = declcfg.Bundles[0]
+	bundleDC.Bundle = cfg.Bundles[0]
 
 	// generate package.
-	bundleDC.Package = declarativeconfig.Package{
+	bundleDC.Package = declcfg.Package{
 		Schema:         SchemaPackage,
 		Name:           f.Package,
 		DefaultChannel: f.ChannelName,
 	}
 
 	// generate channel.
-	bundleDC.Channel = declarativeconfig.Channel{
+	bundleDC.Channel = declcfg.Channel{
 		Schema:  SchemaChannel,
 		Name:    f.ChannelName,
 		Package: f.Package,
-		Entries: []declarativeconfig.ChannelEntry{f.ChannelEntry},
+		Entries: []declcfg.ChannelEntry{f.ChannelEntry},
 	}
 
 	return bundleDC, nil
@@ -104,15 +103,15 @@ func (f *FBCContext) CreateFBC(ctx context.Context) (BundleDeclcfg, error) {
 
 // ValidateAndStringify first converts the generated declarative config to a model and validates it.
 // If the declarative config model is valid, it will convert the declarative config to a YAML string and return it.
-func ValidateAndStringify(declcfg *declarativeconfig.DeclarativeConfig) (string, error) {
+func ValidateAndStringify(cfg *declcfg.DeclarativeConfig) (string, error) {
 	// validates and converts declarative config to model
-	_, err := declarativeconfig.ConvertToModel(*declcfg)
+	_, err := declcfg.ConvertToModel(*cfg)
 	if err != nil {
 		return "", fmt.Errorf("error converting the declarative config to model: %v", err)
 	}
 
 	var buf bytes.Buffer
-	err = declarativeconfig.WriteYAML(*declcfg, &buf)
+	err = declcfg.WriteYAML(*cfg, &buf)
 	if err != nil {
 		return "", fmt.Errorf("error writing generated declarative config to JSON encoder: %v", err)
 	}
@@ -132,7 +131,7 @@ func NullLogger() *log.Entry {
 
 // RenderRefs will invoke Operator Registry APIs and return a declarative config object representation
 // of the references that are passed in as a string array.
-func RenderRefs(ctx context.Context, refs []string, skipTLSVerify bool, useHTTP bool) (*declarativeconfig.DeclarativeConfig, error) {
+func RenderRefs(ctx context.Context, refs []string, skipTLSVerify bool, useHTTP bool) (*declcfg.DeclarativeConfig, error) {
 	cacheDir := dirNameFromRefs(refs)
 
 	if cacheDir == "" {

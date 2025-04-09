@@ -211,7 +211,11 @@ func (r *URLConfigResolver) Resolve(org, repo, branch, variant string) ([]byte, 
 		if err != nil {
 			return nil, false, fmt.Errorf("url resolve failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				klog.Errorf("Failed to close response for Resolve: %v", closeErr)
+			}
+		}()
 		switch resp.StatusCode {
 		case 200:
 			data, err := io.ReadAll(resp.Body)
@@ -350,15 +354,16 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	// set standard annotations and environment variables
 	pj.Annotations["ci-chat-bot.openshift.io/expires"] = strconv.Itoa(int(m.maxAge.Seconds() + launchDeadline.Seconds()))
 	prow.OverrideJobEnvVar(&pj.Spec, "CLUSTER_DURATION", strconv.Itoa(int(m.maxAge.Seconds())))
-	if job.Mode == JobTypeBuild || job.Mode == JobTypeCatalog {
+	switch job.Mode {
+	case JobTypeBuild, JobTypeCatalog:
 		// keep the built payload images around for a week
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "168h")
 		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "168h")
-	} else if job.Mode == JobTypeMCECustomImage {
+	case JobTypeMCECustomImage:
 		// set preserve long enough for 2 install attempts of an mce cluster
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "2h")
 		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "12h")
-	} else {
+	default:
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "1h")
 		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "12h")
 	}
@@ -843,11 +848,12 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	}
 
 	// build jobs do not launch contents
-	if job.Mode == JobTypeBuild {
+	switch job.Mode {
+	case JobTypeBuild:
 		if err := replaceTargetArgument(pj.Spec.PodSpec, "launch", "[release:latest]"); err != nil {
 			return "", fmt.Errorf("unable to configure pod spec to alter launch target: %v", err)
 		}
-	} else if job.Mode == JobTypeCatalog {
+	case JobTypeCatalog:
 		if err := replaceTargetArgument(pj.Spec.PodSpec, "launch", job.JobParams["bundle"]); err != nil {
 			return "", fmt.Errorf("unable to configure pod spec to alter launch target: %v", err)
 		}
@@ -1018,7 +1024,7 @@ func processOperatorPR(oldOperatorRepo string, sourceConfig, targetConfig *citoo
 func getClusterClient(m *jobManager, job *Job) (*utils.BuildClusterClientConfig, error) {
 	clusterClient, ok := m.clusterClients[job.BuildCluster]
 	if !ok {
-		return nil, fmt.Errorf("Cluster %s not found in %v", job.BuildCluster, m.clusterClients)
+		return nil, fmt.Errorf("cluster %s not found in %v", job.BuildCluster, m.clusterClients)
 	}
 	return clusterClient, nil
 }
