@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -282,7 +283,7 @@ func GetPlatformArchFromWorkflowConfig(workflowConfig *manager.WorkflowConfig, n
 	} else {
 		platform = workflow.Platform
 		if workflow.Architecture != "" {
-			if utils.Contains(manager.SupportedArchitectures, workflow.Architecture) {
+			if slices.Contains(manager.SupportedArchitectures, workflow.Architecture) {
 				architecture = workflow.Architecture
 			} else {
 				return "", "", fmt.Errorf("architecture %s not supported by cluster-bot", workflow.Architecture)
@@ -524,13 +525,13 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 	var platform, architecture string
 	for opt := range params {
 		switch {
-		case utils.Contains(manager.SupportedPlatforms, opt):
+		case slices.Contains(manager.SupportedPlatforms, opt):
 			if len(platform) > 0 {
 				return "", "", nil, fmt.Errorf("you may only specify one platform in options")
 			}
 			platform = opt
 			delete(params, opt)
-		case utils.Contains(manager.SupportedArchitectures, opt):
+		case slices.Contains(manager.SupportedArchitectures, opt):
 			if len(architecture) > 0 {
 				return "", "", nil, fmt.Errorf("you may only specify one architecture in options")
 			}
@@ -538,7 +539,7 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 			delete(params, opt)
 		case opt == "":
 			delete(params, opt)
-		case utils.Contains(manager.SupportedParameters, opt):
+		case slices.Contains(manager.SupportedParameters, opt):
 			// do nothing
 		default:
 			return "", "", nil, fmt.Errorf("unrecognized option: %s", opt)
@@ -586,7 +587,7 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 		}
 	}
 	if architecture != "multi" && platform == "hypershift-hosted" {
-		return "", "", nil, fmt.Errorf("The hypershift-hosted platform requires a multiarch image. See: https://docs.ci.openshift.org/docs/architecture/ci-operator/#testing-with-a-cluster-from-hypershift")
+		return "", "", nil, fmt.Errorf("The hypershift-hosted platform requires a multiarch image. See: https://docs.ci.openshift.org/docs/architecture/ci-operator/#testing-with-a-cluster-from-hypershift") //nolint:staticcheck
 	}
 	return platform, architecture, params, nil
 }

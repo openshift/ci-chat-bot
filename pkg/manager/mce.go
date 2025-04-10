@@ -35,7 +35,7 @@ func (m *jobManager) createManagedCluster(imageSet, platform, user, slackChannel
 	m.mceConfig.Mutex.RUnlock()
 	clusterName, err := generateRandomString(12, true)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to generate random name: %v", err)
+		return nil, fmt.Errorf("failed to generate random name: %v", err)
 	}
 	clusterName = fmt.Sprintf("chat-bot-%s", clusterName)
 
@@ -44,7 +44,7 @@ func (m *jobManager) createManagedCluster(imageSet, platform, user, slackChannel
 		req.ManagedClusterName = clusterName
 		// the LaunchJobForUser function returns an error on successful creation of build jobs, so we need an extra check on the error text...
 		if _, err := m.LaunchJobForUser(req); err != nil && !strings.Contains(err.Error(), "you will be notified on completion") {
-			return nil, fmt.Errorf("Failed to create job to generate requested image: %w", err)
+			return nil, fmt.Errorf("failed to create job to generate requested image: %w", err)
 		}
 	}
 
@@ -134,7 +134,8 @@ func (m *jobManager) createManagedCluster(imageSet, platform, user, slackChannel
 		},
 		PullSecret: "", // skip, hive will inject based on it's secrets
 	}
-	if platform == "aws" {
+	switch platform {
+	case "aws":
 		installConfig.ControlPlane.Platform = installer.MachinePoolPlatform{
 			AWS: &aws.MachinePool{
 				Zones: []string{"us-east-1a"},
@@ -162,7 +163,7 @@ func (m *jobManager) createManagedCluster(imageSet, platform, user, slackChannel
 				Region: "us-east-1",
 			},
 		}
-	} else if platform == "gcp" {
+	case "gcp":
 		installConfig.ControlPlane.Platform = installer.MachinePoolPlatform{
 			GCP: &gcp.MachinePool{
 				InstanceType: "n1-standard-4",
@@ -228,12 +229,13 @@ func (m *jobManager) createManagedCluster(imageSet, platform, user, slackChannel
 		managedCluster.Annotations[utils.CustomImageTag] = "true"
 	}
 
-	if platform == "aws" {
-		managedCluster.ObjectMeta.Labels["Cloud"] = "Amazon"
-		managedCluster.ObjectMeta.Labels["Region"] = "us-east-1"
-	} else if platform == "gcp" {
-		managedCluster.ObjectMeta.Labels["Cloud"] = "Google"
-		managedCluster.ObjectMeta.Labels["Region"] = "us-east1"
+	switch platform {
+	case "aws":
+		managedCluster.Labels["Cloud"] = "Amazon"
+		managedCluster.Labels["Region"] = "us-east-1"
+	case "gcp":
+		managedCluster.Labels["Cloud"] = "Google"
+		managedCluster.Labels["Region"] = "us-east1"
 	}
 
 	if err := m.dpcrOcmClient.Create(context.TODO(), &managedCluster, &client.CreateOptions{}); err != nil {
@@ -283,9 +285,10 @@ func (m *jobManager) createClusterDeployment(clusterName, imageset, baseDomain, 
 		},
 	}
 
-	if platform == "aws" {
-		clusterDeployment.ObjectMeta.Labels["cloud"] = "AWS"
-		clusterDeployment.ObjectMeta.Labels["region"] = "us-east-1"
+	switch platform {
+	case "aws":
+		clusterDeployment.Labels["cloud"] = "AWS"
+		clusterDeployment.Labels["region"] = "us-east-1"
 		clusterDeployment.Spec.Platform = hivev1.Platform{
 			AWS: &hiveaws.Platform{
 				CredentialsSecretRef: v1.LocalObjectReference{
@@ -294,9 +297,9 @@ func (m *jobManager) createClusterDeployment(clusterName, imageset, baseDomain, 
 				Region: "us-east-1",
 			},
 		}
-	} else if platform == "gcp" {
-		clusterDeployment.ObjectMeta.Labels["cloud"] = "GCP"
-		clusterDeployment.ObjectMeta.Labels["region"] = "us-east1"
+	case "gcp":
+		clusterDeployment.Labels["cloud"] = "GCP"
+		clusterDeployment.Labels["region"] = "us-east1"
 		clusterDeployment.Spec.Platform = hivev1.Platform{
 			GCP: &hivegcp.Platform{
 				CredentialsSecretRef: v1.LocalObjectReference{
@@ -316,7 +319,7 @@ func (m *jobManager) createClusterDeployment(clusterName, imageset, baseDomain, 
 func (m *jobManager) listManagedClusters() ([]*clusterv1.ManagedCluster, []*hivev1.ClusterDeployment, error) {
 	namespaces, err := m.dpcrNamespaceClient.List(context.TODO(), metav1.ListOptions{LabelSelector: utils.LaunchLabel})
 	if err != nil {
-		return nil, nil, fmt.Errorf("Failed to get list of managed clusters: %v", err)
+		return nil, nil, fmt.Errorf("failed to get list of managed clusters: %v", err)
 	}
 	managedClusters := []*clusterv1.ManagedCluster{}
 	clusterDeployments := []*hivev1.ClusterDeployment{}

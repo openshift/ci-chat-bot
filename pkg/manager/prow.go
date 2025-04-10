@@ -24,6 +24,7 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 
 	"k8s.io/klog"
+	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/yaml"
 
 	corev1 "k8s.io/api/core/v1"
@@ -39,6 +40,8 @@ import (
 	"k8s.io/client-go/transport"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
+
+	"maps"
 
 	citools "github.com/openshift/ci-tools/pkg/api"
 )
@@ -211,7 +214,11 @@ func (r *URLConfigResolver) Resolve(org, repo, branch, variant string) ([]byte, 
 		if err != nil {
 			return nil, false, fmt.Errorf("url resolve failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				klog.Errorf("Failed to close response for Resolve: %v", closeErr)
+			}
+		}()
 		switch resp.StatusCode {
 		case 200:
 			data, err := io.ReadAll(resp.Body)
@@ -334,7 +341,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	// sort the variant inputs
 	var variants []string
 	for k := range job.JobParams {
-		if utils.Contains(SupportedParameters, k) {
+		if slices.Contains(SupportedParameters, k) {
 			variants = append(variants, k)
 		}
 	}
@@ -350,15 +357,16 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	// set standard annotations and environment variables
 	pj.Annotations["ci-chat-bot.openshift.io/expires"] = strconv.Itoa(int(m.maxAge.Seconds() + launchDeadline.Seconds()))
 	prow.OverrideJobEnvVar(&pj.Spec, "CLUSTER_DURATION", strconv.Itoa(int(m.maxAge.Seconds())))
-	if job.Mode == JobTypeBuild || job.Mode == JobTypeCatalog {
+	switch job.Mode {
+	case JobTypeBuild, JobTypeCatalog:
 		// keep the built payload images around for a week
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "168h")
 		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "168h")
-	} else if job.Mode == JobTypeMCECustomImage {
+	case JobTypeMCECustomImage:
 		// set preserve long enough for 2 install attempts of an mce cluster
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "2h")
 		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "12h")
-	} else {
+	default:
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "1h")
 		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "12h")
 	}
@@ -452,9 +460,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			}
 		}
 		environment := citools.TestEnvironment{}
-		for name, value := range job.JobParams {
-			environment[name] = value
-		}
+		maps.Copy(environment, job.JobParams)
 		test := citools.TestStepConfiguration{
 			As: "launch",
 			MultiStageTestConfiguration: &citools.MultiStageTestConfiguration{
@@ -475,9 +481,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		if sourceConfig.BaseImages == nil {
 			baseImages = make(map[string]citools.ImageStreamTagReference, 0)
 		}
-		for imageName, imageDef := range m.workflowConfig.Workflows[job.WorkflowName].BaseImages {
-			baseImages[imageName] = imageDef
-		}
+		maps.Copy(baseImages, m.workflowConfig.Workflows[job.WorkflowName].BaseImages)
 		sourceConfig.BaseImages = baseImages
 		sourceConfig.Tests = []citools.TestStepConfiguration{test}
 	} else {
@@ -843,11 +847,12 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	}
 
 	// build jobs do not launch contents
-	if job.Mode == JobTypeBuild {
+	switch job.Mode {
+	case JobTypeBuild:
 		if err := replaceTargetArgument(pj.Spec.PodSpec, "launch", "[release:latest]"); err != nil {
 			return "", fmt.Errorf("unable to configure pod spec to alter launch target: %v", err)
 		}
-	} else if job.Mode == JobTypeCatalog {
+	case JobTypeCatalog:
 		if err := replaceTargetArgument(pj.Spec.PodSpec, "launch", job.JobParams["bundle"]); err != nil {
 			return "", fmt.Errorf("unable to configure pod spec to alter launch target: %v", err)
 		}
@@ -1018,7 +1023,7 @@ func processOperatorPR(oldOperatorRepo string, sourceConfig, targetConfig *citoo
 func getClusterClient(m *jobManager, job *Job) (*utils.BuildClusterClientConfig, error) {
 	clusterClient, ok := m.clusterClients[job.BuildCluster]
 	if !ok {
-		return nil, fmt.Errorf("Cluster %s not found in %v", job.BuildCluster, m.clusterClients)
+		return nil, fmt.Errorf("cluster %s not found in %v", job.BuildCluster, m.clusterClients)
 	}
 	return clusterClient, nil
 }
@@ -1366,7 +1371,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 func (m *jobManager) clearNotificationAnnotations(job *Job, created bool, startDuration time.Duration) {
 	var patch []byte
 	if created {
-		patch = []byte(fmt.Sprintf(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":"","ci-chat-bot.openshift.io/expires":"%d"}}}`, int(startDuration.Seconds()+m.maxAge.Seconds())))
+		patch = fmt.Appendf(nil, `{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":"","ci-chat-bot.openshift.io/expires":"%d"}}}`, int(startDuration.Seconds()+m.maxAge.Seconds()))
 	} else {
 		patch = []byte(`{"metadata":{"annotations":{"ci-chat-bot.openshift.io/channel":""}}}`)
 	}

@@ -18,13 +18,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/adrg/xdg"
-	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -67,16 +66,16 @@ func CreateBuild(ctx context.Context, clients utils.BuildClusterClientConfig, bu
 	_, err := clients.CoreClient.CoreV1().ConfigMaps(namespace).Get(ctx, "catalog-content", metav1.GetOptions{})
 	if err != nil {
 		if !errors.IsNotFound(err) {
-			return fmt.Errorf("Failed to get configmap: %w", err)
+			return fmt.Errorf("failed to get configmap: %w", err)
 		}
 		klog.Infof("Configmap for catalog build %s not found; creating", bundleImage)
 		secret, err := clients.CoreClient.CoreV1().Secrets(namespace).Get(ctx, "registry-pull-credentials", metav1.GetOptions{})
 		if err != nil {
-			return fmt.Errorf("Failed to get registry secret %s/registry-pull-credentials: %w", namespace, err)
+			return fmt.Errorf("failed to get registry secret %s/registry-pull-credentials: %w", namespace, err)
 		}
 		secretAuth, ok := secret.Data[".dockerconfigjson"]
 		if !ok {
-			return fmt.Errorf("Secret %s/reg did not contain `.dockerconfigjson` data", namespace)
+			return fmt.Errorf("secret %s/reg did not contain `.dockerconfigjson` data", namespace)
 		}
 		content, err := CreateContent(ctx, secretAuth, bundleImage)
 		if err != nil {
@@ -96,7 +95,7 @@ func CreateBuild(ctx context.Context, clients utils.BuildClusterClientConfig, bu
 	}
 	if _, err := clients.BuildConfigClient.BuildV1().Builds(namespace).Get(ctx, "catalog", metav1.GetOptions{}); err != nil {
 		if !errors.IsNotFound(err) {
-			return fmt.Errorf("Failed to get build: %w", err)
+			return fmt.Errorf("failed to get build: %w", err)
 		}
 		klog.Infof("Build for catalog build %s not found; creating", bundleImage)
 		build := buildv1.Build{
@@ -158,10 +157,10 @@ func CreateBuild(ctx context.Context, clients utils.BuildClusterClientConfig, bu
 			}
 			switch build.Status.Phase {
 			case buildv1.BuildPhaseComplete:
-				logrus.Infof("Build %s succeeded", build.Name)
+				klog.Infof("Build %s succeeded", build.Name)
 				return true, nil
 			case buildv1.BuildPhaseFailed, buildv1.BuildPhaseCancelled, buildv1.BuildPhaseError:
-				logrus.Infof("Build %s failed, printing logs:", build.Name)
+				klog.Infof("Build %s failed, printing logs:", build.Name)
 				return true, fmt.Errorf("the build %s failed with reason %s: %s\n\n%s", build.Name, build.Status.Reason, build.Status.Message, build.Status.LogSnippet)
 			}
 			return false, nil
@@ -179,48 +178,46 @@ func UpdateDockerConfigJSON(secretData []byte) error {
 			containersDir := filepath.Join(xdg.RuntimeDir, "containers")
 			if _, err = os.Stat(containersDir); os.IsNotExist(err) {
 				if err := os.MkdirAll(containersDir, os.ModePerm); err != nil {
-					return fmt.Errorf("Failed to create containers config path: %w", err)
+					return fmt.Errorf("failed to create containers config path: %w", err)
 				}
 			}
 			configPath = filepath.Join(containersDir, "auth.json")
 			if _, err = os.Stat(configPath); err != nil {
 				if os.IsNotExist(err) {
 					if err := os.WriteFile(configPath, []byte("{}"), 0644); err != nil {
-						return fmt.Errorf("Failed to write container auth file: %w", err)
+						return fmt.Errorf("failed to write container auth file: %w", err)
 					}
 					if _, err = os.Stat(configPath); err != nil {
-						return fmt.Errorf("Failed to stat newly created container auth file: %w", err)
+						return fmt.Errorf("failed to stat newly created container auth file: %w", err)
 					}
 				} else {
-					return fmt.Errorf("Failed to stat container auth file: %w", err)
+					return fmt.Errorf("failed to stat container auth file: %w", err)
 				}
 			}
 		} else {
-			return fmt.Errorf("Failed to stat docker config file: %w", err)
+			return fmt.Errorf("failed to stat docker config file: %w", err)
 		}
 	}
 	raw, err := os.ReadFile(configPath)
 	if err != nil {
-		return fmt.Errorf("Failed to read container auth file: %w", err)
+		return fmt.Errorf("failed to read container auth file: %w", err)
 	}
-	authMap := make(map[string]interface{})
+	authMap := make(map[string]any)
 	if err := json.Unmarshal(raw, &authMap); err != nil {
-		return fmt.Errorf("Failed to parse existing container auth config: %w", err)
+		return fmt.Errorf("failed to parse existing container auth config: %w", err)
 	}
-	newAuths := make(map[string]interface{})
+	newAuths := make(map[string]any)
 	if err := json.Unmarshal(secretData, &newAuths); err != nil {
-		return fmt.Errorf("Failed to parse new container auth config: %w", err)
+		return fmt.Errorf("failed to parse new container auth config: %w", err)
 	}
-	for key, value := range newAuths {
-		authMap[key] = value
-	}
+	maps.Copy(authMap, newAuths)
 	updatedRaw, err := json.Marshal(authMap)
 	if err != nil {
-		return fmt.Errorf("Failed to marshal new auth map: %w", err)
+		return fmt.Errorf("failed to marshal new auth map: %w", err)
 	}
 
 	if err := os.WriteFile(configPath, updatedRaw, 0644); err != nil {
-		return fmt.Errorf("Failed to write container auth file: %w", err)
+		return fmt.Errorf("failed to write container auth file: %w", err)
 	}
 	return nil
 }
@@ -259,7 +256,7 @@ func CreateContent(ctx context.Context, secretAuth []byte, bundleImage string) (
 
 // generateFBCContent creates a File-Based Catalog using the bundle image and context
 func generateFBCContent(ctx context.Context, f *fbcutil.FBCContext, bundleImage string) (string, error) {
-	log.Infof("Creating a File-Based Catalog of the bundle %q", bundleImage)
+	klog.Infof("Creating a File-Based Catalog of the bundle %q", bundleImage)
 	// generate a File-Based Catalog representation of the bundle image
 	bundleDeclcfg, err := f.CreateFBC(ctx)
 	if err != nil {
@@ -278,7 +275,7 @@ func generateFBCContent(ctx context.Context, f *fbcutil.FBCContext, bundleImage 
 		return "", fmt.Errorf("error validating and converting the declarative config object to a string format: %v", err)
 	}
 
-	log.Infof("Generated a valid File-Based Catalog")
+	klog.Infof("Generated a valid File-Based Catalog")
 
 	return content, nil
 }

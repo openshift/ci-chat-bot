@@ -35,7 +35,6 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/utils/strings/slices"
 
 	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	imagev1 "github.com/openshift/api/image/v1"
@@ -51,6 +50,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog"
+
+	"maps"
+	"slices"
 
 	"github.com/blang/semver"
 	"gopkg.in/yaml.v2"
@@ -245,7 +247,7 @@ func (m *jobManager) updateHypershiftSupportedVersions() error {
 func (m *jobManager) updateRosaVersions() error {
 	vs, err := m.rClient.OCMClient.GetVersionsWithProduct(ocm.HcpProduct, ocm.DefaultChannelGroup, false)
 	if err != nil {
-		return fmt.Errorf("Failed to retrieve versions: %s", err)
+		return fmt.Errorf("failed to retrieve versions: %s", err)
 	}
 
 	var versionList []string
@@ -267,7 +269,7 @@ func (m *jobManager) updateRosaVersions() error {
 	}
 
 	if len(versionList) == 0 {
-		return fmt.Errorf("Could not find versions for the provided channel-group: '%s'", ocm.DefaultChannelGroup)
+		return fmt.Errorf("could not find versions for the provided channel-group: '%s'", ocm.DefaultChannelGroup)
 	}
 
 	m.rosaVersions.lock.Lock()
@@ -333,7 +335,7 @@ func paramsToString(params map[string]string) string {
 func (m *jobManager) mceSync() error {
 	clusters, deployments, err := m.listManagedClusters()
 	if err != nil {
-		return fmt.Errorf("Failed to list managed clusters: %v", err)
+		return fmt.Errorf("failed to list managed clusters: %v", err)
 	}
 	now := time.Now()
 	managedClusters := map[string]*clusterv1.ManagedCluster{}
@@ -397,7 +399,7 @@ func (m *jobManager) mceSync() error {
 				// notify that the cluster is available and retrieve auth
 				kubeconfig, password, err := m.getClusterAuth(name)
 				if err != nil {
-					return fmt.Errorf("Failed to get mce cluster auth: %v", err)
+					return fmt.Errorf("failed to get mce cluster auth: %v", err)
 				}
 				m.mceNotifierFn(cluster, clusterDeployments[name], provisions[name], kubeconfig, password, nil)
 				cluster.Annotations[utils.UserNotifiedTag] = "true"
@@ -466,11 +468,11 @@ func (m *jobManager) mceSync() error {
 	m.mceClusters.lock.Unlock()
 	userConfig, err := m.dpcrCoreClient.ConfigMaps("crt-argocd").Get(context.TODO(), "users", metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("Failed to retrieve mce user configs: %v", err)
+		return fmt.Errorf("failed to retrieve mce user configs: %v", err)
 	}
 	mceUserConfig := map[string]MceUser{}
 	if err := yaml.Unmarshal([]byte(userConfig.Data["config.yaml"]), mceUserConfig); err != nil {
-		return fmt.Errorf("Failed to unmarshal MCE user config: %v", err)
+		return fmt.Errorf("failed to unmarshal MCE user config: %v", err)
 	}
 	m.mceConfig.Mutex.Lock()
 	defer m.mceConfig.Mutex.Unlock()
@@ -636,7 +638,7 @@ func (m *jobManager) rosaSync() error {
 			}
 		}); err != nil {
 			metrics.RecordError(errorRosaUpdateSecret, m.errorMetric)
-			return fmt.Errorf("Failed to update `%s` secret to remove stale clusters from list: %w", RosaClusterSecretName, err)
+			return fmt.Errorf("failed to update `%s` secret to remove stale clusters from list: %w", RosaClusterSecretName, err)
 		}
 	}
 
@@ -725,7 +727,7 @@ func (m *jobManager) sync() error {
 			}
 		}
 		if j.ExpiresAt.IsZero() {
-			j.ExpiresAt = job.CreationTimestamp.Time.Add(m.maxAge)
+			j.ExpiresAt = job.CreationTimestamp.Add(m.maxAge)
 		}
 		if job.Status.CompletionTime != nil {
 			j.Complete = true
@@ -995,7 +997,7 @@ func (m *jobManager) ListJobs(user string, filters ListFilters) string {
 			if len(job.Inputs) > 0 {
 				jobInput = job.Inputs[0]
 			}
-			if !((filters.Requestor == "" || filters.Requestor == job.RequestedBy) && (filters.Platform == "" || filters.Platform == job.Platform) && (filters.Version == "" || strings.Contains(jobInput.Version, filters.Version))) {
+			if filters.Requestor != "" && filters.Requestor != job.RequestedBy || filters.Platform != "" && filters.Platform != job.Platform || filters.Version != "" && !strings.Contains(jobInput.Version, filters.Version) {
 				continue
 			}
 			var details string
@@ -1020,9 +1022,7 @@ func (m *jobManager) ListJobs(user string, filters ListFilters) string {
 			// summarize the job parameters
 			var options string
 			params := make(map[string]string)
-			for k, v := range job.JobParams {
-				params[k] = v
-			}
+			maps.Copy(params, job.JobParams)
 			if len(job.Platform) > 0 {
 				params[job.Platform] = ""
 			}
@@ -1214,7 +1214,7 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 			imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: fmt.Sprintf("%s-art-latest-multi", version), ArchSuffix: "-multi"})
 		}
 	default:
-		return "", "", "", fmt.Errorf("Unsupported architecture: %s", architecture)
+		return "", "", "", fmt.Errorf("unsupported architecture: %s", architecture)
 	}
 
 	for _, nsAndStream := range imagestreams {
@@ -1798,7 +1798,7 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 	platformParams := multistageParamsForPlatform(platform)
 	variants := sets.New[string]()
 	for k := range params {
-		if utils.Contains(SupportedParameters, k) && !platformParams.Has(k) && k != "test" && k != "bundle" && k != "no-spot" { // we only need parameters that are not configured via multistage env vars
+		if slices.Contains(SupportedParameters, k) && !platformParams.Has(k) && k != "test" && k != "bundle" && k != "no-spot" { // we only need parameters that are not configured via multistage env vars
 			variants.Insert(k)
 		}
 	}
@@ -2247,9 +2247,7 @@ func (m *jobManager) finishedJob(job Job) {
 		if len(m.recentStartEstimates) > 10 {
 			m.recentStartEstimates = m.recentStartEstimates[:10]
 		}
-		sort.Slice(m.recentStartEstimates, func(i, j int) bool {
-			return m.recentStartEstimates[i] < m.recentStartEstimates[j]
-		})
+		slices.Sort(m.recentStartEstimates)
 	}
 
 	if len(job.RequestedChannel) > 0 && len(job.RequestedBy) > 0 {
@@ -2299,7 +2297,7 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 		defer m.mceConfig.Mutex.RUnlock()
 		userConfig, ok := m.mceConfig.Users[user]
 		if !ok {
-			return fmt.Errorf("User `%s` is currently unauthorized to use MCE.", user)
+			return fmt.Errorf("User `%s` is currently unauthorized to use MCE.", user) //nolint:staticcheck
 		}
 		// configure defaults
 		if platform == "" {
@@ -2312,13 +2310,13 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 		defer m.mceClusters.lock.RUnlock()
 		managed, _, _, _, _ := m.GetManagedClustersForUser(user)
 		if len(managed) >= userConfig.MaxClusters {
-			return fmt.Errorf("Maximum number of MCE clusters (%d) reached. Please delete an existing cluster before creating a new one. If you have recently deleted a cluster, please wait 1 minute to allow a resync.", userConfig.MaxClusters)
+			return fmt.Errorf("Maximum number of MCE clusters (%d) reached. Please delete an existing cluster before creating a new one. If you have recently deleted a cluster, please wait 1 minute to allow a resync.", userConfig.MaxClusters) //nolint:staticcheck
 		}
 		if duration.Hours() > float64(userConfig.MaxClusterAge) {
-			return fmt.Errorf("Your user's maximum duration for an MCE cluster is %d hours", userConfig.MaxClusterAge)
+			return fmt.Errorf("Your user's maximum duration for an MCE cluster is %d hours.", userConfig.MaxClusterAge) //nolint:staticcheck
 		}
 		if !mcePlatforms.Has(platform) {
-			return fmt.Errorf("%s is not a supported platform for MCE.", platform)
+			return fmt.Errorf("%s is not a supported platform for MCE.", platform) //nolint:staticcheck
 		}
 		if !m.mceClusters.imagesets.Has(imageset) {
 			// user is requesting a non-GA release or PR; create a job request to generate the requested images/release
@@ -2337,7 +2335,7 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 	}
 	cluster, err := m.createManagedCluster(imageset, platform, user, channel, req, duration)
 	if err != nil {
-		return "", fmt.Errorf("Failed to create cluster: %v", err)
+		return "", fmt.Errorf("failed to create cluster: %v", err)
 	}
 	go m.mceSync() // nolint:errcheck
 	if req != nil {
@@ -2404,7 +2402,7 @@ func (m *jobManager) DeleteMceCluster(user, clusterName string) (string, error) 
 		return fmt.Sprintf("Cluster `%s` not found", clusterName), nil
 	}
 	if err := m.deleteManagedCluster(cluster); err != nil {
-		return "", fmt.Errorf("Failed to delete cluster: %v", err)
+		return "", fmt.Errorf("failed to delete cluster: %v", err)
 	}
 	go m.mceSync() // nolint:errcheck
 	return fmt.Sprintf("Cluster %s marked for deletion", clusterName), nil
@@ -2519,7 +2517,7 @@ func (m *jobManager) ListMceVersions() string {
 
 func (m *jobManager) CreateRosaCluster(user, channel, version string, duration time.Duration) (string, error) {
 	if duration > m.maxRosaAge {
-		return "", fmt.Errorf("Max duration for a ROSA cluster is %s", m.maxRosaAge.String())
+		return "", fmt.Errorf("max duration for a ROSA cluster is %s", m.maxRosaAge.String())
 	}
 	cluster, _ := m.getROSAClusterForUser(user)
 	if cluster != nil {
@@ -2535,14 +2533,14 @@ func (m *jobManager) CreateRosaCluster(user, channel, version string, duration t
 	m.rosaClusters.lock.Lock()
 	if m.rosaClusterLimit != 0 && len(m.rosaClusters.clusters)+m.rosaClusters.pendingClusters >= m.rosaClusterLimit {
 		m.rosaClusters.lock.Unlock()
-		return "", errors.New("The maximum number of ROSA clusters has been reached. Please try again later.")
+		return "", errors.New("The maximum number of ROSA clusters has been reached. Please try again later.") //nolint:staticcheck
 	}
 	m.rosaClusters.pendingClusters++
 	m.rosaClusters.lock.Unlock()
 	defer func() { m.rosaClusters.lock.Lock(); m.rosaClusters.pendingClusters--; m.rosaClusters.lock.Unlock() }()
 	cluster, version, err := m.createRosaCluster(version, user, channel, duration)
 	if err != nil {
-		return "", fmt.Errorf("Failed to create cluster: %w", err)
+		return "", fmt.Errorf("failed to create cluster: %w", err)
 	}
 	return fmt.Sprintf("Created cluster `%s` with version `%s`.", cluster.Name(), version), nil
 }
@@ -2571,7 +2569,7 @@ func (m *jobManager) getSupportedRosaVersions() string {
 func (m *jobManager) LookupRosaInputs(versionPrefix string) (string, error) {
 	matchedVersions := m.lookupRosaVersions(versionPrefix)
 	if len(matchedVersions) == 0 {
-		return "", fmt.Errorf("No version with prefix `%s` found", versionPrefix)
+		return "", fmt.Errorf("no version with prefix `%s` found", versionPrefix)
 	} else if versionPrefix == "" {
 		return fmt.Sprintf("The following versions are supported: %v", matchedVersions), nil
 	} else {
@@ -2582,7 +2580,7 @@ func (m *jobManager) LookupRosaInputs(versionPrefix string) (string, error) {
 func (m *jobManager) schedule(pj *prowapiv1.ProwJob) (string, error) {
 	cluster, err := m.prowScheduler.Schedule(context.TODO(), pj)
 	if err != nil {
-		return "", fmt.Errorf("Failed to schedule job %s: %v", pj.Name, err)
+		return "", fmt.Errorf("failed to schedule job %s: %v", pj.Name, err)
 	}
 	return cluster.Cluster, nil
 }

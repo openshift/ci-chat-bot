@@ -255,7 +255,7 @@ func run() error {
 		// ocm client for ManagedClusters
 		ocmScheme := machineryruntime.NewScheme()
 		if err := clusterv1.Install(ocmScheme); err != nil {
-			return fmt.Errorf("Failed to install ocm scheme: %v", err)
+			return fmt.Errorf("failed to install ocm scheme: %v", err)
 		}
 		ocmClient, err = crclient.New(&config, crclient.Options{Scheme: ocmScheme})
 		if err != nil {
@@ -356,7 +356,7 @@ func run() error {
 	jiraclient, err := opt.jiraOptions.Client()
 	httpClient := &http.Client{Timeout: 60 * time.Second}
 	if err != nil {
-		klog.Errorf("Failed to load the Jira Client: %s", err)
+		klog.Errorf("failed to load the Jira Client: %s", err)
 		Start(bot, nil, jobManager, nil, health, opt.InstrumentationOptions, clusterBotMetrics)
 	} else {
 		Start(bot, jiraclient.JiraClient(), jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics)

@@ -67,7 +67,9 @@ func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.Job
 	health.ServeReady(func() bool {
 		resp, err := http.DefaultClient.Get("http://127.0.0.1:" + strconv.Itoa(bot.Port) + "/readyz")
 		if resp != nil {
-			resp.Body.Close()
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				klog.Errorf("Failed to close response for readyz: %v", closeErr)
+			}
 		}
 		return err == nil && resp.StatusCode == 200
 	})

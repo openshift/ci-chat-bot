@@ -21,7 +21,11 @@ func FetchReleases(client *http.Client, architecture string) (map[string][]strin
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			klog.Errorf("Failed to close response for Resolve: %v", closeErr)
+		}
+	}()
 	if err := json.NewDecoder(resp.Body).Decode(&acceptedReleases); err != nil {
 		return nil, err
 	}
