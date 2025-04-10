@@ -18,12 +18,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/adrg/xdg"
-	"github.com/sirupsen/logrus"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -38,7 +38,6 @@ import (
 	fbcutil "github.com/openshift/ci-chat-bot/pkg/catalog/fbcutil"
 	operator "github.com/openshift/ci-chat-bot/pkg/catalog/operator"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
-	"maps"
 )
 
 var dockerfile = `FROM registry.ci.openshift.org/origin/ubi-minimal:8 AS builder
@@ -158,10 +157,10 @@ func CreateBuild(ctx context.Context, clients utils.BuildClusterClientConfig, bu
 			}
 			switch build.Status.Phase {
 			case buildv1.BuildPhaseComplete:
-				logrus.Infof("Build %s succeeded", build.Name)
+				klog.Infof("Build %s succeeded", build.Name)
 				return true, nil
 			case buildv1.BuildPhaseFailed, buildv1.BuildPhaseCancelled, buildv1.BuildPhaseError:
-				logrus.Infof("Build %s failed, printing logs:", build.Name)
+				klog.Infof("Build %s failed, printing logs:", build.Name)
 				return true, fmt.Errorf("the build %s failed with reason %s: %s\n\n%s", build.Name, build.Status.Reason, build.Status.Message, build.Status.LogSnippet)
 			}
 			return false, nil
@@ -257,7 +256,7 @@ func CreateContent(ctx context.Context, secretAuth []byte, bundleImage string) (
 
 // generateFBCContent creates a File-Based Catalog using the bundle image and context
 func generateFBCContent(ctx context.Context, f *fbcutil.FBCContext, bundleImage string) (string, error) {
-	logrus.Infof("Creating a File-Based Catalog of the bundle %q", bundleImage)
+	klog.Infof("Creating a File-Based Catalog of the bundle %q", bundleImage)
 	// generate a File-Based Catalog representation of the bundle image
 	bundleDeclcfg, err := f.CreateFBC(ctx)
 	if err != nil {
@@ -276,7 +275,7 @@ func generateFBCContent(ctx context.Context, f *fbcutil.FBCContext, bundleImage 
 		return "", fmt.Errorf("error validating and converting the declarative config object to a string format: %v", err)
 	}
 
-	logrus.Infof("Generated a valid File-Based Catalog")
+	klog.Infof("Generated a valid File-Based Catalog")
 
 	return content, nil
 }
