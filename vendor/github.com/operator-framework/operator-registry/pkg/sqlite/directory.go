@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,7 +54,9 @@ func (d *DirectoryLoader) Populate() error {
 
 // collectWalkErrs calls the given walk func and appends any non-nil, non skip dir error returned to the given errors slice.
 func collectWalkErrs(walk filepath.WalkFunc, errs *[]error) filepath.WalkFunc {
-	return func(path string, f os.FileInfo, err error) (walkErr error) {
+	return func(path string, f os.FileInfo, err error) error {
+		var walkErr error
+		// nolint: errorlint
 		if walkErr = walk(path, f, err); walkErr != nil && walkErr != filepath.SkipDir {
 			*errs = append(*errs, walkErr)
 			return nil
@@ -68,7 +69,7 @@ func collectWalkErrs(walk filepath.WalkFunc, errs *[]error) filepath.WalkFunc {
 // LoadBundleWalkFunc walks the directory. When it sees a `.clusterserviceversion.yaml` file, it
 // attempts to load the surrounding files in the same directory as a bundle, and stores them in the
 // db for querying
-func (d *DirectoryLoader) LoadBundleWalkFunc(path string, f os.FileInfo, err error) error {
+func (d *DirectoryLoader) LoadBundleWalkFunc(path string, f os.FileInfo, _ error) error {
 	if f == nil {
 		return fmt.Errorf("invalid file: %v", f)
 	}
@@ -132,7 +133,7 @@ func (d *DirectoryLoader) LoadBundleWalkFunc(path string, f os.FileInfo, err err
 
 // LoadPackagesWalkFunc attempts to unmarshal the file at the given path into a PackageManifest resource.
 // If unmarshaling is successful, the PackageManifest is added to the loader's store.
-func (d *DirectoryLoader) LoadPackagesWalkFunc(path string, f os.FileInfo, err error) error {
+func (d *DirectoryLoader) LoadPackagesWalkFunc(path string, f os.FileInfo, _ error) error {
 	if f == nil {
 		return fmt.Errorf("invalid file: %v", f)
 	}
@@ -164,7 +165,6 @@ func (d *DirectoryLoader) LoadPackagesWalkFunc(path string, f os.FileInfo, err e
 		if err != nil {
 			return fmt.Errorf("could not decode contents of file %s into package: %s", path, err)
 		}
-
 	}
 	if manifest.PackageName == "" {
 		return nil
@@ -181,7 +181,7 @@ func (d *DirectoryLoader) LoadPackagesWalkFunc(path string, f os.FileInfo, err e
 // are part of the bundle.
 func loadBundle(csvName string, dir string) (*registry.Bundle, error) {
 	log := logrus.WithFields(logrus.Fields{"dir": dir, "load": "bundle", "name": csvName})
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}

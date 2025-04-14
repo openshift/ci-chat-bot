@@ -106,8 +106,29 @@ func (writer *MermaidWriter) WriteChannels(cfg DeclarativeConfig, out io.Writer)
 
 	minEdgePackage := writer.getMinEdgePackage(&cfg)
 
+	depByPackage := sets.Set[string]{}
+	depByChannel := sets.Set[string]{}
+	depByBundle := sets.Set[string]{}
+
+	for _, d := range cfg.Deprecations {
+		for _, e := range d.Entries {
+			switch e.Reference.Schema {
+			case SchemaPackage:
+				depByPackage.Insert(d.Package)
+			case SchemaChannel:
+				depByChannel.Insert(e.Reference.Name)
+			case SchemaBundle:
+				depByBundle.Insert(e.Reference.Name)
+			}
+		}
+	}
+
+	var deprecatedPackage string
+	deprecatedChannels := []string{}
+
 	for _, c := range cfg.Channels {
 		filteredChannel := writer.filterChannel(&c, versionMap, minVersion, minEdgePackage)
+		// nolint:nestif
 		if filteredChannel != nil {
 			pkgBuilder, ok := pkgs[c.Package]
 			if !ok {
@@ -119,19 +140,32 @@ func (writer *MermaidWriter) WriteChannels(cfg DeclarativeConfig, out io.Writer)
 			pkgBuilder.WriteString(fmt.Sprintf("    %%%% channel %q\n", filteredChannel.Name))
 			pkgBuilder.WriteString(fmt.Sprintf("    subgraph %s[%q]\n", channelID, filteredChannel.Name))
 
+			if depByPackage.Has(filteredChannel.Package) {
+				deprecatedPackage = filteredChannel.Package
+			}
+
+			if depByChannel.Has(filteredChannel.Name) {
+				deprecatedChannels = append(deprecatedChannels, channelID)
+			}
+
 			for _, ce := range filteredChannel.Entries {
 				if versionMap[ce.Name].GE(minVersion) {
-					entryId := fmt.Sprintf("%s-%s", channelID, ce.Name)
-					pkgBuilder.WriteString(fmt.Sprintf("      %s[%q]\n", entryId, ce.Name))
+					bundleDeprecation := ""
+					if depByBundle.Has(ce.Name) {
+						bundleDeprecation = ":::deprecated"
+					}
+
+					entryID := fmt.Sprintf("%s-%s", channelID, ce.Name)
+					pkgBuilder.WriteString(fmt.Sprintf("      %s[%q]%s\n", entryID, ce.Name, bundleDeprecation))
 
 					if len(ce.Replaces) > 0 {
-						replacesId := fmt.Sprintf("%s-%s", channelID, ce.Replaces)
-						pkgBuilder.WriteString(fmt.Sprintf("      %s[%q]-- %s --> %s[%q]\n", replacesId, ce.Replaces, "replace", entryId, ce.Name))
+						replacesID := fmt.Sprintf("%s-%s", channelID, ce.Replaces)
+						pkgBuilder.WriteString(fmt.Sprintf("      %s[%q]-- %s --> %s[%q]\n", replacesID, ce.Replaces, "replace", entryID, ce.Name))
 					}
 					if len(ce.Skips) > 0 {
 						for _, s := range ce.Skips {
-							skipsId := fmt.Sprintf("%s-%s", channelID, s)
-							pkgBuilder.WriteString(fmt.Sprintf("      %s[%q]-- %s --> %s[%q]\n", skipsId, s, "skip", entryId, ce.Name))
+							skipsID := fmt.Sprintf("%s-%s", channelID, s)
+							pkgBuilder.WriteString(fmt.Sprintf("      %s[%q]-- %s --> %s[%q]\n", skipsID, s, "skip", entryID, ce.Name))
 						}
 					}
 					if len(ce.SkipRange) > 0 {
@@ -139,8 +173,8 @@ func (writer *MermaidWriter) WriteChannels(cfg DeclarativeConfig, out io.Writer)
 						if err == nil {
 							for _, edgeName := range filteredChannel.Entries {
 								if skipRange(versionMap[edgeName.Name]) {
-									skipRangeId := fmt.Sprintf("%s-%s", channelID, edgeName.Name)
-									pkgBuilder.WriteString(fmt.Sprintf("      %s[%q]-- \"%s(%s)\" --> %s[%q]\n", skipRangeId, edgeName.Name, "skipRange", ce.SkipRange, entryId, ce.Name))
+									skipRangeID := fmt.Sprintf("%s-%s", channelID, edgeName.Name)
+									pkgBuilder.WriteString(fmt.Sprintf("      %s[%q]-- \"%s(%s)\" --> %s[%q]\n", skipRangeID, edgeName.Name, "skipRange", ce.SkipRange, entryID, ce.Name))
 								}
 							}
 						} else {
@@ -153,7 +187,8 @@ func (writer *MermaidWriter) WriteChannels(cfg DeclarativeConfig, out io.Writer)
 		}
 	}
 
-	out.Write([]byte("graph LR\n"))
+	_, _ = out.Write([]byte("graph LR\n"))
+	_, _ = out.Write([]byte("  classDef deprecated fill:#E8960F\n"))
 	pkgNames := []string{}
 	for pname := range pkgs {
 		pkgNames = append(pkgNames, pname)
@@ -162,10 +197,20 @@ func (writer *MermaidWriter) WriteChannels(cfg DeclarativeConfig, out io.Writer)
 		return pkgNames[i] < pkgNames[j]
 	})
 	for _, pkgName := range pkgNames {
-		out.Write([]byte(fmt.Sprintf("  %%%% package %q\n", pkgName)))
-		out.Write([]byte(fmt.Sprintf("  subgraph %q\n", pkgName)))
-		out.Write([]byte(pkgs[pkgName].String()))
-		out.Write([]byte("  end\n"))
+		_, _ = out.Write([]byte(fmt.Sprintf("  %%%% package %q\n", pkgName)))
+		_, _ = out.Write([]byte(fmt.Sprintf("  subgraph %q\n", pkgName)))
+		_, _ = out.Write([]byte(pkgs[pkgName].String()))
+		_, _ = out.Write([]byte("  end\n"))
+	}
+
+	if deprecatedPackage != "" {
+		_, _ = out.Write([]byte(fmt.Sprintf("style %s fill:#989695\n", deprecatedPackage)))
+	}
+
+	if len(deprecatedChannels) > 0 {
+		for _, deprecatedChannel := range deprecatedChannels {
+			_, _ = out.Write([]byte(fmt.Sprintf("style %s fill:#DCD0FF\n", deprecatedChannel)))
+		}
 	}
 
 	return nil
@@ -192,6 +237,7 @@ func (writer *MermaidWriter) filterChannel(c *Channel, versionMap map[string]sem
 	out := &Channel{Name: c.Name, Package: c.Package, Properties: c.Properties, Entries: []ChannelEntry{}}
 	for _, ce := range c.Entries {
 		filteredCe := ChannelEntry{Name: ce.Name}
+		// nolint:nestif
 		if writer.MinEdgeName == "" {
 			// no minimum-edge specified
 			filteredCe.SkipRange = ce.SkipRange
@@ -377,6 +423,12 @@ func writeToEncoder(cfg DeclarativeConfig, enc encoder) error {
 		pkgNames.Insert(pkgName)
 		othersByPackage[pkgName] = append(othersByPackage[pkgName], o)
 	}
+	deprecationsByPackage := map[string][]Deprecation{}
+	for _, d := range cfg.Deprecations {
+		pkgName := d.Package
+		pkgNames.Insert(pkgName)
+		deprecationsByPackage[pkgName] = append(deprecationsByPackage[pkgName], d)
+	}
 
 	for _, pName := range pkgNames.List() {
 		if len(pName) == 0 {
@@ -418,6 +470,23 @@ func writeToEncoder(cfg DeclarativeConfig, enc encoder) error {
 				return err
 			}
 		}
+
+		//
+		// Normally we would order the deprecations, but it really doesn't make sense since
+		// - there will be 0 or 1 of them for any given package
+		// - they have no other useful field for ordering
+		//
+		// validation is typically via conversion to a model.Model and invoking model.Package.Validate()
+		// It's possible that a user of the object could create a slice containing more then 1
+		// Deprecation object for a package, and it would bypass validation if this
+		// function gets called without conversion.
+		//
+		deprecations := deprecationsByPackage[pName]
+		for _, d := range deprecations {
+			if err := enc.Encode(d); err != nil {
+				return err
+			}
+		}
 	}
 
 	for _, o := range othersByPackage[""] {
@@ -425,6 +494,7 @@ func writeToEncoder(cfg DeclarativeConfig, enc encoder) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -467,7 +537,7 @@ func writeFile(cfg DeclarativeConfig, filename string, writeFunc WriteFunc) erro
 	if err := writeFunc(cfg, buf); err != nil {
 		return fmt.Errorf("write to buffer for %q: %v", filename, err)
 	}
-	if err := os.WriteFile(filename, buf.Bytes(), 0666); err != nil {
+	if err := os.WriteFile(filename, buf.Bytes(), 0600); err != nil {
 		return fmt.Errorf("write file %q: %v", filename, err)
 	}
 	return nil

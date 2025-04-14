@@ -3,9 +3,9 @@ package action
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 
+	"github.com/operator-framework/operator-registry/alpha/action/migrations"
 	"github.com/operator-framework/operator-registry/alpha/declcfg"
 	"github.com/operator-framework/operator-registry/pkg/image"
 )
@@ -13,6 +13,7 @@ import (
 type Migrate struct {
 	CatalogRef string
 	OutputDir  string
+	Migrations *migrations.Migrations
 
 	WriteFunc declcfg.WriteFunc
 	FileExt   string
@@ -20,7 +21,7 @@ type Migrate struct {
 }
 
 func (m Migrate) Run(ctx context.Context) error {
-	entries, err := ioutil.ReadDir(m.OutputDir)
+	entries, err := os.ReadDir(m.OutputDir)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -29,14 +30,11 @@ func (m Migrate) Run(ctx context.Context) error {
 	}
 
 	r := Render{
-		Refs: []string{m.CatalogRef},
+		Refs:       []string{m.CatalogRef},
+		Migrations: m.Migrations,
 
-		// Only allow sqlite images and files to be migrated. Other types cannot
-		// always be migrated cleanly because they may contain file references.
-		// Rendered sqlite databases never contain file references.
-		AllowedRefMask: RefSqliteImage | RefSqliteFile,
-
-		skipSqliteDeprecationLog: true,
+		// Only allow catalogs to be migrated.
+		AllowedRefMask: RefSqliteImage | RefSqliteFile | RefDCImage | RefDCDir,
 	}
 	if m.Registry != nil {
 		r.Registry = m.Registry

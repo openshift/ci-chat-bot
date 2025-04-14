@@ -132,6 +132,7 @@ func (s *UserService) Create(user *User) (*User, *Response, error) {
 // Returns http.StatusNoContent on success.
 //
 // Jira API docs: https://developer.atlassian.com/cloud/jira/platform/rest/v2/#api-rest-api-2-user-delete
+// Caller must close resp.Body
 func (s *UserService) DeleteWithContext(ctx context.Context, accountId string) (*Response, error) {
 	apiEndpoint := fmt.Sprintf("/rest/api/2/user?accountId=%s", accountId)
 	req, err := s.client.NewRequestWithContext(ctx, "DELETE", apiEndpoint, nil)
@@ -147,6 +148,7 @@ func (s *UserService) DeleteWithContext(ctx context.Context, accountId string) (
 }
 
 // Delete wraps DeleteWithContext using the background context.
+// Caller must close resp.Body
 func (s *UserService) Delete(accountId string) (*Response, error) {
 	return s.DeleteWithContext(context.Background(), accountId)
 }
@@ -224,6 +226,30 @@ func WithActive(active bool) userSearchF {
 func WithInactive(inactive bool) userSearchF {
 	return func(s userSearch) userSearch {
 		s = append(s, userSearchParam{name: "includeInactive", value: fmt.Sprintf("%t", inactive)})
+		return s
+	}
+}
+
+// WithUsername sets the username to search
+func WithUsername(username string) userSearchF {
+	return func(s userSearch) userSearch {
+		s = append(s, userSearchParam{name: "username", value: username})
+		return s
+	}
+}
+
+// WithAccountId sets the account id to search
+func WithAccountId(accountId string) userSearchF {
+	return func(s userSearch) userSearch {
+		s = append(s, userSearchParam{name: "accountId", value: accountId})
+		return s
+	}
+}
+
+// WithProperty sets the property (Property keys are specified by path) to search
+func WithProperty(property string) userSearchF {
+	return func(s userSearch) userSearch {
+		s = append(s, userSearchParam{name: "property", value: property})
 		return s
 	}
 }
