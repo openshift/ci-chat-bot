@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/operator-framework/api/pkg/operators/v1alpha1"
+	"github.com/blang/semver/v4"
 
 	"github.com/operator-framework/operator-registry/alpha/model"
 	"github.com/operator-framework/operator-registry/alpha/property"
@@ -22,6 +22,11 @@ func ConvertAPIBundleToModelBundle(b *Bundle) (*model.Bundle, error) {
 		return nil, fmt.Errorf("get related iamges: %v", err)
 	}
 
+	vers, err := semver.Parse(b.Version)
+	if err != nil {
+		return nil, fmt.Errorf("parse version %q: %v", b.Version, err)
+	}
+
 	return &model.Bundle{
 		Name:          b.CsvName,
 		Image:         b.BundlePath,
@@ -32,10 +37,12 @@ func ConvertAPIBundleToModelBundle(b *Bundle) (*model.Bundle, error) {
 		Objects:       b.Object,
 		Properties:    bundleProps,
 		RelatedImages: relatedImages,
+		Version:       vers,
 	}, nil
 }
 
 func convertAPIBundleToModelProperties(b *Bundle) ([]property.Property, error) {
+	// nolint:prealloc
 	var out []property.Property
 
 	providedGVKs := map[property.GVK]struct{}{}
@@ -108,17 +115,8 @@ func convertAPIBundleToModelProperties(b *Bundle) ([]property.Property, error) {
 		out = append(out, property.MustBuildGVKRequired(p.Group, p.Version, p.Kind))
 	}
 
-	// If there is a bundle image reference and a valid CSV, create an
-	// olm.csv.metadata property. Otherwise, create a bundle object property for
-	// each object in the bundle.
-	var csv v1alpha1.ClusterServiceVersion
-	csvErr := json.Unmarshal([]byte(b.CsvJson), &csv)
-	if csvErr == nil && b.BundlePath != "" {
-		out = append(out, property.MustBuildCSVMetadata(csv))
-	} else {
-		for _, obj := range b.Object {
-			out = append(out, property.MustBuildBundleObjectData([]byte(obj)))
-		}
+	for _, obj := range b.Object {
+		out = append(out, property.MustBuildBundleObject([]byte(obj)))
 	}
 
 	sort.Slice(out, func(i, j int) bool {
