@@ -1890,9 +1890,46 @@ func (m *jobManager) CheckValidJobConfiguration(req *JobRequest) error {
 	return nil
 }
 
+// validVersionRegexes represents all the valid version formats we recognize for OpenShift.
+var validVersionRegexes = []*regexp.Regexp{
+	regexp.MustCompile(`^\d+\.\d+`),               // 4.19
+	regexp.MustCompile(`^nightly`),                // nightly
+	regexp.MustCompile(`^ci`),                     // ci
+	regexp.MustCompile(`^\d+\.\d+\.nightly`),      // 4.19.nightly
+	regexp.MustCompile(`^\d+\.\d+\.ci`),           // 4.19.ci
+	regexp.MustCompile(`^\d+\.\d+\.0-0\.nightly`), // 4.19.0-0.nightly
+	regexp.MustCompile(`^\d+\.\d+\.0-0\.ci`),      // 4.19.0-0.ci
+
+	// Release specs for nightly and ci
+	regexp.MustCompile(`^.*release:\d+\.\d+\.\d+-0\.nightly-\d{4}-\d{2}-\d{2}-\d{6}$`),
+	regexp.MustCompile(`^.*release:\d+\.\d+\.\d+-0\.ci-\d{4}-\d{2}-\d{2}-\d{6}$`),
+}
+
+// containsValidVersion checks if the provided list of images, versions, or PRs contains a valid version.
+// A valid version is of the list of patterns in validVersions.
+// The function returns true if any of the items in the list matches a valid version pattern.
+// This ensures that we definitively know what version of Openshift to use when creating a cluster.
+func containsValidVersion(listOfImageOrVersionOrPRs []string) bool {
+	for _, item := range listOfImageOrVersionOrPRs {
+		for _, re := range validVersionRegexes {
+			if re.MatchString(item) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	if cluster, _ := m.getROSAClusterForUser(req.User); cluster != nil {
 		return "", fmt.Errorf("you have already requested a cluster via the `rosa create` command; %d minutes have elapsed", int(time.Since(cluster.CreationTimestamp())/time.Minute))
+	}
+
+	// Check the req.Inputs and ensure they all contain a valid version.
+	for _, input := range req.Inputs {
+		if !containsValidVersion(input) {
+			return "", fmt.Errorf("each use of the `image_or_version_or_prs` parameter must specify a valid OpenShift version.\n\n`%s` has no valid OpenShift version", input)
+		}
 	}
 
 	job, err := m.resolveToJob(req)
