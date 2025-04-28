@@ -1946,6 +1946,9 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	}
 
 	// Check the req.Inputs and ensure they all contain a valid version.
+	if len(req.Inputs) == 0 {
+		return "", fmt.Errorf("the `image_or_version_or_prs` parameter must be specified")
+	}
 	for _, input := range req.Inputs {
 		if !containsValidVersion(input) {
 			return "", fmt.Errorf("each use of the `image_or_version_or_prs` parameter must specify a valid OpenShift version.\n\n`%s` has no valid OpenShift version", input)
