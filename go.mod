@@ -57,7 +57,7 @@ require (
 	k8s.io/klog v1.0.0
 	open-cluster-management.io/api v0.14.0
 	sigs.k8s.io/controller-runtime v0.20.2
-	sigs.k8s.io/prow v0.0.0-20250430112356-e4f2577d57ca
+	sigs.k8s.io/prow v0.0.0-20250430215755-f422de9611c4
 	sigs.k8s.io/yaml v1.4.0
 )
 
