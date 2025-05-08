@@ -2582,8 +2582,8 @@ github.com/openshift/moby-moby v1.4.2-0.20190308215630-da810a85109d h1:1LuQzDKgi
 github.com/openshift/moby-moby v1.4.2-0.20190308215630-da810a85109d/go.mod h1:LJM49W8fBVSj+rvcopJZu9mgH5Tx6HwLHySIYeGeu4k=
 github.com/openshift/oc v0.0.0-alpha.0.0.20230410203846-b68ac7c39057 h1:qPCovANfcKaI45rXB/TcIgoaJtufe/W9LcCBc5PaXVM=
 github.com/openshift/oc v0.0.0-alpha.0.0.20230410203846-b68ac7c39057/go.mod h1:XpOVZsTmYlQz/ndFR/FOfPLm4/k13XMafwYNkfA8wLc=
-github.com/openshift/rosa v1.2.52 h1:qShihQbzkms9J9ydr6OkppjKEpePXVNmBYckNXQcU48=
-github.com/openshift/rosa v1.2.52/go.mod h1:mHAI0wqPRp6BGFmgS+m1xcFEMmi5C2oSdLEyQQ8tTvU=
+github.com/openshift/rosa v1.2.53 h1:3B6lJYX4uPy1Psx3QaDTzG/RPA3DQcHU49UaCQ+z5MA=
+github.com/openshift/rosa v1.2.53/go.mod h1:GRtHPGWj8UUJYW+uRvK/QDe9SNwldgHsNPaPRjaSkHE=
 github.com/opentracing/opentracing-go v1.1.0/go.mod h1:UkNAQd3GIcIGf0SeVgPpRdFStlNbqXla1AfSYxPUl2o=
 github.com/operator-framework/api v0.29.0 h1:TxAR8RCO+I4FjRrY4PSMgnlmbxNWeD8pzHXp7xwHNmw=
 github.com/operator-framework/api v0.29.0/go.mod h1:0whQE4mpMDd2zyHkQe+bFa3DLoRs6oGWCbu8dY/3pyc=
