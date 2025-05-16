@@ -824,7 +824,7 @@ func (m *jobManager) sync() error {
 				m.mceClusters.lock.RUnlock()
 			}
 
-		case prowapiv1.TriggeredState, prowapiv1.PendingState, "":
+		case prowapiv1.SchedulingState, prowapiv1.TriggeredState, prowapiv1.PendingState, "":
 			j.State = prowapiv1.PendingState
 			j.Failure = ""
 
@@ -2124,14 +2124,16 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	prowJobUrl, err := m.newJob(job)
 	if err != nil {
 		// In the case where a ProwJob has been created, but we fail to get its URL, we shouldn't delete anything
-		if !strings.HasPrefix(err.Error(), "did not retrieve job url due to an error:") {
+		if !strings.HasPrefix(err.Error(), "timed out waiting for your prowjob") {
 			m.lock.Lock()
 			defer m.lock.Unlock()
 			// Cleanup any active requests and/or jobs
 			delete(m.requests, req.User)
 			delete(m.jobs, req.Name)
+
+			return "", fmt.Errorf("the requested job cannot be started: %v", err)
 		}
-		return "", fmt.Errorf("the requested job cannot be started: %v", err)
+		return "", fmt.Errorf("the requested job is taking longer than expected to start: %v", err)
 	}
 
 	go m.handleJobStartup(*job, "start")
@@ -2287,11 +2289,15 @@ func (m *jobManager) handleJobStartup(job Job, source string) {
 	defer m.finishJob(job.Name)
 
 	if err := m.waitForJob(&job); err != nil {
-		if err == errJobCompleted || strings.Contains(err.Error(), errJobCompleted.Error()) {
+		if errors.Is(err, errJobCompleted) || strings.Contains(err.Error(), errJobCompleted.Error()) {
 			klog.Infof("Job %q aborted due to detecting completion (%s): %v", job.Name, source, err)
 		} else {
-			klog.Errorf("Job %q failed to launch (%s): %v", job.Name, source, err)
-			job.Failure = err.Error()
+			if strings.HasPrefix(err.Error(), "timed out waiting for your prowjob") {
+				klog.Errorf("Job %q timed out waiting for prowjob to start (%s): %v", job.Name, source, err)
+			} else {
+				klog.Errorf("Job %q failed to launch (%s): %v", job.Name, source, err)
+				job.Failure = err.Error()
+			}
 		}
 	}
 	m.finishedJob(job)
