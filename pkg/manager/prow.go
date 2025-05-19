@@ -890,7 +890,10 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		return false, nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("did not retrieve job url due to an error: %v", err)
+		if err.Error() == "context deadline exceeded" {
+			return "", fmt.Errorf("timed out waiting for your prowjob %q to be scheduled.  The job should eventually start and the ClusterBot will respond accordingly.  You can monitor the status yourself via the `list` command.  When a \"view logs\" link appears on the line associated with your name, your job has been scheduled and should progress normally.  If not, please reach out for assistance in #forum-ocp-crt.", job.Name)
+		}
+		return "", fmt.Errorf("unable to retrieve job url due to an unexpected error, please reach out for assistance in #forum-ocp-crt: %v", err)
 	}
 
 	return prowJobURL, nil
@@ -1133,7 +1136,10 @@ func (m *jobManager) waitForJob(job *Job) error {
 		return done, nil
 	})
 	if err != nil {
-		return fmt.Errorf("did not retrieve job url due to an error: %v", err)
+		if err.Error() == "context deadline exceeded" {
+			return fmt.Errorf("timed out waiting for your prowjob %q to be scheduled.  The job should eventually start and the ClusterBot will respond accordingly.  You can monitor the status yourself via the `list` command.  When a \"view logs\" link appears on the line associated with your name, your job has been scheduled and should progress normally.  If not, please reach out for assistance in #forum-ocp-crt.", job.Name)
+		}
+		return fmt.Errorf("did not retrieve job url due to an unexpected error, please reach out for assistance in #forum-ocp-crt: %v", err)
 	}
 
 	if job.IsComplete() {
