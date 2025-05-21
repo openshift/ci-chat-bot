@@ -1921,6 +1921,9 @@ var validVersionRegexes = []*regexp.Regexp{
 
 	// Konflux releases
 	regexp.MustCompile(`^registry\.ci\.openshift\.org/ocp/konflux-release:\d+\.\d+\.\d+-0\.konflux-nightly-\d{4}-\d{2}-\d{2}-\d{6}`),
+
+	// Releases built with clusterbot 'build' command
+	regexp.MustCompile(`^registry\.build.*\.ci\.openshift\.org/ci.*/release`),
 }
 
 // containsValidVersion checks if the provided list of images, versions, or PRs contains a valid version.

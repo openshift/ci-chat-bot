@@ -201,6 +201,13 @@ func Test_containsValidVersion(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "Release built with the clusterbot 'build' command: 'launch registry.build06.ci.openshift.org/ci-ln-s6v83tt/release:latest'",
+			args: args{
+				listOfImageOrVersionOrPRs: []string{"registry.build06.ci.openshift.org/ci-ln-s6v83tt/release:latest"},
+			},
+			want: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
