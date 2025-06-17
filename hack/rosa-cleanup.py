@@ -327,6 +327,55 @@ def prune_s3_buckets(clusters, resources):
         logger.info(f'Deleted bucket: {b.name}')
 
 
+def get_route53_hosted_zones():
+    client = boto3.client('route53')
+    return get_aws_paginated_resources(client, 'list_hosted_zones', 'HostedZones')
+
+
+def prune_route53_hosted_zones(clusters, resources):
+    route53 = boto3.client('route53')
+    zones = []
+
+    for zone in resources:
+        zone_id = zone['Id'].replace('/hostedzone/', '')
+        response = route53.list_tags_for_resource(ResourceType='hostedzone', ResourceId=zone_id)
+
+        # Special care needs to be taken for Hosted Zones because deleting the wrong one would be disastrous to the
+        # entire environment (be afraid, be very afraid)...
+        zone_tags = response['ResourceTagSet']['Tags']
+        tags = []
+        for tag in zone_tags:
+            if tag['Key'].startswith('kubernetes.io/cluster/') or tag['Key'] == 'api.openshift.com/id':
+                tags.extend(zone_tags)
+
+        if len(tags) > 0 and not associated_with_active_cluster(tags, clusters):
+            zones.append((zone_id, zone['Name']))
+
+    logger.info(f'Found: {len(zones)} orphaned hosted zones')
+    for zone in zones:
+        response = route53.list_resource_record_sets(HostedZoneId=zone[0])
+
+        changes = []
+        for record_set in response['ResourceRecordSets']:
+            if record_set['Type'] == 'NS' or record_set['Type'] == 'SOA':
+                continue
+
+            changes.append({
+                'Action': 'DELETE',
+                'ResourceRecordSet': record_set,
+            })
+
+        if len(changes) > 0:
+            logger.info(f' Deleting: {len(changes)} ResourceRecordSets in zone: {zone[0]}')
+            route53.change_resource_record_sets(HostedZoneId=zone[0], ChangeBatch={
+                'Comment': 'Pruning orphaned resources',
+                'Changes': changes,
+            })
+
+        logger.info(f' Deleting hosted zone: {zone[0]} ({zone[1]})')
+        route53.delete_hosted_zone(Id=zone[0])
+
+
 def chunks(lst, n):
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
@@ -441,3 +490,6 @@ if __name__ == '__main__':
 
     # S3 Buckets
     prune_s3_buckets(rosa_clusters, get_s3_buckets())
+
+    # Route53 Hosted Zones
+    prune_route53_hosted_zones(rosa_clusters, get_route53_hosted_zones())
