@@ -260,6 +260,8 @@ def prune_ec2_security_groups(clusters, resources):
 
     security_groups = []
     for security_group in resources:
+        if security_group['GroupName'] == "default":
+            continue
         if 'Tags' in security_group:
             if not associated_with_active_cluster(security_group['Tags'], clusters):
                 security_groups.append(ec2.SecurityGroup(security_group["GroupId"]))
