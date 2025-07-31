@@ -156,7 +156,7 @@ rules:
 ```
 This shows:
 - Your employee information
-- Team and organization memberships  
+- Organizational memberships (teams, groups, organizations with their types)
 - Specific commands you can execute
 - How you get access to each command
 
