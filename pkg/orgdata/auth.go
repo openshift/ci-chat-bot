@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 	"gopkg.in/yaml.v2"
 )
 
@@ -209,7 +211,7 @@ func formatOrgType(typeName string) string {
 	case "division":
 		return "Division"
 	default:
-		return strings.Title(strings.ReplaceAll(typeName, "_", " "))
+		return cases.Title(language.Und, cases.NoLower).String(strings.ReplaceAll(typeName, "_", " "))
 	}
 }
 
