@@ -146,29 +146,71 @@ func (a *AuthorizationService) CheckAuthorization(slackUserID, command string) (
 	return false, denyMessage
 }
 
-// GetUserOrganizations returns all organizations a Slack user belongs to
+// GetUserOrganizations returns all organizations a Slack user belongs to (names only, for backward compatibility)
 func (a *AuthorizationService) GetUserOrganizations(slackUserID string) []string {
+	orgInfos := a.GetUserOrganizationsWithType(slackUserID)
+	var orgs []string
+	for _, orgInfo := range orgInfos {
+		orgs = append(orgs, orgInfo.Name)
+	}
+	return orgs
+}
+
+// GetUserOrganizationsWithType returns all organizations a Slack user belongs to with their types
+func (a *AuthorizationService) GetUserOrganizationsWithType(slackUserID string) []OrgInfo {
 	teams := a.orgDataService.GetTeamsForSlackID(slackUserID)
-	orgSet := make(map[string]bool)
+	orgMap := make(map[string]OrgInfo) // Use map to deduplicate
 
 	// Get all orgs from teams
 	for _, teamName := range teams {
 		a.orgDataService.mu.RLock()
 		if team, exists := a.orgDataService.nameToOrgUnit[teamName]; exists {
+			// Add the team itself first
+			if team.Group.Type.Name != "" {
+				orgMap[team.Name] = OrgInfo{
+					Name: team.Name,
+					Type: formatOrgType(team.Group.Type.Name),
+				}
+			}
+
+			// Add all parent organizations from the org path
 			for _, orgName := range team.OrgPath {
-				orgSet[orgName] = true
+				if orgUnit, orgExists := a.orgDataService.nameToOrgUnit[orgName]; orgExists {
+					orgMap[orgName] = OrgInfo{
+						Name: orgName,
+						Type: formatOrgType(orgUnit.Group.Type.Name),
+					}
+				}
 			}
 		}
 		a.orgDataService.mu.RUnlock()
 	}
 
-	// Convert set to slice
-	var orgs []string
-	for orgName := range orgSet {
-		orgs = append(orgs, orgName)
+	// Convert map to slice
+	var orgs []OrgInfo
+	for _, orgInfo := range orgMap {
+		orgs = append(orgs, orgInfo)
 	}
 
 	return orgs
+}
+
+// formatOrgType converts internal type names to user-friendly display names
+func formatOrgType(typeName string) string {
+	switch typeName {
+	case "team":
+		return "Team"
+	case "team_group":
+		return "Team Group"
+	case "org":
+		return "Organization"
+	case "pillar":
+		return "Pillar"
+	case "division":
+		return "Division"
+	default:
+		return strings.Title(strings.ReplaceAll(typeName, "_", " "))
+	}
 }
 
 // GetUserTeams returns all teams a Slack user belongs to
@@ -176,10 +218,16 @@ func (a *AuthorizationService) GetUserTeams(slackUserID string) []string {
 	return a.orgDataService.GetTeamsForSlackID(slackUserID)
 }
 
+// OrgInfo represents organization information with type
+type OrgInfo struct {
+	Name string
+	Type string
+}
+
 // UserInfo represents comprehensive user information for display
 type UserInfo struct {
 	Employee      *Employee
-	Organizations []string
+	Organizations []OrgInfo // Changed from []string to []OrgInfo
 	Teams         []string
 	SlackID       string
 	HasOrgData    bool
@@ -195,7 +243,7 @@ func (a *AuthorizationService) GetUserInfo(slackUserID string) *UserInfo {
 	}
 
 	employee := a.orgDataService.GetEmployeeBySlackID(slackUserID)
-	orgs := a.GetUserOrganizations(slackUserID)
+	orgs := a.GetUserOrganizationsWithType(slackUserID)
 	teams := a.orgDataService.GetTeamsForSlackID(slackUserID)
 
 	return &UserInfo{
