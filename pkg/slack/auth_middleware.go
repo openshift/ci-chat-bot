@@ -72,22 +72,11 @@ func GetUserInfo(client *slack.Client, authService *orgdata.AuthorizationService
 	}
 	response.WriteString("\n")
 
-	// Team memberships
-	response.WriteString("*Team Memberships:*\n")
-	if len(userInfo.Teams) > 0 {
-		for _, team := range userInfo.Teams {
-			response.WriteString(fmt.Sprintf("• `%s`\n", team))
-		}
-	} else {
-		response.WriteString("• None found\n")
-	}
-	response.WriteString("\n")
-
-	// Organization memberships
-	response.WriteString("*Organization Memberships:*\n")
+	// Organizational memberships (consolidated teams and orgs with types)
+	response.WriteString("*Organizational Memberships:*\n")
 	if len(userInfo.Organizations) > 0 {
 		for _, org := range userInfo.Organizations {
-			response.WriteString(fmt.Sprintf("• `%s`\n", org))
+			response.WriteString(fmt.Sprintf("• `%s` (%s)\n", org.Name, org.Type))
 		}
 	} else {
 		response.WriteString("• None found\n")
@@ -135,10 +124,15 @@ func GetUserInfo(client *slack.Client, authService *orgdata.AuthorizationService
 	if emp.UID != "" {
 		response.WriteString(fmt.Sprintf("• Commands with your UID `%s` in `allowed_uids`\n", emp.UID))
 	}
-	if len(userInfo.Teams) > 0 {
+
+	// Check if user has teams (for allowed_teams) or orgs (for allowed_orgs)
+	hasTeams := len(userInfo.Teams) > 0
+	hasOrgs := len(userInfo.Organizations) > 0
+
+	if hasTeams {
 		response.WriteString("• Commands with your teams in `allowed_teams`\n")
 	}
-	if len(userInfo.Organizations) > 0 {
+	if hasOrgs {
 		response.WriteString("• Commands with your organizations in `allowed_orgs`\n")
 	}
 
