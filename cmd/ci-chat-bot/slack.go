@@ -9,6 +9,7 @@ import (
 	jiraClient "github.com/andygrunwald/go-jira"
 	"github.com/openshift/ci-chat-bot/pkg/jira"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/orgdata"
 	"github.com/openshift/ci-chat-bot/pkg/slack"
 	eventhandler "github.com/openshift/ci-chat-bot/pkg/slack/events"
 	eventrouter "github.com/openshift/ci-chat-bot/pkg/slack/events/router"
@@ -31,7 +32,7 @@ func l(fragment string, children ...simplifypath.Node) simplifypath.Node {
 	return simplifypath.L(fragment, children...)
 }
 
-func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.JobManager, httpclient *http.Client, health *pjutil.Health, iOpts prowflagutil.InstrumentationOptions, clusterBotMetrics *metrics.Metrics) {
+func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.JobManager, httpclient *http.Client, health *pjutil.Health, iOpts prowflagutil.InstrumentationOptions, clusterBotMetrics *metrics.Metrics, authService *orgdata.AuthorizationService) {
 	slackclient := slackClient.New(bot.BotToken)
 	jobManager.SetNotifier(bot.JobResponder(slackclient))
 	jobManager.SetRosaNotifier(bot.RosaResponder(slackclient))

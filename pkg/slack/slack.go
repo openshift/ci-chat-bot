@@ -14,14 +14,19 @@ import (
 
 	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/orgdata"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/slackevents"
 	"k8s.io/klog"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 )
+
+// AuthorizationService is a type alias for orgdata.AuthorizationService
+type AuthorizationService = orgdata.AuthorizationService
 
 type Bot struct {
 	BotToken         string
@@ -29,6 +34,7 @@ type Bot struct {
 	GracePeriod      time.Duration
 	Port             int
 	userID           string
+	authService      *AuthorizationService
 }
 
 func (b *Bot) JobResponder(s *slack.Client) func(manager.Job) {
@@ -104,13 +110,14 @@ func (b *Bot) MceResponder(s *slack.Client) func(*clusterv1.ManagedCluster, *hiv
 	}
 }
 
-func NewBot(botToken, botSigningSecret string, graceperiod time.Duration, port int, workflowConfig *manager.WorkflowConfig) *Bot {
+func NewBot(botToken, botSigningSecret string, graceperiod time.Duration, port int, workflowConfig *manager.WorkflowConfig, authService *AuthorizationService) *Bot {
 	return &Bot{
 		BotToken:         botToken,
 		BotSigningSecret: botSigningSecret,
 		GracePeriod:      graceperiod,
 		Port:             port,
 		userID:           "unknown",
+		authService:      authService,
 	}
 }
 
@@ -122,12 +129,12 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 				strings.Join(CodeSlice(manager.SupportedArchitectures), ", "),
 				strings.Join(CodeSlice(manager.SupportedParameters), ", ")),
 			Example: "launch 4.19,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
-			Handler: LaunchCluster,
+			Handler: AuthorizedCommandHandler("launch", b.authService, LaunchCluster),
 		}, false),
 		parser.NewBotCommand("rosa create <version> <duration>", &parser.CommandDefinition{
 			Description: "Launch an cluster in ROSA. Only GA Openshift versions are supported at the moment.",
 			Example:     "rosa create 4.19 3h",
-			Handler:     RosaCreate,
+			Handler:     AuthorizedCommandHandler("rosa_create", b.authService, RosaCreate),
 		}, false),
 		parser.NewBotCommand("rosa lookup <version>", &parser.CommandDefinition{
 			Description: "Find openshift version(s) with provided prefix that is supported in ROSA.",
@@ -173,7 +180,7 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		parser.NewBotCommand("workflow-launch <name> <image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
 			Description: "Launch a cluster using the requested workflow from an image or release or built PRs. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org.",
 			Example:     "workflow-launch openshift-e2e-gcp-windows-node 4.19 gcp",
-			Handler:     WorkflowLaunch,
+			Handler:     AuthorizedCommandHandler("workflow_launch", b.authService, WorkflowLaunch),
 		}, false),
 		parser.NewBotCommand("workflow-test <name> <image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
 			Description: "Start the test using the requested workflow from an image or release or built PRs. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org.",
@@ -189,6 +196,12 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Description: "Report the version of the bot",
 			Handler:     Version,
 		}, false),
+		parser.NewBotCommand("whoami", &parser.CommandDefinition{
+			Description: "Show your organizational information and team memberships",
+			Handler: func(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+				return GetUserInfo(client, b.authService, event, properties)
+			},
+		}, false),
 		parser.NewBotCommand("lookup <image_or_version_or_prs> <architecture>", &parser.CommandDefinition{
 			Description: "Get info about a version.",
 			Example:     "lookup 4.19 arm64",
@@ -202,8 +215,8 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		parser.NewBotCommand("mce create <image_or_version_or_prs> <duration> <platform>", &parser.CommandDefinition{
 			Description: "Create a new cluster using Hive and MCE.",
 			Example:     "mce create 4.16.7 6h aws",
-			Handler:     MceCreate,
-		}, false),
+			Handler:     AuthorizedCommandHandler("mce_create", b.authService, MceCreate),
+		}, true),
 		parser.NewBotCommand("mce auth <name>", &parser.CommandDefinition{
 			Description: "Print kubeconfig and kubeadmin password for specified MCE cluster.",
 			Example:     "mce auth mycluster",
