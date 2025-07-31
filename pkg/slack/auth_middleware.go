@@ -43,15 +43,15 @@ func GetUserInfo(client *slack.Client, authService *orgdata.AuthorizationService
 	userName := GetUserName(client, event.User)
 
 	var response strings.Builder
-	response.WriteString("🔍 **Your Account Information**\n\n")
+	response.WriteString("🔍 *Your Account Information*\n\n")
 
 	// Basic Slack information
-	response.WriteString("**Slack Details:**\n")
-	response.WriteString(fmt.Sprintf("• **Name**: %s\n", userName))
-	response.WriteString(fmt.Sprintf("• **Slack ID**: `%s`\n\n", event.User))
+	response.WriteString("*Slack Details:*\n")
+	response.WriteString(fmt.Sprintf("• *Name*: %s\n", userName))
+	response.WriteString(fmt.Sprintf("• *Slack ID*: `%s`\n\n", event.User))
 
 	if !userInfo.HasOrgData {
-		response.WriteString("⚠️ **No organizational data found**\n")
+		response.WriteString("⚠️ *No organizational data found*\n")
 		response.WriteString("You may not be in the organizational directory, or the org data service may not be loaded.\n")
 		response.WriteString("This means you'll only have access to commands with `allow_all: true` in the authorization config.\n")
 		return response.String()
@@ -59,21 +59,21 @@ func GetUserInfo(client *slack.Client, authService *orgdata.AuthorizationService
 
 	// Employee information from org data
 	emp := userInfo.Employee
-	response.WriteString("**Employee Information:**\n")
-	response.WriteString(fmt.Sprintf("• **Employee UID**: `%s`\n", emp.UID))
+	response.WriteString("*Employee Information:*\n")
+	response.WriteString(fmt.Sprintf("• *Employee UID*: `%s`\n", emp.UID))
 	if emp.DisplayName != "" {
-		response.WriteString(fmt.Sprintf("• **Display Name**: %s\n", emp.DisplayName))
+		response.WriteString(fmt.Sprintf("• *Display Name*: %s\n", emp.DisplayName))
 	}
 	if emp.Email != "" {
-		response.WriteString(fmt.Sprintf("• **Email**: %s\n", emp.Email))
+		response.WriteString(fmt.Sprintf("• *Email*: %s\n", emp.Email))
 	}
 	if emp.JobTitle != "" {
-		response.WriteString(fmt.Sprintf("• **Job Title**: %s\n", emp.JobTitle))
+		response.WriteString(fmt.Sprintf("• *Job Title*: %s\n", emp.JobTitle))
 	}
 	response.WriteString("\n")
 
 	// Team memberships
-	response.WriteString("**Team Memberships:**\n")
+	response.WriteString("*Team Memberships:*\n")
 	if len(userInfo.Teams) > 0 {
 		for _, team := range userInfo.Teams {
 			response.WriteString(fmt.Sprintf("• `%s`\n", team))
@@ -84,7 +84,7 @@ func GetUserInfo(client *slack.Client, authService *orgdata.AuthorizationService
 	response.WriteString("\n")
 
 	// Organization memberships
-	response.WriteString("**Organization Memberships:**\n")
+	response.WriteString("*Organization Memberships:*\n")
 	if len(userInfo.Organizations) > 0 {
 		for _, org := range userInfo.Organizations {
 			response.WriteString(fmt.Sprintf("• `%s`\n", org))
@@ -95,8 +95,42 @@ func GetUserInfo(client *slack.Client, authService *orgdata.AuthorizationService
 	response.WriteString("\n")
 
 	// Authorization troubleshooting info
-	response.WriteString("**Authorization Access:**\n")
-	response.WriteString("You have access to commands based on:\n")
+	response.WriteString("*Commands You Can Execute:*\n")
+
+	userCommands := authService.GetUserCommands(event.User)
+	totalCommands := 0
+
+	// Count total commands for summary
+	for _, commands := range userCommands {
+		totalCommands += len(commands)
+	}
+
+	if totalCommands == 0 {
+		response.WriteString("⚠️ No specific commands configured - you have access to all unrestricted commands\n\n")
+	} else {
+		// Display commands by access type
+		if len(userCommands["allow_all"]) > 0 {
+			response.WriteString(fmt.Sprintf("🌐 *Available to Everyone:* %s\n", formatCommandList(userCommands["allow_all"])))
+		}
+
+		if len(userCommands["by_uid"]) > 0 {
+			response.WriteString(fmt.Sprintf("👤 *Your Personal Access:* %s\n", formatCommandList(userCommands["by_uid"])))
+		}
+
+		if len(userCommands["by_team"]) > 0 {
+			response.WriteString(fmt.Sprintf("👥 *Via Team Membership:* %s\n", formatCommandList(userCommands["by_team"])))
+		}
+
+		if len(userCommands["by_org"]) > 0 {
+			response.WriteString(fmt.Sprintf("🏢 *Via Organization:* %s\n", formatCommandList(userCommands["by_org"])))
+		}
+
+		response.WriteString("\n")
+	}
+
+	// Add troubleshooting info
+	response.WriteString("*Authorization Logic:*\n")
+	response.WriteString("Access is granted if you match any of:\n")
 	response.WriteString("• Commands with `allow_all: true` (everyone)\n")
 	if emp.UID != "" {
 		response.WriteString(fmt.Sprintf("• Commands with your UID `%s` in `allowed_uids`\n", emp.UID))
@@ -109,6 +143,22 @@ func GetUserInfo(client *slack.Client, authService *orgdata.AuthorizationService
 	}
 
 	return response.String()
+}
+
+// formatCommandList formats a slice of command names for display
+func formatCommandList(commands []string) string {
+	if len(commands) == 0 {
+		return "None"
+	}
+
+	result := ""
+	for i, cmd := range commands {
+		if i > 0 {
+			result += ", "
+		}
+		result += "`" + cmd + "`"
+	}
+	return result
 }
 
 // formatList formats a slice of strings into a comma-separated list

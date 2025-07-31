@@ -376,24 +376,33 @@ func run() error {
 		if err := orgDataService.LoadFromFiles(opt.orgDataPaths); err != nil {
 			log.Printf("Warning: Failed to load organizational data: %v", err)
 		} else {
+			log.Printf("Successfully loaded organizational data")
 			// Start hot reload watcher
 			go orgDataService.StartConfigMapWatcher(ctx, opt.orgDataPaths)
 
 			// Initialize authorization service if config is provided
 			if opt.authorizationConfigPath != "" {
+				log.Printf("Initializing authorization service with config: %s", opt.authorizationConfigPath)
 				authService = orgdata.NewAuthorizationService(orgDataService, opt.authorizationConfigPath)
 				if err := authService.LoadConfig(); err != nil {
 					log.Printf("Warning: Failed to load authorization config: %v", err)
+					// Keep the authService even if config fails to load - it will allow all commands
 				} else {
 					// Start config watcher
 					go authService.StartConfigWatcher()
-					log.Printf("Authorization service initialized with config: %s", opt.authorizationConfigPath)
+					log.Printf("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
 				}
+			} else {
+				log.Printf("No authorization config path provided, creating authorization service without config")
+				// Create authorization service without config - will allow all commands
+				authService = orgdata.NewAuthorizationService(orgDataService, "")
 			}
 		}
 	} else {
 		log.Printf("No organizational data paths provided, running without authorization")
 	}
+
+	log.Printf("Debug: authService is nil: %v", authService == nil)
 
 	bot := slack.NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows, authService)
 	jiraclient, err := opt.jiraOptions.Client()
