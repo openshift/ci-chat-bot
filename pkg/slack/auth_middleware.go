@@ -154,19 +154,3 @@ func formatCommandList(commands []string) string {
 	}
 	return result
 }
-
-// formatList formats a slice of strings into a comma-separated list
-func formatList(items []string) string {
-	if len(items) == 0 {
-		return "None"
-	}
-
-	result := ""
-	for i, item := range items {
-		if i > 0 {
-			result += ", "
-		}
-		result += "`" + item + "`"
-	}
-	return result
-}
