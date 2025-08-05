@@ -55,6 +55,7 @@ import (
 	"slices"
 
 	"github.com/blang/semver"
+	reference "github.com/containers/image/v5/docker/reference"
 	"gopkg.in/yaml.v2"
 	prowInformer "sigs.k8s.io/prow/pkg/client/informers/externalversions/prowjobs/v1"
 )
@@ -1890,6 +1891,12 @@ func (m *jobManager) CheckValidJobConfiguration(req *JobRequest) error {
 	return nil
 }
 
+var allowedRegistries = []string{
+	"registry.ci.openshift.org",
+	"quay.io",
+	"registry.build06.ci.openshift.org",
+}
+
 // validVersionRegexes represents all the valid version formats we recognize for OpenShift.
 // We allow an optional comma in the front so we can account for both 4.19,xxxx and xxxx,4.19
 var validVersionRegexes = []*regexp.Regexp{
@@ -1928,7 +1935,7 @@ var validVersionRegexes = []*regexp.Regexp{
 
 // containsValidVersion checks if the provided list of images, versions, or PRs contains a valid version.
 // A valid version is of the list of patterns in validVersions.
-// The function returns true if any of the items in the list matches a valid version pattern.
+// The function returns true if any of the items in the list matches a valid version pattern or pullspec.
 // This ensures that we definitively know what version of Openshift to use when creating a cluster.
 // When a user says "launch openshift/installer#7160,4.19", when this function is called, listOfImageOrVersionOrPRs
 // will be a slice of images, versions, or PRs and look like []{"openshift/installer#7160", "4.19"}
@@ -1937,6 +1944,25 @@ func containsValidVersion(listOfImageOrVersionOrPRs []string) bool {
 		for _, re := range validVersionRegexes {
 			if re.MatchString(item) {
 				return true
+			}
+		}
+
+		// Try to parse as a pullspec
+		named, err := reference.ParseNormalizedNamed(item)
+		if err == nil {
+			// For valid pullspecs, check if it's from an allowed registry
+			domain := reference.Domain(named)
+			for _, allowedRegistry := range allowedRegistries {
+				if domain == allowedRegistry {
+					// Additional validation: must have either a tag or digest
+					if _, isTagged := named.(reference.Tagged); isTagged {
+						return true
+					}
+					if _, isDigested := named.(reference.Digested); isDigested {
+						return true
+					}
+					break
+				}
 			}
 		}
 	}

@@ -97,6 +97,41 @@ func Test_containsValidVersion(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "Valid registry.ci PullSpec with tag: 'launch registry.ci.openshift.org/rhcos-devel/v4.20.0:4.20.0-ec.5'",
+			args: args{
+				listOfImageOrVersionOrPRs: []string{"registry.ci.openshift.org/rhcos-devel/v4.20.0:4.20.0-ec.5"},
+			},
+			want: true,
+		},
+		{
+			name: "Valid registry.ci PullSpec with SHA: 'launch registry.ci.openshift.org/rhcos-devel/v4.20.0@sha256:3eb762ec9a082184f5b10adf850e897ab51556403a1f6aed70063aa0b7ad507d'",
+			args: args{
+				listOfImageOrVersionOrPRs: []string{"registry.ci.openshift.org/rhcos-devel/v4.20.0@sha256:3eb762ec9a082184f5b10adf850e897ab51556403a1f6aed70063aa0b7ad507d"},
+			},
+			want: true,
+		},
+		{
+			name: "Invalid registry.ci PullSpec (missing tag or SHA): 'launch registry.ci.openshift.org/rhcos-devel/v4.20.0'",
+			args: args{
+				listOfImageOrVersionOrPRs: []string{"registry.ci.openshift.org/rhcos-devel/v4.20.0"},
+			},
+			want: false,
+		},
+		{
+			name: "Invalid registry.ci PullSpec (missing v prefix and tag): 'launch registry.ci.openshift.org/rhcos-devel/4.20.0'",
+			args: args{
+				listOfImageOrVersionOrPRs: []string{"registry.ci.openshift.org/rhcos-devel/4.20.0"},
+			},
+			want: false,
+		},
+		{
+			name: "Invalid registry.ci PullSpec (missing tag but has v prefix): 'launch registry.ci.openshift.org/rhcos-devel/v4.20.0'",
+			args: args{
+				listOfImageOrVersionOrPRs: []string{"registry.ci.openshift.org/rhcos-devel/v4.20.0"},
+			},
+			want: false,
+		},
+		{
 			name: "Using a pull request without version specified: 'launch openshift/installer#7160'",
 			args: args{
 				listOfImageOrVersionOrPRs: []string{"openshift/installer#7160"},
