@@ -1891,21 +1891,15 @@ func (m *jobManager) CheckValidJobConfiguration(req *JobRequest) error {
 	return nil
 }
 
-func generateBuildClusterRegistries() []string {
-	registries := []string{
-		"registry.ci.openshift.org",
-		"quay.io",
-	}
-
-	// Add build01 through build11
-	for i := 1; i <= 11; i++ {
-		registries = append(registries, fmt.Sprintf("registry.build%02d.ci.openshift.org", i))
-	}
-
-	return registries
+// allowedRegistryNames contains the exact names of allowed registries
+var allowedRegistryNames = []string{
+	"quay.io",
 }
 
-var allowedRegistries = generateBuildClusterRegistries()
+// allowedRegistryRegexes contains regex patterns for allowed registries
+var allowedRegistryRegexes = []*regexp.Regexp{
+	regexp.MustCompile(`^registry\..*\.openshift\.org`),
+}
 
 // validVersionRegexes represents all the valid version formats we recognize for OpenShift.
 // We allow an optional comma in the front so we can account for both 4.19,xxxx and xxxx,4.19
@@ -1960,18 +1954,24 @@ func containsValidVersion(listOfImageOrVersionOrPRs []string) bool {
 		// Try to parse as a pullspec
 		named, err := reference.ParseNormalizedNamed(item)
 		if err == nil {
-			// For valid pullspecs, check if it's from an allowed registry
-			domain := reference.Domain(named)
-			for _, allowedRegistry := range allowedRegistries {
-				if domain == allowedRegistry {
-					// Additional validation: must have either a tag or digest
-					if _, isTagged := named.(reference.Tagged); isTagged {
+			// Check if the reference has a tag or digest
+			_, isTagged := named.(reference.Tagged)
+			_, isDigested := named.(reference.Digested)
+			if isTagged || isDigested {
+				domain := reference.Domain(named)
+
+				// Check registry name exact matches
+				for _, allowedRegistry := range allowedRegistryNames {
+					if domain == allowedRegistry {
 						return true
 					}
-					if _, isDigested := named.(reference.Digested); isDigested {
+				}
+
+				// Check registry name regex patterns
+				for _, re := range allowedRegistryRegexes {
+					if re.MatchString(domain) {
 						return true
 					}
-					break
 				}
 			}
 		}
