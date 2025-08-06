@@ -55,6 +55,7 @@ import (
 	"slices"
 
 	"github.com/blang/semver"
+	reference "github.com/containers/image/v5/docker/reference"
 	"gopkg.in/yaml.v2"
 	prowInformer "sigs.k8s.io/prow/pkg/client/informers/externalversions/prowjobs/v1"
 )
@@ -1890,6 +1891,16 @@ func (m *jobManager) CheckValidJobConfiguration(req *JobRequest) error {
 	return nil
 }
 
+// allowedRegistryNames contains the exact names of allowed registries
+var allowedRegistryNames = []string{
+	"quay.io",
+}
+
+// allowedRegistryRegexes contains regex patterns for allowed registries
+var allowedRegistryRegexes = []*regexp.Regexp{
+	regexp.MustCompile(`^registry\..*\.openshift\.org`),
+}
+
 // validVersionRegexes represents all the valid version formats we recognize for OpenShift.
 // We allow an optional comma in the front so we can account for both 4.19,xxxx and xxxx,4.19
 var validVersionRegexes = []*regexp.Regexp{
@@ -1928,7 +1939,7 @@ var validVersionRegexes = []*regexp.Regexp{
 
 // containsValidVersion checks if the provided list of images, versions, or PRs contains a valid version.
 // A valid version is of the list of patterns in validVersions.
-// The function returns true if any of the items in the list matches a valid version pattern.
+// The function returns true if any of the items in the list matches a valid version pattern or pullspec.
 // This ensures that we definitively know what version of Openshift to use when creating a cluster.
 // When a user says "launch openshift/installer#7160,4.19", when this function is called, listOfImageOrVersionOrPRs
 // will be a slice of images, versions, or PRs and look like []{"openshift/installer#7160", "4.19"}
@@ -1937,6 +1948,31 @@ func containsValidVersion(listOfImageOrVersionOrPRs []string) bool {
 		for _, re := range validVersionRegexes {
 			if re.MatchString(item) {
 				return true
+			}
+		}
+
+		// Try to parse as a pullspec
+		named, err := reference.ParseNormalizedNamed(item)
+		if err == nil {
+			// Check if the reference has a tag or digest
+			_, isTagged := named.(reference.Tagged)
+			_, isDigested := named.(reference.Digested)
+			if isTagged || isDigested {
+				domain := reference.Domain(named)
+
+				// Check registry name exact matches
+				for _, allowedRegistry := range allowedRegistryNames {
+					if domain == allowedRegistry {
+						return true
+					}
+				}
+
+				// Check registry name regex patterns
+				for _, re := range allowedRegistryRegexes {
+					if re.MatchString(domain) {
+						return true
+					}
+				}
 			}
 		}
 	}
