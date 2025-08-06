@@ -111,6 +111,20 @@ func Test_containsValidVersion(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "Valid quay.io PullSpec with SHA: 'launch quay.io/myname/v4.20.0@sha256:3eb762ec9a082184f5b10adf850e897ab51556403a1f6aed70063aa0b7ad507d'",
+			args: args{
+				listOfImageOrVersionOrPRs: []string{"quay.io/myname/v4.20.0@sha256:3eb762ec9a082184f5b10adf850e897ab51556403a1f6aed70063aa0b7ad507d"},
+			},
+			want: true,
+		},
+		{
+			name: "Valid registry.mydomain.openshift.org PullSpec with SHA: 'launch registry.mydomain.openshift.org/some-ns/v4.20.0@sha256:3eb762ec9a082184f5b10adf850e897ab51556403a1f6aed70063aa0b7ad507d'",
+			args: args{
+				listOfImageOrVersionOrPRs: []string{"registry.mydomain.openshift.org/some-ns/v4.20.0@sha256:3eb762ec9a082184f5b10adf850e897ab51556403a1f6aed70063aa0b7ad507d"},
+			},
+			want: true,
+		},
+		{
 			name: "Invalid registry.ci PullSpec (missing tag or SHA): 'launch registry.ci.openshift.org/rhcos-devel/v4.20.0'",
 			args: args{
 				listOfImageOrVersionOrPRs: []string{"registry.ci.openshift.org/rhcos-devel/v4.20.0"},
