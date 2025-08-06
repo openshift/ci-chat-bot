@@ -1891,11 +1891,21 @@ func (m *jobManager) CheckValidJobConfiguration(req *JobRequest) error {
 	return nil
 }
 
-var allowedRegistries = []string{
-	"registry.ci.openshift.org",
-	"quay.io",
-	"registry.build06.ci.openshift.org",
+func generateBuildClusterRegistries() []string {
+	registries := []string{
+		"registry.ci.openshift.org",
+		"quay.io",
+	}
+
+	// Add build01 through build11
+	for i := 1; i <= 11; i++ {
+		registries = append(registries, fmt.Sprintf("registry.build%02d.ci.openshift.org", i))
+	}
+
+	return registries
 }
+
+var allowedRegistries = generateBuildClusterRegistries()
 
 // validVersionRegexes represents all the valid version formats we recognize for OpenShift.
 // We allow an optional comma in the front so we can account for both 4.19,xxxx and xxxx,4.19
