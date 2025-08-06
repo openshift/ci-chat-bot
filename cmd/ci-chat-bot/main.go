@@ -18,6 +18,7 @@ import (
 
 	"github.com/adrg/xdg"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/orgdata"
 	"github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	botversion "github.com/openshift/ci-chat-bot/pkg/version"
@@ -90,6 +91,10 @@ type options struct {
 	overrideRosaSecretName   string
 
 	jiraOptions flagutil.JiraOptions
+
+	// Orgdata configuration
+	orgDataPaths            []string
+	authorizationConfigPath string
 }
 
 func (o *options) Validate() error {
@@ -145,6 +150,8 @@ func run() error {
 	pflag.StringVar(&opt.rosaSubnetListPath, "rosa-subnetlist-path", "", "Path to list of comma-separated subnets to use for ROSA hosted clusters.")
 	pflag.StringVar(&opt.rosaOIDCConfigId, "rosa-oidcConfigId-path", "", "Path to the OIDC configuration ID")
 	pflag.StringVar(&opt.rosaBillingAccount, "rosa-billingAccount-path", "", "Path to the Billing Account ID.")
+	pflag.StringSliceVar(&opt.orgDataPaths, "orgdata-paths", []string{}, "Paths to organizational data JSON files (comma-separated). Used for authorization.")
+	pflag.StringVar(&opt.authorizationConfigPath, "authorization-config", "", "Path to authorization configuration file. If not provided, all users have access to all commands.")
 
 	opt.prowconfig.AddFlags(emptyFlags)
 	opt.GitHubOptions.AddFlags(emptyFlags)
@@ -352,14 +359,53 @@ func run() error {
 		return fmt.Errorf("unable to load initial configuration: %w", err)
 	}
 
-	bot := slack.NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows)
+	// Initialize orgdata and authorization services
+	var orgDataService *orgdata.OrgDataService
+	var authService *orgdata.AuthorizationService
+
+	if len(opt.orgDataPaths) > 0 {
+		log.Printf("Initializing organizational data service with %d data files", len(opt.orgDataPaths))
+		orgDataService = orgdata.NewOrgDataService()
+
+		if err := orgDataService.LoadFromFiles(opt.orgDataPaths); err != nil {
+			log.Printf("Warning: Failed to load organizational data: %v", err)
+		} else {
+			log.Printf("Successfully loaded organizational data")
+			// Start hot reload watcher
+			go orgDataService.StartConfigMapWatcher(ctx, opt.orgDataPaths)
+
+			// Initialize authorization service if config is provided
+			if opt.authorizationConfigPath != "" {
+				log.Printf("Initializing authorization service with config: %s", opt.authorizationConfigPath)
+				authService = orgdata.NewAuthorizationService(orgDataService, opt.authorizationConfigPath)
+				if err := authService.LoadConfig(); err != nil {
+					log.Printf("Warning: Failed to load authorization config: %v", err)
+					// Keep the authService even if config fails to load - it will allow all commands
+				} else {
+					// Start config watcher
+					go authService.StartConfigWatcher()
+					log.Printf("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
+				}
+			} else {
+				log.Printf("No authorization config path provided, creating authorization service without config")
+				// Create authorization service without config - will allow all commands
+				authService = orgdata.NewAuthorizationService(orgDataService, "")
+			}
+		}
+	} else {
+		log.Printf("No organizational data paths provided, running without authorization")
+	}
+
+	log.Printf("Debug: authService is nil: %v", authService == nil)
+
+	bot := slack.NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows, authService)
 	jiraclient, err := opt.jiraOptions.Client()
 	httpClient := &http.Client{Timeout: 60 * time.Second}
 	if err != nil {
 		klog.Errorf("failed to load the Jira Client: %s", err)
-		Start(bot, nil, jobManager, nil, health, opt.InstrumentationOptions, clusterBotMetrics)
+		Start(bot, nil, jobManager, nil, health, opt.InstrumentationOptions, clusterBotMetrics, authService)
 	} else {
-		Start(bot, jiraclient.JiraClient(), jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics)
+		Start(bot, jiraclient.JiraClient(), jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics, authService)
 	}
 
 	return err
