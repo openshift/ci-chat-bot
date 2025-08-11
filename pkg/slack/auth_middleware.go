@@ -61,8 +61,8 @@ func GetUserInfo(client *slack.Client, authService *orgdata.AuthorizationService
 	emp := userInfo.Employee
 	response.WriteString("*Employee Information:*\n")
 	response.WriteString(fmt.Sprintf("• *Employee UID*: `%s`\n", emp.UID))
-	if emp.DisplayName != "" {
-		response.WriteString(fmt.Sprintf("• *Display Name*: %s\n", emp.DisplayName))
+	if emp.FullName != "" {
+		response.WriteString(fmt.Sprintf("• *Display Name*: %s\n", emp.FullName))
 	}
 	if emp.Email != "" {
 		response.WriteString(fmt.Sprintf("• *Email*: %s\n", emp.Email))

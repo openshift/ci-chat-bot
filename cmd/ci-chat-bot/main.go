@@ -366,17 +366,17 @@ func run() error {
 	}
 
 	// Initialize orgdata and authorization services
-	var orgDataService *orgdata.OrgDataService
+	var orgDataService orgdata.OrgDataServiceInterface
 	var authService *orgdata.AuthorizationService
 
 	if len(opt.orgDataPaths) > 0 {
-		log.Printf("Initializing organizational data service with %d data files", len(opt.orgDataPaths))
-		orgDataService = orgdata.NewOrgDataService()
+		log.Printf("Initializing indexed organizational data service with %d data files", len(opt.orgDataPaths))
+		orgDataService = orgdata.NewIndexedOrgDataService()
 
 		if err := orgDataService.LoadFromFiles(opt.orgDataPaths); err != nil {
-			log.Printf("Warning: Failed to load organizational data: %v", err)
+			log.Printf("Warning: Failed to load indexed organizational data: %v", err)
 		} else {
-			log.Printf("Successfully loaded organizational data")
+			log.Printf("Successfully loaded indexed organizational data")
 			// Start hot reload watcher
 			go orgDataService.StartConfigMapWatcher(ctx, opt.orgDataPaths)
 

@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 	"gopkg.in/yaml.v2"
 )
 
@@ -30,14 +28,14 @@ type AuthRule struct {
 // AuthorizationService handles authorization checking
 type AuthorizationService struct {
 	config         *AuthorizationConfig
-	orgDataService *OrgDataService
+	orgDataService OrgDataServiceInterface
 	configPath     string
 	mu             sync.RWMutex
 	reloadInterval time.Duration
 }
 
 // NewAuthorizationService creates a new authorization service
-func NewAuthorizationService(orgDataService *OrgDataService, configPath string) *AuthorizationService {
+func NewAuthorizationService(orgDataService OrgDataServiceInterface, configPath string) *AuthorizationService {
 	return &AuthorizationService{
 		orgDataService: orgDataService,
 		configPath:     configPath,
@@ -160,59 +158,7 @@ func (a *AuthorizationService) GetUserOrganizations(slackUserID string) []string
 
 // GetUserOrganizationsWithType returns all organizations a Slack user belongs to with their types
 func (a *AuthorizationService) GetUserOrganizationsWithType(slackUserID string) []OrgInfo {
-	teams := a.orgDataService.GetTeamsForSlackID(slackUserID)
-	orgMap := make(map[string]OrgInfo) // Use map to deduplicate
-
-	// Get all orgs from teams
-	for _, teamName := range teams {
-		a.orgDataService.mu.RLock()
-		if team, exists := a.orgDataService.nameToOrgUnit[teamName]; exists {
-			// Add the team itself first
-			if team.Group.Type.Name != "" {
-				orgMap[team.Name] = OrgInfo{
-					Name: team.Name,
-					Type: formatOrgType(team.Group.Type.Name),
-				}
-			}
-
-			// Add all parent organizations from the org path
-			for _, orgName := range team.OrgPath {
-				if orgUnit, orgExists := a.orgDataService.nameToOrgUnit[orgName]; orgExists {
-					orgMap[orgName] = OrgInfo{
-						Name: orgName,
-						Type: formatOrgType(orgUnit.Group.Type.Name),
-					}
-				}
-			}
-		}
-		a.orgDataService.mu.RUnlock()
-	}
-
-	// Convert map to slice
-	var orgs []OrgInfo
-	for _, orgInfo := range orgMap {
-		orgs = append(orgs, orgInfo)
-	}
-
-	return orgs
-}
-
-// formatOrgType converts internal type names to user-friendly display names
-func formatOrgType(typeName string) string {
-	switch typeName {
-	case "team":
-		return "Team"
-	case "team_group":
-		return "Team Group"
-	case "org":
-		return "Organization"
-	case "pillar":
-		return "Pillar"
-	case "division":
-		return "Division"
-	default:
-		return cases.Title(language.Und, cases.NoLower).String(strings.ReplaceAll(typeName, "_", " "))
-	}
+	return a.orgDataService.GetUserOrganizations(slackUserID)
 }
 
 // GetUserTeams returns all teams a Slack user belongs to
@@ -263,11 +209,11 @@ func (a *AuthorizationService) GetUserCommands(slackUserID string) map[string][]
 	defer a.mu.RUnlock()
 
 	result := map[string][]string{
-		"allow_all":    []string{},
-		"by_uid":       []string{},
-		"by_team":      []string{},
-		"by_org":       []string{},
-		"unrestricted": []string{}, // Commands with no rules (default allow)
+		"allow_all":    {},
+		"by_uid":       {},
+		"by_team":      {},
+		"by_org":       {},
+		"unrestricted": {}, // Commands with no rules (default allow)
 	}
 
 	if a.config == nil {
