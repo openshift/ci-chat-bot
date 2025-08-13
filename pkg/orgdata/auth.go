@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	orgdatacore "github.com/openshift/ci-chat-bot/pkg/orgdata-core"
 	"gopkg.in/yaml.v2"
 )
 
@@ -43,9 +44,9 @@ func NewAuthorizationService(orgDataService OrgDataServiceInterface, configPath 
 	}
 }
 
-// LoadConfig loads the authorization configuration from file
+// LoadConfig loads the authorization configuration from a file
 func (a *AuthorizationService) LoadConfig() error {
-	// If no config path is provided, create empty config (allows all commands)
+	// If no config path is provided, create an empty config (allows all commands)
 	if a.configPath == "" {
 		a.mu.Lock()
 		defer a.mu.Unlock()
@@ -99,28 +100,28 @@ func (a *AuthorizationService) CheckAuthorization(slackUserID, command string) (
 		return true, ""
 	}
 
-	// Check if user is in the allowed UIDs (highest specificity)
+	// Check if the user is in the allowed UIDs (the highest specificity)
 	for _, allowedUID := range matchingRule.AllowedUIDs {
 		if a.orgDataService.IsSlackUserUID(slackUserID, allowedUID) {
 			return true, ""
 		}
 	}
 
-	// Check if user is in any of the allowed teams
+	// Check if a user is in any of the allowed teams
 	for _, allowedTeam := range matchingRule.AllowedTeams {
 		if a.orgDataService.IsSlackUserInTeam(slackUserID, allowedTeam) {
 			return true, ""
 		}
 	}
 
-	// Check if user is in any of the allowed orgs (lowest specificity)
+	// Check if the user is in any of the allowed orgs (the lowest specificity)
 	for _, allowedOrg := range matchingRule.AllowedOrgs {
 		if a.orgDataService.IsSlackUserInOrg(slackUserID, allowedOrg) {
 			return true, ""
 		}
 	}
 
-	// User not authorized
+	// User is not authorized
 	denyMessage := matchingRule.DenyMessage
 	if denyMessage == "" {
 		var requirements []string
@@ -157,7 +158,7 @@ func (a *AuthorizationService) GetUserOrganizations(slackUserID string) []string
 }
 
 // GetUserOrganizationsWithType returns all organizations a Slack user belongs to with their types
-func (a *AuthorizationService) GetUserOrganizationsWithType(slackUserID string) []OrgInfo {
+func (a *AuthorizationService) GetUserOrganizationsWithType(slackUserID string) []orgdatacore.OrgInfo {
 	return a.orgDataService.GetUserOrganizations(slackUserID)
 }
 
@@ -166,16 +167,10 @@ func (a *AuthorizationService) GetUserTeams(slackUserID string) []string {
 	return a.orgDataService.GetTeamsForSlackID(slackUserID)
 }
 
-// OrgInfo represents organization information with type
-type OrgInfo struct {
-	Name string
-	Type string
-}
-
 // UserInfo represents comprehensive user information for display
 type UserInfo struct {
-	Employee      *Employee
-	Organizations []OrgInfo // Changed from []string to []OrgInfo
+	Employee      *orgdatacore.Employee
+	Organizations []orgdatacore.OrgInfo
 	Teams         []string
 	SlackID       string
 	HasOrgData    bool
