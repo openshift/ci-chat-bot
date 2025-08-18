@@ -190,6 +190,7 @@ func NewJobManager(
 func (m *jobManager) updateImageSetList() error {
 	imagesetList := hivev1.ClusterImageSetList{}
 	if err := m.dpcrHiveClient.List(context.TODO(), &imagesetList); err != nil {
+		metrics.RecordError(errorMCEListImagesets, m.errorMetric)
 		return err
 	}
 	updatedImageSets := sets.Set[string]{}
@@ -199,6 +200,7 @@ func (m *jobManager) updateImageSetList() error {
 		if len(m.mceClusters.clusters) > 0 && strings.HasPrefix(imageset.Name, "chat-bot") {
 			if _, ok := m.mceClusters.clusters[imageset.Name]; !ok {
 				if err := m.dpcrHiveClient.Delete(context.TODO(), &imageset); err != nil {
+					metrics.RecordError(errorMCECleanupImagesets, m.errorMetric)
 					klog.Errorf("Failed to delete orphaned imageset %s: %v", imageset.Name, err)
 				}
 				continue
@@ -218,7 +220,7 @@ func (m *jobManager) updateHypershiftSupportedVersions() error {
 		HypershiftSupportedVersions.Mu.Lock()
 		defer HypershiftSupportedVersions.Mu.Unlock()
 		// assume that current default release for chat-bot is supported
-		HypershiftSupportedVersions.Versions = sets.New[string](fmt.Sprintf("%d.%d", CurrentRelease.Major, CurrentRelease.Minor))
+		HypershiftSupportedVersions.Versions = sets.New(fmt.Sprintf("%d.%d", CurrentRelease.Major, CurrentRelease.Minor))
 		return nil
 	}
 	supportedVersionConfigMap, err := m.hiveConfigMapClient.Get(context.TODO(), "supported-versions", metav1.GetOptions{})
@@ -240,7 +242,7 @@ func (m *jobManager) updateHypershiftSupportedVersions() error {
 	}
 	HypershiftSupportedVersions.Mu.Lock()
 	defer HypershiftSupportedVersions.Mu.Unlock()
-	HypershiftSupportedVersions.Versions = sets.New[string](convertedVersions.Versions...)
+	HypershiftSupportedVersions.Versions = sets.New(convertedVersions.Versions...)
 	klog.Infof("Hypershift Supported Versions: %+v", sets.List(HypershiftSupportedVersions.Versions))
 	return nil
 }
@@ -334,6 +336,9 @@ func paramsToString(params map[string]string) string {
 }
 
 func (m *jobManager) mceSync() error {
+	start := time.Now()
+	// wrap Observe function into inline function so that time.Since doesn't get immediately evaluated
+	defer func() { mceSyncTimeMetric.Observe(time.Since(start).Seconds()) }()
 	clusters, deployments, err := m.listManagedClusters()
 	if err != nil {
 		return fmt.Errorf("failed to list managed clusters: %v", err)
@@ -359,6 +364,7 @@ func (m *jobManager) mceSync() error {
 		clusterDeployments[deployment.Name] = deployment
 		provisionList := &hivev1.ClusterProvisionList{}
 		if err := m.dpcrHiveClient.List(context.TODO(), provisionList, &crclient.ListOptions{LabelSelector: labels.SelectorFromSet(labels.Set{"hive.openshift.io/cluster-deployment-name": deployment.Name})}); err != nil {
+			metrics.RecordError(errorMCEListClusterProvisions, m.errorMetric)
 			klog.Errorf("Failed to get cluster provision ref: %v", err)
 			continue
 		}
@@ -397,6 +403,14 @@ func (m *jobManager) mceSync() error {
 
 		if availability == "True" {
 			if notified, ok := cluster.Annotations[utils.UserNotifiedTag]; !ok || notified != "true" {
+				if cloud, ok := cluster.Labels["cloud"]; ok {
+					switch cloud {
+					case "Amazon":
+						mceAWSReadyTimeMetric.Observe(time.Since(cluster.CreationTimestamp.Time).Minutes())
+					case "Google":
+						mceGCPReadyTimeMetric.Observe(time.Since(cluster.CreationTimestamp.Time).Minutes())
+					}
+				}
 				// notify that the cluster is available and retrieve auth
 				kubeconfig, password, err := m.getClusterAuth(name)
 				if err != nil {
@@ -405,12 +419,14 @@ func (m *jobManager) mceSync() error {
 				m.mceNotifierFn(cluster, clusterDeployments[name], provisions[name], kubeconfig, password, nil)
 				cluster.Annotations[utils.UserNotifiedTag] = "true"
 				if err := m.dpcrOcmClient.Update(context.TODO(), cluster); err != nil {
+					metrics.RecordError(errorMCEAnnotateNotify, m.errorMetric)
 					klog.Errorf("Failed to update managed cluster annotations: %v", err)
 				}
 			}
 		} else {
 			if provision, ok := provisions[name]; ok {
 				if previousProvision != nil && previousProvision.Spec.Stage != provision.Spec.Stage && provision.Spec.Stage == hivev1.ClusterProvisionStageFailed {
+					metrics.RecordError(errorMCEProvisionFailed, m.errorMetric)
 					m.mceNotifierFn(cluster, clusterDeployments[name], provisions[name], "", "", nil)
 				}
 			} else {
@@ -431,6 +447,7 @@ func (m *jobManager) mceSync() error {
 									}
 								}
 								if !prevFailed {
+									metrics.RecordError(errorMCEProvisionFailed, m.errorMetric)
 									m.mceNotifierFn(cluster, currentDeployment, provision, "", "", nil)
 								}
 							}
@@ -442,7 +459,16 @@ func (m *jobManager) mceSync() error {
 		}
 	}
 	m.lock.RLock()
+	var awsClusters, gcpClusters int
 	for name, cluster := range managedClusters {
+		if cloud, ok := cluster.Labels["cloud"]; ok {
+			switch cloud {
+			case "Amazon":
+				awsClusters++
+			case "Google":
+				gcpClusters++
+			}
+		}
 		if _, exists := clusterDeployments[name]; !exists {
 			hasJob := false
 			for _, job := range m.jobs {
@@ -462,6 +488,8 @@ func (m *jobManager) mceSync() error {
 	}
 	m.lock.RUnlock()
 	klog.Infof("Found %d chat-bot owned mce clusters", len(managedClusters))
+	mceAWSClustersMetric.Set(float64(awsClusters))
+	mceGCPClustersMetric.Set(float64(gcpClusters))
 	m.mceClusters.lock.Lock()
 	m.mceClusters.clusters = managedClusters
 	m.mceClusters.deployments = clusterDeployments
@@ -469,10 +497,12 @@ func (m *jobManager) mceSync() error {
 	m.mceClusters.lock.Unlock()
 	userConfig, err := m.dpcrCoreClient.ConfigMaps("crt-argocd").Get(context.TODO(), "users", metav1.GetOptions{})
 	if err != nil {
+		metrics.RecordError(errorMCERetrieveUserConfig, m.errorMetric)
 		return fmt.Errorf("failed to retrieve mce user configs: %v", err)
 	}
 	mceUserConfig := map[string]MceUser{}
 	if err := yaml.Unmarshal([]byte(userConfig.Data["config.yaml"]), mceUserConfig); err != nil {
+		metrics.RecordError(errorMCEParseUserConfig, m.errorMetric)
 		return fmt.Errorf("failed to unmarshal MCE user config: %v", err)
 	}
 	m.mceConfig.Mutex.Lock()
@@ -748,6 +778,7 @@ func (m *jobManager) sync() error {
 			}
 			m.mceClusters.lock.RLock()
 			if mCluster, ok := m.mceClusters.clusters[j.ManagedClusterName]; ok {
+				metrics.RecordError(errorMCEImagesetJobRun, m.errorMetric)
 				errMsg := fmt.Sprintf("Failed to generate imageset for managed cluster. See logs for details: %s.", job.Status.URL)
 				if err := m.deleteManagedCluster(mCluster); err != nil {
 					errMsg = fmt.Sprintf("\nAn error also occurred when attempting to delete the previously created resources: %v", err)
@@ -789,6 +820,7 @@ func (m *jobManager) sync() error {
 					}
 					registryURL := fmt.Sprintf("registry.%s.ci.openshift.org/%s/release:latest", j.BuildCluster, ciOpNamespace)
 					if err := m.createCustomImageset(registryURL, j.ManagedClusterName); err != nil {
+						metrics.RecordError(errorMCEImagesetCreateRef, m.errorMetric)
 						msg := fmt.Sprintf("Failed to create imageset for release created by ci-operator: %v.", err)
 						klog.Errorf("Failed to create cluster imageset: %v", err)
 						if err := m.deleteManagedCluster(mCluster); err != nil {
@@ -1961,10 +1993,8 @@ func containsValidVersion(listOfImageOrVersionOrPRs []string) bool {
 				domain := reference.Domain(named)
 
 				// Check registry name exact matches
-				for _, allowedRegistry := range allowedRegistryNames {
-					if domain == allowedRegistry {
-						return true
-					}
+				if slices.Contains(allowedRegistryNames, domain) {
+					return true
 				}
 
 				// Check registry name regex patterns
@@ -2438,6 +2468,7 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 	}(); err != nil {
 		return "", err
 	}
+	mceRequestedLifetimeMetric.Observe(duration.Hours())
 	cluster, err := m.createManagedCluster(imageset, platform, user, channel, req, duration)
 	if err != nil {
 		return "", fmt.Errorf("failed to create cluster: %v", err)

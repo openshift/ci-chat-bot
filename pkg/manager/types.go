@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/prow/pkg/scheduler/strategy"
 )
 
+// ROSA Errors
 const (
 	errorRosaGetAll       = "rosa_get_clusters"
 	errorRosaGetSingle    = "rosa_get_cluster"
@@ -49,6 +50,34 @@ const (
 	errorRosaMissingSubnets = "rosa_missing_subnets"
 )
 
+// MCE Errors
+const (
+	errorMCEListImagesets             = "mce_list_imagesets"
+	errorMCECleanupImagesets          = "mce_cleanup_imagesets"
+	errorMCEListClusterProvisions     = "mce_list_cluster_provisions"
+	errorMCEAnnotateNotify            = "mce_annotate_notify"
+	errorMCERetrieveUserConfig        = "mce_retrive_user_config"
+	errorMCEParseUserConfig           = "mce_parse_user_config"
+	errorMCEImagesetJobRun            = "mce_imageset_job_run"
+	errorMCEImagesetCreateRef         = "mce_imageset_create_ref"
+	errorMCELaunchImagesetJob         = "mce_launch_imageset_job"
+	errorMCECreateNamespace           = "mce_create_namespace"
+	errorMCEGetPlatformCredentials    = "mce_get_platform_credentials"
+	errorMCECreatePlatformCredentials = "mce_create_platform_credentials"
+	errorMCEGetPullSecret             = "mce_get_pull_secret"
+	errorMCECreatePullSecret          = "mce_create_pull_secret"
+	errorMCECreateInstallConfig       = "mce_create_install_config"
+	errorMCECreateManagedCluster      = "mce_create_managed_cluster"
+	errorMCECreateDeployment          = "mce_create_deployment"
+	errorMCEListManagedNamespaces     = "mce_list_managed_namespaces"
+	errorMCEGetDeployment             = "mce_get_deployment"
+	errorMCEGetAuthSecrets            = "mce_get_auth_secrets"
+	errorMCEDeleteClusterImageset     = "mce_delete_cluster_imageset"
+	errorMCEDeleteDeployment          = "mce_delete_deployment"
+	errorMCEDeleteManagedCluster      = "mce_delete_managed_cluster"
+	errorMCEProvisionFailed           = "mce_provision_failed"
+)
+
 var errorMetricList = sets.NewString(
 	errorRosaGetAll,
 	errorRosaGetSingle,
@@ -69,6 +98,30 @@ var errorMetricList = sets.NewString(
 	errorRosaAWS,
 	errorRosaOCM,
 	errorRosaMissingSubnets,
+	errorMCEListImagesets,
+	errorMCECleanupImagesets,
+	errorMCEListClusterProvisions,
+	errorMCEAnnotateNotify,
+	errorMCERetrieveUserConfig,
+	errorMCEParseUserConfig,
+	errorMCEImagesetJobRun,
+	errorMCEImagesetCreateRef,
+	errorMCELaunchImagesetJob,
+	errorMCECreateNamespace,
+	errorMCEGetPlatformCredentials,
+	errorMCECreatePlatformCredentials,
+	errorMCEGetPullSecret,
+	errorMCECreatePullSecret,
+	errorMCECreateInstallConfig,
+	errorMCECreateManagedCluster,
+	errorMCECreateDeployment,
+	errorMCEListManagedNamespaces,
+	errorMCEGetDeployment,
+	errorMCEGetAuthSecrets,
+	errorMCEDeleteClusterImageset,
+	errorMCEDeleteDeployment,
+	errorMCEDeleteManagedCluster,
+	errorMCEProvisionFailed,
 )
 
 var rosaReadyTimeMetric = prometheus.NewHistogram(
@@ -118,6 +171,52 @@ var rosaClustersMetric = prometheus.NewGauge(
 	prometheus.GaugeOpts{
 		Name: "ci_chat_bot_rosa_cluster_count",
 		Help: "cluster bot number of rosa clusters",
+	},
+)
+
+var mceSyncTimeMetric = prometheus.NewHistogram(
+	prometheus.HistogramOpts{
+		Name:    "ci_chat_bot_mce_sync_duration_seconds",
+		Help:    "cluster bot mce sync time in seconds",
+		Buckets: prometheus.LinearBuckets(0.05, 0.05, 20),
+	},
+)
+
+var mceAWSClustersMetric = prometheus.NewGauge(
+	prometheus.GaugeOpts{
+		Name: "ci_chat_bot_mce_aws_cluster_count",
+		Help: "cluster bot number of MCE AWS clusters",
+	},
+)
+var mceGCPClustersMetric = prometheus.NewGauge(
+	prometheus.GaugeOpts{
+		Name: "ci_chat_bot_mce_gcp_cluster_count",
+		Help: "cluster bot number of MCE GCP clusters",
+	},
+)
+
+var mceAWSReadyTimeMetric = prometheus.NewHistogram(
+	prometheus.HistogramOpts{
+		Name:    "ci_chat_bot_mce_aws_ready_duration_minutes",
+		Help:    "cluster bot time until MCE AWS cluster is ready duration in minutes",
+		Buckets: prometheus.LinearBuckets(1, 1, 60),
+	},
+)
+
+var mceGCPReadyTimeMetric = prometheus.NewHistogram(
+	prometheus.HistogramOpts{
+		Name:    "ci_chat_bot_mce_gcp_ready_duration_minutes",
+		Help:    "cluster bot time until MCE GCP cluster is ready duration in minutes",
+		Buckets: prometheus.LinearBuckets(1, 1, 60),
+	},
+)
+
+var mceRequestedLifetimeMetric = prometheus.NewHistogram(
+	prometheus.HistogramOpts{
+		Name: "ci_chat_bot_mce_requested_lifetime_hours",
+		Help: "cluster bot requested lifetime for MCE clusters in hours",
+		// adjust last number to match maximum number of hours allowed
+		Buckets: prometheus.LinearBuckets(1, 1, 8),
 	},
 )
 

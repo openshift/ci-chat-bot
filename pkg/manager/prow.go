@@ -66,22 +66,22 @@ var MultistageParameters = map[string]EnvVar{
 	"compact": {
 		name:      "SIZE_VARIANT",
 		value:     "compact",
-		Platforms: sets.New[string]("aws", "aws-2", "gcp", "azure"),
+		Platforms: sets.New("aws", "aws-2", "gcp", "azure"),
 	},
 	"large": {
 		name:      "SIZE_VARIANT",
 		value:     "large",
-		Platforms: sets.New[string]("aws", "aws-2", "gcp", "azure"),
+		Platforms: sets.New("aws", "aws-2", "gcp", "azure"),
 	},
 	"xlarge": {
 		name:      "SIZE_VARIANT",
 		value:     "xlarge",
-		Platforms: sets.New[string]("aws", "aws-2", "gcp", "azure"),
+		Platforms: sets.New("aws", "aws-2", "gcp", "azure"),
 	},
 	"preserve-bootstrap": {
 		name:      "OPENSHIFT_INSTALL_PRESERVE_BOOTSTRAP",
 		value:     "true",
-		Platforms: sets.New[string]("aws", "aws-2", "gcp", "azure", "vsphere", "ovirt", "nutanix"),
+		Platforms: sets.New("aws", "aws-2", "gcp", "azure", "vsphere", "ovirt", "nutanix"),
 	},
 }
 
@@ -891,7 +891,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	})
 	if err != nil {
 		if err.Error() == "context deadline exceeded" {
-			return "", fmt.Errorf("timed out waiting for your prowjob %q to be scheduled.  The job should eventually start and the ClusterBot will respond accordingly.  You can monitor the status yourself via the `list` command.  When a \"view logs\" link appears on the line associated with your name, your job has been scheduled and should progress normally.  If not, please reach out for assistance in #forum-ocp-crt.", job.Name)
+			return "", fmt.Errorf("timed out waiting for your prowjob %q to be scheduled.  The job should eventually start and the ClusterBot will respond accordingly.  You can monitor the status yourself via the `list` command.  When a \"view logs\" link appears on the line associated with your name, your job has been scheduled and should progress normally.  If not, please reach out for assistance in #forum-ocp-crt.", job.Name) //nolint:staticcheck
 		}
 		return "", fmt.Errorf("unable to retrieve job url due to an unexpected error, please reach out for assistance in #forum-ocp-crt: %v", err)
 	}
@@ -1137,7 +1137,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 	})
 	if err != nil {
 		if err.Error() == "context deadline exceeded" {
-			return fmt.Errorf("timed out waiting for your prowjob %q to be scheduled.  The job should eventually start and the ClusterBot will respond accordingly.  You can monitor the status yourself via the `list` command.  When a \"view logs\" link appears on the line associated with your name, your job has been scheduled and should progress normally.  If not, please reach out for assistance in #forum-ocp-crt.", job.Name)
+			return fmt.Errorf("timed out waiting for your prowjob %q to be scheduled.  The job should eventually start and the ClusterBot will respond accordingly.  You can monitor the status yourself via the `list` command.  When a \"view logs\" link appears on the line associated with your name, your job has been scheduled and should progress normally.  If not, please reach out for assistance in #forum-ocp-crt.", job.Name) //nolint:staticcheck
 		}
 		return fmt.Errorf("did not retrieve job url due to an unexpected error, please reach out for assistance in #forum-ocp-crt: %v", err)
 	}
