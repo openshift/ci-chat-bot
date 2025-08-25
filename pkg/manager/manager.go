@@ -78,6 +78,8 @@ const (
 	// maxTotalClusters limits the number of simultaneous clusters across all users to
 	// prevent saturating the infrastructure account.
 	maxTotalClusters = 80
+
+	maxTotalMCEClusters = 15
 )
 
 const (
@@ -2391,6 +2393,9 @@ func UseSpotInstances(job *Job) bool {
 }
 
 func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]string, duration time.Duration) (string, error) {
+	if len(m.mceClusters.clusters) >= maxTotalMCEClusters {
+		return "", fmt.Errorf("The maximum number of active MCE clusters (%d) has been reached. Please try again later.", maxTotalMCEClusters) //nolint:staticcheck
+	}
 	imageset := ""
 	if len(from) > 0 && len(from[0]) == 1 {
 		imageset = fmt.Sprintf("img%s-multi-appsub", from[0][0])
