@@ -171,7 +171,7 @@ func NewJobManager(
 		hiveConfigMapClient:      hiveConfigMapClient,
 		rosaSecretClient:         rosaSecretClient,
 		rClient:                  rosaClient,
-		maxRosaAge:               6 * time.Hour,
+		maxRosaAge:               8 * time.Hour,
 		defaultRosaAge:           6 * time.Hour,
 		rosaSubnets:              rosaSubnetList,
 		rosaClusterLimit:         rosaClusterLimit,
