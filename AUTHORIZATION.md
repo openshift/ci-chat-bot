@@ -11,7 +11,7 @@ The authorization system provides fine-grained access control for bot commands b
 - **Indexed Organization Data**: Uses pre-computed indexes for O(1) lookups and fast authorization checks
 - **Complete Organizational Hierarchy**: Shows full ancestry chain including teams, organizations, pillars, and team groups
 - **Multiple Authorization Levels**: Support for user UID, team membership, and organization-based permissions
-- **Hot Reload**: Automatic updates when organizational data or authorization config changes
+- **Hot Reload**: Automatic updates when organizational data or authorization config changes (supports local files and GCS)
 - **Enhanced Troubleshooting**: Comprehensive `whoami` command showing complete organizational context
 - **Fallback Safety**: Graceful degradation when authorization service is unavailable
 - **Modular Architecture**: Clean separation between core data service and Slack-specific authorization logic
@@ -28,31 +28,75 @@ The authorization system provides fine-grained access control for bot commands b
         │                       │                       │
         ▼                       ▼                       ▼
 ┌─────────────────┐    ┌──────────────────┐    ┌──────────────────┐
-│ Comprehensive   │    │ Fast Indexed     │    │ Auth Config      │
-│ Index Dump      │    │ Lookups          │    │ (YAML Rules)     │
-│ (comprehensive_ │    │ (O(1) queries)   │    │                  │
-│  index_dump.json)│   │                  │    │                  │
+│ Data Sources    │    │ Fast Indexed     │    │ Auth Config      │
+│ • Local Files   │    │ Lookups          │    │ (YAML Rules)     │
+│ • GCS Bucket    │    │ (O(1) queries)   │    │ • Hot Reload     │
+│ • Hot Reload    │    │ • DataSource API │    │ • File Watching  │
 └─────────────────┘    └──────────────────┘    └──────────────────┘
 ```
+
+### DataSource Architecture
+
+The system now uses a pluggable DataSource architecture:
+
+- **FileDataSource**: Local JSON files with file watching
+- **GCSDataSource**: Google Cloud Storage with polling for updates  
+- **Extensible**: Easy to add new sources (S3, HTTP, databases, etc.)
 
 ### Package Structure
 
 - **`pkg/orgdata-core/`**: Reusable core package for organizational data access
-- **`pkg/orgdata/`**: Slack-specific wrapper around core package
+  - Supports multiple data sources (files, GCS)
+  - Build with `-tags gcs` for cloud storage support
+  - Hot reload with configurable check intervals
+- **`pkg/orgdata/`**: Slack-specific wrapper around core package  
 - **`pkg/slack/`**: Slack command handlers with authorization middleware
 
 ## Setup
 
-### 1. Command Line Flags
+### 1. Configuration Options
 
-Add these flags when running the CI Chat Bot:
+#### Option A: Local Files (Development)
 
 ```bash
 ./ci-chat-bot \
-  --orgdata-paths="/path/to/orgdata.json" \
+  --orgdata-paths="/path/to/comprehensive_index_dump.json" \
   --authorization-config="/path/to/authorization.yaml" \
   [other flags...]
 ```
+
+#### Option B: Google Cloud Storage (Production)
+
+```bash
+# Build with GCS support
+make BUILD_FLAGS="-tags gcs" build
+
+# Run with GCS backend
+./ci-chat-bot \
+  --gcs-enabled=true \
+  --gcs-bucket="resolved-org" \
+  --gcs-object-path="orgdata/comprehensive_index_dump.json" \
+  --gcs-project-id="openshift-crt-mce" \
+  --gcs-check-interval="5m" \
+  --authorization-config="/path/to/authorization.yaml" \
+  [other flags...]
+```
+
+#### Option C: Using Development Scripts
+
+```bash
+# Quick start with GCS (recommended)
+./hack/run-with-gcs.sh
+
+# Local file development
+export ORGDATA_PATHS="/path/to/comprehensive_index_dump.json"
+./hack/run.sh
+
+# See all options
+make help-ci-chat-bot
+```
+
+📖 **For detailed setup instructions, see: `hack/DEVELOPMENT.md`**
 
 ### 2. Organizational Data Format
 
@@ -219,6 +263,14 @@ This shows:
 2. The system automatically reloads within 60 seconds
 3. Test changes with `@bot whoami`
 
+**Update Organizational Data:**
+1. **Local Files**: Edit JSON file, automatic reload via file watching
+2. **GCS**: Upload new file to bucket, automatic reload via polling
+   ```bash
+   gcloud storage cp comprehensive_index_dump.json gs://resolved-org/orgdata/
+   ```
+3. **Check interval**: Configurable via `--gcs-check-interval` (default: 5 minutes)
+
 **Add New Commands:**
 1. Add authorization rule to config file
 2. Wrap command handler with authorization middleware
@@ -248,10 +300,22 @@ Slack-specific wrapper around the core package:
 // Create the service (same as before)
 service := orgdata.NewIndexedOrgDataService()
 
-// Load data
+// Option 1: Load from local files  
 err := service.LoadFromFiles([]string{"comprehensive_index_dump.json"})
 
-// Use the service
+// Option 2: Load from GCS (requires -tags gcs)
+gcsConfig := orgdata.GCSConfig{
+    Bucket:        "resolved-org",
+    ObjectPath:    "orgdata/comprehensive_index_dump.json", 
+    ProjectID:     "openshift-crt-mce",
+    CheckInterval: 5 * time.Minute,
+}
+err := service.LoadFromGCS(ctx, gcsConfig)
+
+// Start hot reload watcher
+err = service.StartGCSWatcher(ctx, gcsConfig)
+
+// Use the service (same API regardless of data source)
 teams := service.GetTeamsForSlackID("U123ABC456")
 orgs := service.GetUserOrganizations("U123ABC456")
 ```
@@ -281,9 +345,11 @@ The `AuthorizedCommandHandler` wrapper:
 ### Common Issues
 
 **"Authorization service not configured"**
-- Check `--orgdata-paths` and `--authorization-config` flags
-- Verify file paths exist and are readable
-- Check logs for data loading errors
+- **Local files**: Check `--orgdata-paths` and `--authorization-config` flags  
+- **GCS**: Verify `--gcs-enabled=true` and GCS configuration flags
+- **Build**: Ensure binary built with `-tags gcs` for GCS support
+- **Authentication**: Run `gcloud auth login` or set service account credentials
+- **Logs**: Check for data loading errors, GCS authentication failures
 
 **User not found in org data**
 - Verify user's Slack UID is in the organizational data
@@ -297,10 +363,41 @@ The `AuthorizedCommandHandler` wrapper:
 
 ## Data Sources
 
-The system can load organizational data from:
-- Local JSON files (`--orgdata-paths`)
-- Kubernetes ConfigMaps (in production)
-- Multiple files (automatically merged)
+The system can load organizational data from multiple sources:
+
+### Local Files
+```bash
+--orgdata-paths="/path/to/comprehensive_index_dump.json"
+```
+- **Best for**: Development, testing
+- **Hot Reload**: File watching (automatic)
+- **Dependencies**: None
+
+### Google Cloud Storage  
+```bash
+--gcs-enabled=true \
+--gcs-bucket="resolved-org" \
+--gcs-object-path="orgdata/comprehensive_index_dump.json" \
+--gcs-project-id="openshift-crt-mce"
+```
+- **Best for**: Production, cross-cluster deployments
+- **Hot Reload**: Configurable polling (default: 5 minutes)
+- **Dependencies**: Requires `-tags gcs` build flag
+- **Authentication**: Application Default Credentials or service account JSON
+
+### Development Scripts
+```bash
+# GCS backend with sensible defaults
+./hack/run-with-gcs.sh
+
+# Local file backend 
+export ORGDATA_PATHS="/path/to/file.json"
+./hack/run.sh
+
+# See all configuration options
+make help-ci-chat-bot
+cat hack/DEVELOPMENT.md
+```
 
 ## Recent Refactoring
 
@@ -340,5 +437,8 @@ The authorization system has been refactored to use a modern, indexed data struc
 - **Memory efficient**: Indexed data structure optimized for fast access
 - **Minimal latency**: Authorization check adds <1ms to command execution
 - **Scalable**: Handles thousands of employees and teams efficiently
-- **Hot reload**: Data updates without service restart
+- **Hot reload**: Data updates without service restart (files + GCS)
+- **Multiple data sources**: Local files, GCS, extensible to S3/HTTP/databases
 - **Modular design**: Core package can be reused by other services (REST APIs, CLI tools, etc.)
+- **Production ready**: Secure GCS backend with Application Default Credentials
+
