@@ -2,7 +2,9 @@ package orgdata
 
 import (
 	"context"
-	"github.com/openshift/ci-chat-bot/pkg/orgdata-core"
+	"time"
+
+	orgdatacore "github.com/openshift/ci-chat-bot/pkg/orgdata-core"
 )
 
 // OrgDataServiceInterface extends the core service interface with Slack-specific methods
@@ -31,7 +33,20 @@ type OrgDataServiceInterface interface {
 	// Data management
 	GetVersion() orgdatacore.DataVersion
 	LoadFromFiles(filePaths []string) error
-	StartConfigMapWatcher(ctx context.Context, configMapPaths []string)
+	LoadFromGCS(ctx context.Context, config GCSConfig) error
+	StartGCSWatcher(ctx context.Context, config GCSConfig) error
+
+	// Core service access for DataSource operations
+	GetCore() orgdatacore.ServiceInterface
+}
+
+// GCSConfig represents GCS configuration for loading organizational data
+type GCSConfig struct {
+	Bucket          string
+	ObjectPath      string
+	ProjectID       string
+	CredentialsJSON string
+	CheckInterval   time.Duration
 }
 
 // NewIndexedOrgDataService creates a new indexed service using the core package
@@ -42,7 +57,8 @@ func NewIndexedOrgDataService() OrgDataServiceInterface {
 
 // slackOrgDataService wraps the core service to provide Slack-specific functionality
 type slackOrgDataService struct {
-	core orgdatacore.ServiceInterface
+	core      orgdatacore.ServiceInterface
+	gcsSource orgdatacore.DataSource // Keep reference to GCS source for watching
 }
 
 // IsSlackUserUID checks if a Slack ID corresponds to a specific UID
@@ -111,6 +127,6 @@ func (s *slackOrgDataService) LoadFromFiles(filePaths []string) error {
 	return s.core.LoadFromFiles(filePaths)
 }
 
-func (s *slackOrgDataService) StartConfigMapWatcher(ctx context.Context, configMapPaths []string) {
-	s.core.StartConfigMapWatcher(ctx, configMapPaths)
+func (s *slackOrgDataService) GetCore() orgdatacore.ServiceInterface {
+	return s.core
 }
