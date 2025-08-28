@@ -16,6 +16,7 @@ replace (
 	github.com/openshift/hive/apis => github.com/openshift/hive/apis v0.0.0-20240904155057-b6cdaa9cb317
 	k8s.io/component-base => k8s.io/component-base v0.32.0
 	k8s.io/kubectl => k8s.io/kubectl v0.32.0
+	vbom.ml/util => github.com/fvbommel/util v0.0.0-20180919145318-efcd4e0f9787
 )
 
 // from hive; needed because otherwise v12.0.0 is picked up as a more recent version
