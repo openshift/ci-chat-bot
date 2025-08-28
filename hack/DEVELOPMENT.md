@@ -27,7 +27,8 @@ export GCS_CREDENTIALS_JSON='{"type":"service_account",...}'  # Optional: explic
 **Option 2: Use Local Files (Development)**
 ```bash
 export ORGDATA_PATHS="/path/to/your/comprehensive_index_dump.json"
-# Default: ../cyborg/org_tools/comprehensive_index_dump.json (relative to ci-chat-bot)
+# Default: test-data/comprehensive_index_dump.json (relative to ci-chat-bot)
+# You can generate this file using the Python orglib indexing system
 ```
 
 #### Authorization Configuration
@@ -71,9 +72,9 @@ workspace/
 │   │   ├── run.sh        # Main development script
 │   │   └── run-with-gcs.sh  # GCS convenience script
 │   └── test-authorization.yaml  # Default auth config
-├── cyborg/               # Optional: orgdata repository
-│   └── org_tools/
-│       └── comprehensive_index_dump.json
+├── test-data/           # Test data and examples
+│   ├── comprehensive_index_dump.json  # Sample orgdata file
+│   └── orgdata.json                   # Legacy test data
 └── release/              # OpenShift release repository (required)
     ├── ci-operator/
     └── core-services/
@@ -140,8 +141,13 @@ export AUTH_CONFIG="/path/to/my-auth-config.yaml"
 ### File Not Found Errors
 If you see errors about missing files:
 1. Check that `ORGDATA_PATHS` points to a valid file
-2. Ensure the `../cyborg` directory exists if using defaults
+2. Generate or obtain a `comprehensive_index_dump.json` file from your orgdata system
 3. Verify the `../release` directory exists (OpenShift release repo)
+
+To generate organizational data:
+- Use the Python `orglib` indexing system to create `comprehensive_index_dump.json`
+- Or obtain the file from your organization's data pipeline
+- See the cyborg/org_tools project for data generation examples
 
 ### GCS Authentication Errors
 If GCS fails to authenticate:
