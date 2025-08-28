@@ -4,85 +4,72 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 	"sync"
 	"time"
 )
 
 // Service implements the core organizational data service
 type Service struct {
-	mu             sync.RWMutex
-	data           *Data
-	version        DataVersion
-	reloadInterval time.Duration
+	mu      sync.RWMutex
+	data    *Data
+	version DataVersion
 }
 
 // NewService creates a new organizational data service
 func NewService() *Service {
-	return &Service{
-		reloadInterval: 60 * time.Second,
-	}
+	return &Service{}
 }
 
 // LoadFromFiles loads organizational data from JSON files
+// Deprecated: Use LoadFromDataSource with FileDataSource for better architecture
 func (s *Service) LoadFromFiles(filePaths []string) error {
+	// Use FileDataSource to maintain consistency with DataSource pattern
+	fileSource := NewFileDataSource(filePaths...)
+	return s.LoadFromDataSource(context.Background(), fileSource)
+}
+
+// LoadFromDataSource loads organizational data from a data source
+func (s *Service) LoadFromDataSource(ctx context.Context, source DataSource) error {
+	reader, err := source.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load from data source %s: %w", source.String(), err)
+	}
+	defer reader.Close()
+
+	// Read all data
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return fmt.Errorf("failed to read data from source %s: %w", source.String(), err)
+	}
+
+	// Parse JSON
+	var orgData Data
+	if err := json.Unmarshal(data, &orgData); err != nil {
+		return fmt.Errorf("failed to parse JSON from source %s: %w", source.String(), err)
+	}
+
+	// Update service data
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var allData []*Data
-	for _, filePath := range filePaths {
-		data, err := s.loadFile(filePath)
-		if err != nil {
-			return fmt.Errorf("failed to load %s: %w", filePath, err)
-		}
-		allData = append(allData, data)
-	}
-
-	// Merge data from multiple files if needed
-	if len(allData) == 1 {
-		s.data = allData[0]
-	} else {
-		s.data = s.mergeData(allData)
-	}
-
-	// Update version info
+	s.data = &orgData
 	s.version = DataVersion{
 		LoadTime:      time.Now(),
-		OrgCount:      len(s.data.Lookups.Orgs),
-		EmployeeCount: len(s.data.Lookups.Employees),
+		OrgCount:      len(orgData.Lookups.Orgs),
+		EmployeeCount: len(orgData.Lookups.Employees),
 	}
 
 	return nil
 }
 
-// loadFile loads a single JSON file
-func (s *Service) loadFile(filePath string) (*Data, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var data Data
-	if err := json.NewDecoder(file).Decode(&data); err != nil {
-		return nil, err
+// StartDataSourceWatcher starts watching a data source for changes
+func (s *Service) StartDataSourceWatcher(ctx context.Context, source DataSource) error {
+	callback := func() error {
+		return s.LoadFromDataSource(ctx, source)
 	}
 
-	return &data, nil
-}
-
-// mergeData merges data from multiple files (simple merge for now)
-func (s *Service) mergeData(dataList []*Data) *Data {
-	if len(dataList) == 0 {
-		return nil
-	}
-	if len(dataList) == 1 {
-		return dataList[0]
-	}
-
-	// For now, just return the first file's data
-	// TODO: Implement proper merging logic if needed
-	return dataList[0]
+	return source.Watch(ctx, callback)
 }
 
 // GetVersion returns the current data version
@@ -385,30 +372,4 @@ func (s *Service) getUIDFromSlackID(slackID string) string {
 		return ""
 	}
 	return s.data.Indexes.SlackIDMappings.SlackUIDToUID[slackID]
-}
-
-// StartConfigMapWatcher starts watching for config map changes
-func (s *Service) StartConfigMapWatcher(ctx context.Context, configMapPaths []string) {
-	// TODO: Implement config map watching
-	// For now, this is a placeholder
-	go func() {
-		ticker := time.NewTicker(s.reloadInterval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				// Check for file changes and reload if needed
-				s.checkForChanges(configMapPaths)
-			}
-		}
-	}()
-}
-
-// checkForChanges checks if any of the watched files have changed
-func (s *Service) checkForChanges(filePaths []string) {
-	// TODO: Implement file change detection
-	// For now, this is a placeholder
 }
