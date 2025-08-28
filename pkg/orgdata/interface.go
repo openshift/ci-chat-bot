@@ -57,8 +57,8 @@ func NewIndexedOrgDataService() OrgDataServiceInterface {
 
 // slackOrgDataService wraps the core service to provide Slack-specific functionality
 type slackOrgDataService struct {
-	core      orgdatacore.ServiceInterface
-	gcsSource orgdatacore.DataSource // Keep reference to GCS source for watching
+	core       orgdatacore.ServiceInterface
+	dataSource orgdatacore.DataSource //nolint:unused // Keep reference to data source for watching (used with build tags)
 }
 
 // IsSlackUserUID checks if a Slack ID corresponds to a specific UID

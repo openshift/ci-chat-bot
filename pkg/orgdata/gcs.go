@@ -28,7 +28,7 @@ func (s *slackOrgDataService) LoadFromGCS(ctx context.Context, config GCSConfig)
 	}
 
 	// Store the GCS source for watching
-	s.gcsSource = gcsSource
+	s.dataSource = gcsSource
 
 	// Load data from GCS
 	return s.core.LoadFromDataSource(ctx, gcsSource)
@@ -37,10 +37,10 @@ func (s *slackOrgDataService) LoadFromGCS(ctx context.Context, config GCSConfig)
 // StartGCSWatcher starts watching GCS for data changes
 func (s *slackOrgDataService) StartGCSWatcher(ctx context.Context, config GCSConfig) error {
 	// Use the same GCS source that was created during LoadFromGCS
-	if s.gcsSource == nil {
+	if s.dataSource == nil {
 		return fmt.Errorf("GCS source not initialized. Call LoadFromGCS first")
 	}
 
 	// Start watching for changes using the same data source instance
-	return s.core.StartDataSourceWatcher(ctx, s.gcsSource)
+	return s.core.StartDataSourceWatcher(ctx, s.dataSource)
 }
