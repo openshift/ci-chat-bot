@@ -53,9 +53,16 @@ if [[ "${USE_GCS_ORGDATA:-false}" == "true" ]]; then
   fi
 else
   echo "Using local file-based orgdata..."
-  # Default to local file-based orgdata (relative to project root)
-  default_orgdata="${work_dir}/../cyborg/org_tools/comprehensive_index_dump.json"
+  # Default orgdata path (can be overridden with ORGDATA_PATHS env var)
+  # Users should set ORGDATA_PATHS to point to their comprehensive_index_dump.json file
+  default_orgdata="${work_dir}/test-data/comprehensive_index_dump.json"
   ORGDATA_PATHS="${ORGDATA_PATHS:-${default_orgdata}}"
+  
+  if [[ ! -f "$ORGDATA_PATHS" ]]; then
+    echo "⚠️  Warning: Orgdata file not found at: $ORGDATA_PATHS"
+    echo "   Set ORGDATA_PATHS environment variable to your comprehensive_index_dump.json file"
+    echo "   Example: export ORGDATA_PATHS=\"/path/to/comprehensive_index_dump.json\""
+  fi
   orgdata_flags="--orgdata-paths=${ORGDATA_PATHS}"
   echo "Orgdata file: ${ORGDATA_PATHS}"
 fi
