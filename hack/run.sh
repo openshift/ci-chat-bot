@@ -23,7 +23,50 @@ oc --context app.ci -n ci get secrets ci-chat-bot-slack-app --template='{{index 
 oc --context app.ci -n ci get secrets ci-chat-bot-slack-app --template='{{index .data "sa.ci-chat-bot-mce.dpcr.token.txt"}}' | base64 -d > $tmp_kube/sa.ci-chat-bot-mce.dpcr.token.txt
 
 work_dir=$(readlink -f $(dirname $0)/..)
-make
+
+# Determine build flags based on configuration
+build_flags=""
+orgdata_flags=""
+
+# Check if GCS is enabled
+if [[ "${USE_GCS_ORGDATA:-false}" == "true" ]]; then
+  echo "Building with GCS support..."
+  build_flags="-tags gcs"
+  
+  # GCS configuration with defaults
+  GCS_BUCKET="${GCS_BUCKET:-resolved-org}"
+  GCS_OBJECT_PATH="${GCS_OBJECT_PATH:-orgdata/comprehensive_index_dump.json}"
+  GCS_PROJECT_ID="${GCS_PROJECT_ID:-openshift-crt-mce}"
+  GCS_CHECK_INTERVAL="${GCS_CHECK_INTERVAL:-5m}"
+  
+  echo "GCS Config: gs://${GCS_BUCKET}/${GCS_OBJECT_PATH}"
+  
+  orgdata_flags="--gcs-enabled=true \
+  --gcs-bucket=${GCS_BUCKET} \
+  --gcs-object-path=${GCS_OBJECT_PATH} \
+  --gcs-project-id=${GCS_PROJECT_ID} \
+  --gcs-check-interval=${GCS_CHECK_INTERVAL}"
+  
+  # Add GCS credentials if provided
+  if [[ -n "${GCS_CREDENTIALS_JSON:-}" ]]; then
+    orgdata_flags="${orgdata_flags} --gcs-credentials-json=${GCS_CREDENTIALS_JSON}"
+  fi
+else
+  echo "Using local file-based orgdata..."
+  # Default to local file-based orgdata (relative to project root)
+  default_orgdata="${work_dir}/../cyborg/org_tools/comprehensive_index_dump.json"
+  ORGDATA_PATHS="${ORGDATA_PATHS:-${default_orgdata}}"
+  orgdata_flags="--orgdata-paths=${ORGDATA_PATHS}"
+  echo "Orgdata file: ${ORGDATA_PATHS}"
+fi
+
+# Authorization config (relative to project root)
+AUTH_CONFIG="${AUTH_CONFIG:-${work_dir}/test-authorization.yaml}"
+
+echo "Building ci-chat-bot..."
+make BUILD_FLAGS="$build_flags"
+
+echo "Starting ci-chat-bot with $(echo $orgdata_flags | cut -d' ' -f1) backend..."
 ./ci-chat-bot \
   --force-pr-owner=system:serviceaccount:ci:ci-chat-bot \
   --job-config ${work_dir}/../release/ci-operator/jobs/openshift/release/ \
@@ -37,5 +80,7 @@ make
   --kubeconfig-suffix=.config \
   --rosa-oidcConfigId-path=$tmp_oidc_config_id \
   --rosa-billingAccount-path=$tmp_billing_account_id \
-  --disable-rosa
-  --v=2
+  --disable-rosa \
+  --v=2 \
+  $orgdata_flags \
+  --authorization-config="${AUTH_CONFIG}"
