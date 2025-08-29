@@ -6,14 +6,16 @@ package orgdata
 import (
 	"context"
 	"fmt"
+
+	orgdatacore "github.com/openshift/ci-chat-bot/pkg/orgdata-core"
 )
 
 // LoadFromGCS returns an error when GCS support is not enabled
-func (s *slackOrgDataService) LoadFromGCS(ctx context.Context, config GCSConfig) error {
+func (s *slackOrgDataService) LoadFromGCS(ctx context.Context, config orgdatacore.GCSConfig) error {
 	return fmt.Errorf("GCS support not enabled. Build with '-tags gcs' to enable GCS functionality")
 }
 
 // StartGCSWatcher returns an error when GCS support is not enabled
-func (s *slackOrgDataService) StartGCSWatcher(ctx context.Context, config GCSConfig) error {
+func (s *slackOrgDataService) StartGCSWatcher(ctx context.Context, config orgdatacore.GCSConfig) error {
 	return fmt.Errorf("GCS support not enabled. Build with '-tags gcs' to enable GCS functionality")
 }

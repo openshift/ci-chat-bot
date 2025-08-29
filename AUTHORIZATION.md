@@ -43,6 +43,32 @@ The system now uses a pluggable DataSource architecture:
 - **GCSDataSource**: Google Cloud Storage with polling for updates  
 - **Extensible**: Easy to add new sources (S3, HTTP, databases, etc.)
 
+### Authorization Config Sources
+
+The authorization system also uses pluggable config sources for maximum deployment flexibility:
+
+```go
+type AuthConfigSource interface {
+    Load(ctx context.Context) (*AuthorizationConfig, error)
+    Watch(ctx context.Context, callback func(*AuthorizationConfig)) error
+    String() string
+}
+```
+
+**Current Implementation:**
+- **FileAuthConfigSource**: YAML files with polling-based hot reload (60s interval)
+
+**Future Extensions:**
+- **ConfigMapAuthConfigSource**: Kubernetes ConfigMaps for zero-downtime policy updates
+- **GCSAuthConfigSource**: Centralized policy storage in Google Cloud Storage
+- **HTTPAuthConfigSource**: External policy services (OPA, custom APIs)
+
+**Production Benefits:**
+- **No container rebuilds** for authorization policy changes
+- **Hot reload** without service restarts
+- **Centralized policy management** across environments
+- **GitOps-friendly** policy deployment pipelines
+
 ### Package Structure
 
 - **`pkg/orgdata-core/`**: Reusable core package for organizational data access

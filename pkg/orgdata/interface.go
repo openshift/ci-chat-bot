@@ -2,7 +2,6 @@ package orgdata
 
 import (
 	"context"
-	"time"
 
 	orgdatacore "github.com/openshift/ci-chat-bot/pkg/orgdata-core"
 )
@@ -33,20 +32,11 @@ type OrgDataServiceInterface interface {
 	// Data management
 	GetVersion() orgdatacore.DataVersion
 	LoadFromFiles(filePaths []string) error
-	LoadFromGCS(ctx context.Context, config GCSConfig) error
-	StartGCSWatcher(ctx context.Context, config GCSConfig) error
+	LoadFromGCS(ctx context.Context, config orgdatacore.GCSConfig) error
+	StartGCSWatcher(ctx context.Context, config orgdatacore.GCSConfig) error
 
 	// Core service access for DataSource operations
 	GetCore() orgdatacore.ServiceInterface
-}
-
-// GCSConfig represents GCS configuration for loading organizational data
-type GCSConfig struct {
-	Bucket          string
-	ObjectPath      string
-	ProjectID       string
-	CredentialsJSON string
-	CheckInterval   time.Duration
 }
 
 // NewIndexedOrgDataService creates a new indexed service using the core package

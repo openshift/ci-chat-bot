@@ -11,18 +11,9 @@ import (
 )
 
 // LoadFromGCS loads organizational data from Google Cloud Storage
-func (s *slackOrgDataService) LoadFromGCS(ctx context.Context, config GCSConfig) error {
-	// Convert to core GCS config
-	coreConfig := orgdatacore.GCSConfig{
-		Bucket:          config.Bucket,
-		ObjectPath:      config.ObjectPath,
-		ProjectID:       config.ProjectID,
-		CredentialsJSON: config.CredentialsJSON,
-		CheckInterval:   config.CheckInterval,
-	}
-
+func (s *slackOrgDataService) LoadFromGCS(ctx context.Context, config orgdatacore.GCSConfig) error {
 	// Create GCS data source and store it for later use in watcher
-	gcsSource, err := orgdatacore.NewGCSDataSourceWithSDK(ctx, coreConfig)
+	gcsSource, err := orgdatacore.NewGCSDataSourceWithSDK(ctx, config)
 	if err != nil {
 		return err
 	}
@@ -35,7 +26,7 @@ func (s *slackOrgDataService) LoadFromGCS(ctx context.Context, config GCSConfig)
 }
 
 // StartGCSWatcher starts watching GCS for data changes
-func (s *slackOrgDataService) StartGCSWatcher(ctx context.Context, config GCSConfig) error {
+func (s *slackOrgDataService) StartGCSWatcher(ctx context.Context, config orgdatacore.GCSConfig) error {
 	// Use the same GCS source that was created during LoadFromGCS
 	if s.dataSource == nil {
 		return fmt.Errorf("GCS source not initialized. Call LoadFromGCS first")

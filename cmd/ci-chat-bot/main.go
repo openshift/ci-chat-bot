@@ -404,7 +404,7 @@ func run() error {
 		orgDataService = orgdata.NewIndexedOrgDataService()
 
 		// Configure GCS
-		gcsConfig := orgdata.GCSConfig{
+		gcsConfig := orgdatacore.GCSConfig{
 			Bucket:          opt.gcsBucket,
 			ObjectPath:      opt.gcsObjectPath,
 			ProjectID:       opt.gcsProjectID,
@@ -428,12 +428,16 @@ func run() error {
 			if opt.authorizationConfigPath != "" {
 				log.Printf("Initializing authorization service with config: %s", opt.authorizationConfigPath)
 				authService = orgdata.NewAuthorizationService(orgDataService, opt.authorizationConfigPath)
-				if err := authService.LoadConfig(); err != nil {
+				if err := authService.LoadConfig(ctx); err != nil {
 					log.Printf("Warning: Failed to load authorization config: %v", err)
 					// Keep the authService even if config fails to load - it will allow all commands
 				} else {
 					// Start config watcher
-					go authService.StartConfigWatcher()
+					go func() {
+						if err := authService.StartConfigWatcher(ctx); err != nil {
+							log.Printf("Authorization config watcher stopped: %v", err)
+						}
+					}()
 					log.Printf("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
 				}
 			} else {
@@ -464,12 +468,16 @@ func run() error {
 			if opt.authorizationConfigPath != "" {
 				log.Printf("Initializing authorization service with config: %s", opt.authorizationConfigPath)
 				authService = orgdata.NewAuthorizationService(orgDataService, opt.authorizationConfigPath)
-				if err := authService.LoadConfig(); err != nil {
+				if err := authService.LoadConfig(ctx); err != nil {
 					log.Printf("Warning: Failed to load authorization config: %v", err)
 					// Keep the authService even if config fails to load - it will allow all commands
 				} else {
 					// Start config watcher
-					go authService.StartConfigWatcher()
+					go func() {
+						if err := authService.StartConfigWatcher(ctx); err != nil {
+							log.Printf("Authorization config watcher stopped: %v", err)
+						}
+					}()
 					log.Printf("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
 				}
 			} else {
