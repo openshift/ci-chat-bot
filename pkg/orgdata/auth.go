@@ -1,6 +1,7 @@
 package orgdata
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -10,6 +11,18 @@ import (
 	orgdatacore "github.com/openshift/ci-chat-bot/pkg/orgdata-core"
 	"gopkg.in/yaml.v2"
 )
+
+// AuthConfigSource defines the interface for loading authorization configuration from different sources
+type AuthConfigSource interface {
+	// Load loads the authorization configuration
+	Load(ctx context.Context) (*AuthorizationConfig, error)
+
+	// Watch starts watching for configuration changes and calls the callback when changes are detected
+	Watch(ctx context.Context, callback func(*AuthorizationConfig)) error
+
+	// String returns a description of the configuration source
+	String() string
+}
 
 // AuthorizationConfig defines the authorization rules for different commands
 type AuthorizationConfig struct {
@@ -26,47 +39,121 @@ type AuthRule struct {
 	DenyMessage  string   `yaml:"deny_message,omitempty"`  // Custom message when access is denied
 }
 
-// AuthorizationService handles authorization checking
-type AuthorizationService struct {
-	config         *AuthorizationConfig
-	orgDataService OrgDataServiceInterface
-	configPath     string
-	mu             sync.RWMutex
-	reloadInterval time.Duration
+// FileAuthConfigSource implements AuthConfigSource for file-based configuration
+type FileAuthConfigSource struct {
+	filePath string
+	lastMod  time.Time
 }
 
-// NewAuthorizationService creates a new authorization service
-func NewAuthorizationService(orgDataService OrgDataServiceInterface, configPath string) *AuthorizationService {
-	return &AuthorizationService{
-		orgDataService: orgDataService,
-		configPath:     configPath,
-		reloadInterval: 60 * time.Second, // Check for config updates every minute
+// NewFileAuthConfigSource creates a new file-based auth config source
+func NewFileAuthConfigSource(filePath string) AuthConfigSource {
+	return &FileAuthConfigSource{
+		filePath: filePath,
 	}
 }
 
-// LoadConfig loads the authorization configuration from a file
-func (a *AuthorizationService) LoadConfig() error {
-	// If no config path is provided, create an empty config (allows all commands)
-	if a.configPath == "" {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		a.config = &AuthorizationConfig{Rules: []AuthRule{}}
-		return nil
+// Load loads the authorization configuration from file
+func (f *FileAuthConfigSource) Load(ctx context.Context) (*AuthorizationConfig, error) {
+	// Handle empty path case (no auth config)
+	if f.filePath == "" {
+		return &AuthorizationConfig{Rules: []AuthRule{}}, nil
 	}
 
-	data, err := os.ReadFile(a.configPath)
+	data, err := os.ReadFile(f.filePath)
 	if err != nil {
-		return fmt.Errorf("failed to read authorization config: %w", err)
+		return nil, fmt.Errorf("failed to read authorization config: %w", err)
 	}
 
 	var config AuthorizationConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		return fmt.Errorf("failed to parse authorization config: %w", err)
+		return nil, fmt.Errorf("failed to parse authorization config: %w", err)
+	}
+
+	// Update last modified time for watching
+	if stat, err := os.Stat(f.filePath); err == nil {
+		f.lastMod = stat.ModTime()
+	}
+
+	return &config, nil
+}
+
+// Watch starts watching for file changes with polling
+func (f *FileAuthConfigSource) Watch(ctx context.Context, callback func(*AuthorizationConfig)) error {
+	if f.filePath == "" {
+		// No file to watch, just wait for context cancellation
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	ticker := time.NewTicker(60 * time.Second) // Check every 60 seconds
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			stat, err := os.Stat(f.filePath)
+			if err != nil {
+				fmt.Printf("Failed to check auth config file: %v\n", err)
+				continue
+			}
+
+			if stat.ModTime().After(f.lastMod) {
+				config, err := f.Load(ctx)
+				if err != nil {
+					fmt.Printf("Failed to reload auth config: %v\n", err)
+					continue
+				}
+				callback(config)
+			}
+		}
+	}
+}
+
+// String returns a description of the auth config source
+func (f *FileAuthConfigSource) String() string {
+	if f.filePath == "" {
+		return "no auth config (allow all)"
+	}
+	return fmt.Sprintf("file: %s", f.filePath)
+}
+
+// AuthorizationService handles authorization checking
+type AuthorizationService struct {
+	config         *AuthorizationConfig
+	orgDataService OrgDataServiceInterface
+	configSource   AuthConfigSource
+	mu             sync.RWMutex
+}
+
+// NewAuthorizationService creates a new authorization service with file-based config
+func NewAuthorizationService(orgDataService OrgDataServiceInterface, configPath string) *AuthorizationService {
+	configSource := NewFileAuthConfigSource(configPath)
+	return &AuthorizationService{
+		orgDataService: orgDataService,
+		configSource:   configSource,
+	}
+}
+
+// NewAuthorizationServiceWithSource creates a new authorization service with a custom config source
+func NewAuthorizationServiceWithSource(orgDataService OrgDataServiceInterface, configSource AuthConfigSource) *AuthorizationService {
+	return &AuthorizationService{
+		orgDataService: orgDataService,
+		configSource:   configSource,
+	}
+}
+
+// LoadConfig loads the authorization configuration from the configured source
+func (a *AuthorizationService) LoadConfig(ctx context.Context) error {
+	config, err := a.configSource.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load authorization config from %s: %w", a.configSource.String(), err)
 	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.config = &config
+	a.config = config
 
 	return nil
 }
@@ -271,14 +358,14 @@ func (a *AuthorizationService) GetUserCommands(slackUserID string) map[string][]
 	return result
 }
 
-// StartConfigWatcher starts watching for configuration file changes
-func (a *AuthorizationService) StartConfigWatcher() {
-	ticker := time.NewTicker(a.reloadInterval)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		if err := a.LoadConfig(); err != nil {
-			fmt.Printf("Failed to reload authorization config: %v\n", err)
-		}
+// StartConfigWatcher starts watching for configuration changes
+func (a *AuthorizationService) StartConfigWatcher(ctx context.Context) error {
+	callback := func(config *AuthorizationConfig) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		a.config = config
+		fmt.Printf("Authorization config reloaded from %s\n", a.configSource.String())
 	}
+
+	return a.configSource.Watch(ctx, callback)
 }
