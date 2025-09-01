@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	orgdatacore "github.com/openshift/ci-chat-bot/pkg/orgdata-core"
+	orgdatacore "github.com/openshift-eng/cyborg-data"
 	"gopkg.in/yaml.v2"
 )
 

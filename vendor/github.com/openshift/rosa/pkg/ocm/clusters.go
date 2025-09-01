@@ -32,6 +32,7 @@ import (
 	errors "github.com/zgalor/weberr"
 
 	"github.com/openshift/rosa/pkg/aws"
+	"github.com/openshift/rosa/pkg/fedramp"
 	"github.com/openshift/rosa/pkg/helper"
 	"github.com/openshift/rosa/pkg/info"
 	"github.com/openshift/rosa/pkg/interactive/consts"
@@ -102,6 +103,7 @@ type Spec struct {
 	HostPrefix                     int
 	Private                        *bool
 	PrivateLink                    *bool
+	PrivateIngress                 *bool
 
 	// Properties
 	CustomProperties map[string]string
@@ -588,6 +590,13 @@ func (c *Client) UpdateCluster(clusterKey string, creator *aws.Creator, config S
 		clusterBuilder = clusterBuilder.ExpirationTimestamp(config.Expiration)
 	}
 
+	// Update channel group
+	if config.ChannelGroup != "" {
+		clusterBuilder.Version(cmv1.NewVersion().
+			ChannelGroup(config.ChannelGroup),
+		)
+	}
+
 	// Scale cluster
 	clusterNodesBuilder, updateNodes := c.getClusterNodesBuilder(config)
 	if updateNodes {
@@ -1065,12 +1074,15 @@ func (c *Client) createClusterSpec(config Spec) (*cmv1.Cluster, error) {
 
 	clusterBuilder = clusterBuilder.AWS(awsBuilder)
 
+	clusterApiListeningMethod := cmv1.ListeningMethodExternal
+
 	if config.Private != nil {
 		if *config.Private {
 			clusterBuilder = clusterBuilder.API(
 				cmv1.NewClusterAPI().
 					Listening(cmv1.ListeningMethodInternal),
 			)
+			clusterApiListeningMethod = cmv1.ListeningMethodInternal
 		} else {
 			clusterBuilder = clusterBuilder.API(
 				cmv1.NewClusterAPI().
@@ -1118,21 +1130,37 @@ func (c *Client) createClusterSpec(config Spec) (*cmv1.Cluster, error) {
 		clusterBuilder = clusterBuilder.Htpasswd(htPasswdIDP)
 	}
 
-	if !reflect.DeepEqual(config.DefaultIngress, NewDefaultIngressSpec()) {
-		defaultIngress := cmv1.NewIngress().Default(true)
-		if len(config.DefaultIngress.RouteSelectors) != 0 {
-			defaultIngress.RouteSelectors(config.DefaultIngress.RouteSelectors)
+	// Build default ingress if changes detected in config
+	defaultIngress := cmv1.NewIngress().Default(true)
+	if len(config.DefaultIngress.RouteSelectors) != 0 {
+		defaultIngress.RouteSelectors(config.DefaultIngress.RouteSelectors)
+	}
+	if len(config.DefaultIngress.ExcludedNamespaces) != 0 {
+		defaultIngress.ExcludedNamespaces(config.DefaultIngress.ExcludedNamespaces...)
+	}
+	if !helper.Contains([]string{"", consts.SkipSelectionOption}, config.DefaultIngress.WildcardPolicy) {
+		defaultIngress.RouteWildcardPolicy(v1.WildcardPolicy(config.DefaultIngress.WildcardPolicy))
+	}
+	if !helper.Contains([]string{"", consts.SkipSelectionOption}, config.DefaultIngress.NamespaceOwnershipPolicy) {
+		defaultIngress.RouteNamespaceOwnershipPolicy(
+			v1.NamespaceOwnershipPolicy(config.DefaultIngress.NamespaceOwnershipPolicy))
+	}
+
+	// Decide ingress listening method if HCP and not fedramp enabled
+	isHcpNotFedramp := !fedramp.Enabled() && config.Hypershift.Enabled
+	if isHcpNotFedramp {
+		if config.PrivateIngress != nil {
+			if *config.PrivateIngress {
+				defaultIngress.Listening(cmv1.ListeningMethodInternal)
+			} else {
+				defaultIngress.Listening(cmv1.ListeningMethodExternal)
+			}
+		} else {
+			defaultIngress.Listening(clusterApiListeningMethod)
 		}
-		if len(config.DefaultIngress.ExcludedNamespaces) != 0 {
-			defaultIngress.ExcludedNamespaces(config.DefaultIngress.ExcludedNamespaces...)
-		}
-		if !helper.Contains([]string{"", consts.SkipSelectionOption}, config.DefaultIngress.WildcardPolicy) {
-			defaultIngress.RouteWildcardPolicy(v1.WildcardPolicy(config.DefaultIngress.WildcardPolicy))
-		}
-		if !helper.Contains([]string{"", consts.SkipSelectionOption}, config.DefaultIngress.NamespaceOwnershipPolicy) {
-			defaultIngress.RouteNamespaceOwnershipPolicy(
-				v1.NamespaceOwnershipPolicy(config.DefaultIngress.NamespaceOwnershipPolicy))
-		}
+	}
+
+	if !reflect.DeepEqual(config.DefaultIngress, NewDefaultIngressSpec()) || isHcpNotFedramp {
 		clusterBuilder.Ingresses(cmv1.NewIngressList().Items(defaultIngress))
 	}
 
