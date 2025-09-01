@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	orgdatacore "github.com/openshift/ci-chat-bot/pkg/orgdata-core"
+	orgdatacore "github.com/openshift-eng/cyborg-data"
 )
 
 // LoadFromGCS returns an error when GCS support is not enabled

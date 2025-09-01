@@ -71,7 +71,7 @@ fi
 AUTH_CONFIG="${AUTH_CONFIG:-${work_dir}/test-authorization.yaml}"
 
 echo "Building ci-chat-bot..."
-make BUILD_FLAGS="$build_flags"
+make GO_BUILD_FLAGS="$build_flags"
 
 echo "Starting ci-chat-bot with $(echo $orgdata_flags | cut -d' ' -f1) backend..."
 ./ci-chat-bot \

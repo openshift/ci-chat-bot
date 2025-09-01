@@ -17,9 +17,9 @@ import (
 	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/adrg/xdg"
+	orgdatacore "github.com/openshift-eng/cyborg-data"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/orgdata"
-	orgdatacore "github.com/openshift/ci-chat-bot/pkg/orgdata-core"
 	"github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	botversion "github.com/openshift/ci-chat-bot/pkg/version"
