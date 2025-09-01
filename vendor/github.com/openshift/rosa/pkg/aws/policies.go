@@ -167,7 +167,7 @@ var roleTypeMap = map[string]string{
 	WorkerAccountRole:       WorkerAccountRoleType,
 }
 
-func (c *awsClient) EnsureRole(reporter *reporter.Object, name string, policy string, permissionsBoundary string,
+func (c *awsClient) EnsureRole(reporter reporter.Logger, name string, policy string, permissionsBoundary string,
 	version string, tagList map[string]string, path string, managedPolicies bool) (string, error) {
 	output, err := c.iamClient.GetRole(context.Background(), &iam.GetRoleInput{
 		RoleName: aws.String(name),
@@ -261,7 +261,7 @@ func (c *awsClient) ValidateRoleNameAvailable(name string) (err error) {
 	return fmt.Errorf("Error validating role name '%s': %v", name, err)
 }
 
-func (c *awsClient) createRole(reporter *reporter.Object, name string, policy string,
+func (c *awsClient) createRole(reporter reporter.Logger, name string, policy string,
 	permissionsBoundary string, tagList map[string]string, path string) (string, error) {
 	if !RoleNameRE.MatchString(name) {
 		return "", fmt.Errorf("Role name is invalid")
@@ -475,7 +475,7 @@ func (c *awsClient) hasCompatibleMajorMinorVersionTags(iamTags []iamtypes.Tag, v
 	return false, nil
 }
 
-func (c *awsClient) AttachRolePolicy(reporter *reporter.Object, roleName string, policyARN string) error {
+func (c *awsClient) AttachRolePolicy(reporter reporter.Logger, roleName string, policyARN string) error {
 	_, err := c.iamClient.AttachRolePolicy(context.Background(), &iam.AttachRolePolicyInput{
 		RoleName:  aws.String(roleName),
 		PolicyArn: aws.String(policyARN),
@@ -1151,7 +1151,7 @@ func (c *awsClient) DeleteOperatorRole(roleName string, managedPolicies bool,
 					sharedVpcPoliciesNotDeleted[*policyOutput.Policy.Arn] = false
 
 					// Add to list of sharedVpc policies to be actually deleted
-					c.logger.Infof("Deleting policy '%s'", policy)
+					c.logger.Info(fmt.Sprintf("Deleting policy '%s'", policy))
 					sharedVpcHcpPolicies = append(sharedVpcHcpPolicies, policy)
 				} else {
 					// Print warning message after all roles are checked (will result in duplicated warnings without
@@ -1255,11 +1255,11 @@ func (c *awsClient) DeleteAccountRole(roleName string, prefix string, managedPol
 			}
 			if containsManagedTag && containsHcpSharedVpcTag {
 				if *policyOutput.Policy.AttachmentCount == 0 {
-					c.logger.Infof("Deleting policy '%s'", policy)
+					c.logger.Info(fmt.Sprintf("Deleting policy '%s'", policy))
 					sharedVpcHcpPolicies = append(sharedVpcHcpPolicies, policy)
 				} else {
-					c.logger.Warnf("Unable to delete policy %s: Policy still attached to %v other resource(s)",
-						*policyOutput.Policy.PolicyName, *policyOutput.Policy.AttachmentCount)
+					c.logger.Warn(fmt.Sprintf("Unable to delete policy %s: Policy still attached to %v other resource(s)",
+						*policyOutput.Policy.PolicyName, *policyOutput.Policy.AttachmentCount))
 				}
 			}
 		}
@@ -2186,7 +2186,7 @@ func (c *awsClient) validateManagedPolicy(policies map[string]*cmv1.AWSSTSPolicy
 	if err != nil {
 		// EC2 policy is only available to orgs for zero-egress feature toggle enabled
 		if policyKey == WorkerEC2RegistryKey {
-			c.logger.Infof("Ignored check for policy key '%s' (zero egress feature toggle is not enabled)", policyKey)
+			c.logger.Info(fmt.Sprintf("Ignored check for policy key '%s' (zero egress feature toggle is not enabled)", policyKey))
 			return nil
 		}
 		return err

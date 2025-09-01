@@ -9,13 +9,15 @@
 package aws
 
 import (
+	context "context"
 	io "io"
 	reflect "reflect"
 
 	aws "github.com/aws/aws-sdk-go-v2/aws"
-	types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	types "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
+	types0 "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	iam "github.com/aws/aws-sdk-go-v2/service/iam"
-	types0 "github.com/aws/aws-sdk-go-v2/service/iam/types"
+	types1 "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	servicequotas "github.com/aws/aws-sdk-go-v2/service/servicequotas"
 	sts "github.com/aws/aws-sdk-go-v2/service/sts"
 	v1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
@@ -61,7 +63,7 @@ func (mr *MockClientMockRecorder) AddRoleTag(roleName, key, value any) *gomock.C
 }
 
 // AttachRolePolicy mocks base method.
-func (m *MockClient) AttachRolePolicy(reporter *reporter.Object, roleName, policyARN string) error {
+func (m *MockClient) AttachRolePolicy(reporter reporter.Logger, roleName, policyARN string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AttachRolePolicy", reporter, roleName, policyARN)
 	ret0, _ := ret[0].(error)
@@ -100,6 +102,21 @@ func (m *MockClient) CheckAdminUserNotExisting(userName string) error {
 func (mr *MockClientMockRecorder) CheckAdminUserNotExisting(userName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckAdminUserNotExisting", reflect.TypeOf((*MockClient)(nil).CheckAdminUserNotExisting), userName)
+}
+
+// CheckIfMachinePoolHasDedicatedHost mocks base method.
+func (m *MockClient) CheckIfMachinePoolHasDedicatedHost(instanceIDs []string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CheckIfMachinePoolHasDedicatedHost", instanceIDs)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CheckIfMachinePoolHasDedicatedHost indicates an expected call of CheckIfMachinePoolHasDedicatedHost.
+func (mr *MockClientMockRecorder) CheckIfMachinePoolHasDedicatedHost(instanceIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckIfMachinePoolHasDedicatedHost", reflect.TypeOf((*MockClient)(nil).CheckIfMachinePoolHasDedicatedHost), instanceIDs)
 }
 
 // CheckRoleExists mocks base method.
@@ -178,6 +195,21 @@ func (mr *MockClientMockRecorder) CreateSecretInSecretsManager(name, secret any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSecretInSecretsManager", reflect.TypeOf((*MockClient)(nil).CreateSecretInSecretsManager), name, secret)
 }
 
+// CreateStackWithParamsTags mocks base method.
+func (m *MockClient) CreateStackWithParamsTags(ctx context.Context, cfTemplateBody, stackName string, stackParams, stackTags map[string]string) (*string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateStackWithParamsTags", ctx, cfTemplateBody, stackName, stackParams, stackTags)
+	ret0, _ := ret[0].(*string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateStackWithParamsTags indicates an expected call of CreateStackWithParamsTags.
+func (mr *MockClientMockRecorder) CreateStackWithParamsTags(ctx, cfTemplateBody, stackName, stackParams, stackTags any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateStackWithParamsTags", reflect.TypeOf((*MockClient)(nil).CreateStackWithParamsTags), ctx, cfTemplateBody, stackName, stackParams, stackTags)
+}
+
 // DeleteAccountRole mocks base method.
 func (m *MockClient) DeleteAccountRole(roleName, prefix string, managedPolicies, deleteHcpSharedVpcPolicies bool) error {
 	m.ctrl.T.Helper()
@@ -190,6 +222,20 @@ func (m *MockClient) DeleteAccountRole(roleName, prefix string, managedPolicies,
 func (mr *MockClientMockRecorder) DeleteAccountRole(roleName, prefix, managedPolicies, deleteHcpSharedVpcPolicies any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccountRole", reflect.TypeOf((*MockClient)(nil).DeleteAccountRole), roleName, prefix, managedPolicies, deleteHcpSharedVpcPolicies)
+}
+
+// DeleteCFStack mocks base method.
+func (m *MockClient) DeleteCFStack(ctx context.Context, stackName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteCFStack", ctx, stackName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteCFStack indicates an expected call of DeleteCFStack.
+func (mr *MockClientMockRecorder) DeleteCFStack(ctx, stackName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCFStack", reflect.TypeOf((*MockClient)(nil).DeleteCFStack), ctx, stackName)
 }
 
 // DeleteInlineRolePolicies mocks base method.
@@ -320,6 +366,21 @@ func (mr *MockClientMockRecorder) DescribeAvailabilityZones() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DescribeAvailabilityZones", reflect.TypeOf((*MockClient)(nil).DescribeAvailabilityZones))
 }
 
+// DescribeCFStackResources mocks base method.
+func (m *MockClient) DescribeCFStackResources(ctx context.Context, stackName string) (*[]types.StackResource, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DescribeCFStackResources", ctx, stackName)
+	ret0, _ := ret[0].(*[]types.StackResource)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DescribeCFStackResources indicates an expected call of DescribeCFStackResources.
+func (mr *MockClientMockRecorder) DescribeCFStackResources(ctx, stackName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DescribeCFStackResources", reflect.TypeOf((*MockClient)(nil).DescribeCFStackResources), ctx, stackName)
+}
+
 // DetachRolePolicies mocks base method.
 func (m *MockClient) DetachRolePolicies(roleName string) error {
 	m.ctrl.T.Helper()
@@ -379,7 +440,7 @@ func (mr *MockClientMockRecorder) EnsurePolicy(policyArn, document, version, tag
 }
 
 // EnsureRole mocks base method.
-func (m *MockClient) EnsureRole(reporter *reporter.Object, name, policy, permissionsBoundary, version string, tagList map[string]string, path string, managedPolicies bool) (string, error) {
+func (m *MockClient) EnsureRole(reporter reporter.Logger, name, policy, permissionsBoundary, version string, tagList map[string]string, path string, managedPolicies bool) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "EnsureRole", reporter, name, policy, permissionsBoundary, version, tagList, path, managedPolicies)
 	ret0, _ := ret[0].(string)
@@ -394,7 +455,7 @@ func (mr *MockClientMockRecorder) EnsureRole(reporter, name, policy, permissions
 }
 
 // FetchPublicSubnetMap mocks base method.
-func (m *MockClient) FetchPublicSubnetMap(subnets []types.Subnet) (map[string]bool, error) {
+func (m *MockClient) FetchPublicSubnetMap(subnets []types0.Subnet) (map[string]bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FetchPublicSubnetMap", subnets)
 	ret0, _ := ret[0].(map[string]bool)
@@ -409,10 +470,10 @@ func (mr *MockClientMockRecorder) FetchPublicSubnetMap(subnets any) *gomock.Call
 }
 
 // FilterVPCsPrivateSubnets mocks base method.
-func (m *MockClient) FilterVPCsPrivateSubnets(subnets []types.Subnet) ([]types.Subnet, error) {
+func (m *MockClient) FilterVPCsPrivateSubnets(subnets []types0.Subnet) ([]types0.Subnet, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FilterVPCsPrivateSubnets", subnets)
-	ret0, _ := ret[0].([]types.Subnet)
+	ret0, _ := ret[0].([]types0.Subnet)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -662,6 +723,21 @@ func (m *MockClient) GetAvailabilityZoneType(availabilityZoneName string) (strin
 func (mr *MockClientMockRecorder) GetAvailabilityZoneType(availabilityZoneName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAvailabilityZoneType", reflect.TypeOf((*MockClient)(nil).GetAvailabilityZoneType), availabilityZoneName)
+}
+
+// GetCFStack mocks base method.
+func (m *MockClient) GetCFStack(ctx context.Context, stackName string) (*types.Stack, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCFStack", ctx, stackName)
+	ret0, _ := ret[0].(*types.Stack)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCFStack indicates an expected call of GetCFStack.
+func (mr *MockClientMockRecorder) GetCFStack(ctx, stackName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCFStack", reflect.TypeOf((*MockClient)(nil).GetCFStack), ctx, stackName)
 }
 
 // GetCallerIdentity mocks base method.
@@ -920,10 +996,10 @@ func (mr *MockClientMockRecorder) GetRoleARNPath(prefix any) *gomock.Call {
 }
 
 // GetRoleByARN mocks base method.
-func (m *MockClient) GetRoleByARN(roleARN string) (types0.Role, error) {
+func (m *MockClient) GetRoleByARN(roleARN string) (types1.Role, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetRoleByARN", roleARN)
-	ret0, _ := ret[0].(types0.Role)
+	ret0, _ := ret[0].(types1.Role)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -935,10 +1011,10 @@ func (mr *MockClientMockRecorder) GetRoleByARN(roleARN any) *gomock.Call {
 }
 
 // GetRoleByName mocks base method.
-func (m *MockClient) GetRoleByName(roleName string) (types0.Role, error) {
+func (m *MockClient) GetRoleByName(roleName string) (types1.Role, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetRoleByName", roleName)
-	ret0, _ := ret[0].(types0.Role)
+	ret0, _ := ret[0].(types1.Role)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -950,10 +1026,10 @@ func (mr *MockClientMockRecorder) GetRoleByName(roleName any) *gomock.Call {
 }
 
 // GetSecurityGroupIds mocks base method.
-func (m *MockClient) GetSecurityGroupIds(vpcId string) ([]types.SecurityGroup, error) {
+func (m *MockClient) GetSecurityGroupIds(vpcId string) ([]types0.SecurityGroup, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSecurityGroupIds", vpcId)
-	ret0, _ := ret[0].([]types.SecurityGroup)
+	ret0, _ := ret[0].([]types0.SecurityGroup)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -980,10 +1056,10 @@ func (mr *MockClientMockRecorder) GetSubnetAvailabilityZone(subnetID any) *gomoc
 }
 
 // GetVPCPrivateSubnets mocks base method.
-func (m *MockClient) GetVPCPrivateSubnets(subnetID string) ([]types.Subnet, error) {
+func (m *MockClient) GetVPCPrivateSubnets(subnetID string) ([]types0.Subnet, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetVPCPrivateSubnets", subnetID)
-	ret0, _ := ret[0].([]types.Subnet)
+	ret0, _ := ret[0].([]types0.Subnet)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -995,10 +1071,10 @@ func (mr *MockClientMockRecorder) GetVPCPrivateSubnets(subnetID any) *gomock.Cal
 }
 
 // GetVPCSubnets mocks base method.
-func (m *MockClient) GetVPCSubnets(subnetID string) ([]types.Subnet, error) {
+func (m *MockClient) GetVPCSubnets(subnetID string) ([]types0.Subnet, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetVPCSubnets", subnetID)
-	ret0, _ := ret[0].([]types.Subnet)
+	ret0, _ := ret[0].([]types0.Subnet)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1310,14 +1386,14 @@ func (mr *MockClientMockRecorder) ListPolicyVersions(policyArn any) *gomock.Call
 }
 
 // ListSubnets mocks base method.
-func (m *MockClient) ListSubnets(subnetIds ...string) ([]types.Subnet, error) {
+func (m *MockClient) ListSubnets(subnetIds ...string) ([]types0.Subnet, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{}
 	for _, a := range subnetIds {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListSubnets", varargs...)
-	ret0, _ := ret[0].([]types.Subnet)
+	ret0, _ := ret[0].([]types0.Subnet)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

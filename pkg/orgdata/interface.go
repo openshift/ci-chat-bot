@@ -3,7 +3,7 @@ package orgdata
 import (
 	"context"
 
-	orgdatacore "github.com/openshift/ci-chat-bot/pkg/orgdata-core"
+	orgdatacore "github.com/openshift-eng/cyborg-data"
 )
 
 // OrgDataServiceInterface extends the core service interface with Slack-specific methods
@@ -58,6 +58,7 @@ func (s *slackOrgDataService) IsSlackUserUID(slackID string, uid string) bool {
 		return false
 	}
 	return emp.UID == uid
+
 }
 
 // Delegate all other methods to the core service

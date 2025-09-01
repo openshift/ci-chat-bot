@@ -71,7 +71,7 @@ type AuthConfigSource interface {
 
 ### Package Structure
 
-- **`pkg/orgdata-core/`**: Reusable core package for organizational data access
+- **`github.com/openshift-eng/cyborg-data`**: External reusable core package for organizational data access
   - Supports multiple data sources (files, GCS)
   - Build with `-tags gcs` for cloud storage support
   - Hot reload with configurable check intervals
