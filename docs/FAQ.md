@@ -116,3 +116,8 @@ clusters:
     - `http_proxy=145.40.68.183:8213 https_proxy=145.40.68.183:8213 curl -L https://console-openshift-console.apps.ostest.test.metalkube.org/ -v`
     - `curl -kvx http://145.40.68.183:8213 https://console-openshift-console.apps.ostest.test.metalkube.org/dashboards`
     - `export http_proxy=145.40.68.183:8213 && export https_proxy=145.40.68.183:8213 && oc login -u kubeadmin -p <password> https://api.ostest.test.metalkube.org:6443`
+ 
+2. In order to acess the OpenShift Console of the cluster you can use a proxy switcher extension e.g. [Proxy Switcher and Manager](https://chromewebstore.google.com/detail/proxy-switcher-and-manage/onnfghpihccifgojkpnnncpagjcdbjod?hl=en), and manually configure Proxy IP address and Port in the settings:
+<img width="1373" height="758" alt="Screenshot 2025-09-01 at 16 52 16" src="https://github.com/user-attachments/assets/5e641466-2ea4-4dbc-b054-22d6d822ade0" />
+
+   
