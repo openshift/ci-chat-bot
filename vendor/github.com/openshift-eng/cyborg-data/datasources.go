@@ -12,6 +12,9 @@ import (
 // FileDataSource loads organizational data from local files
 type FileDataSource struct {
 	FilePaths []string
+	// PollInterval controls how frequently files are checked for changes.
+	// If zero, a default of 60s is used.
+	PollInterval time.Duration
 }
 
 // NewFileDataSource creates a new file-based data source
@@ -52,11 +55,15 @@ func (f *FileDataSource) Watch(ctx context.Context, callback func() error) error
 		}
 	}
 
-	// Poll for changes every 60 seconds
-	ticker := time.NewTicker(60 * time.Second)
-	defer ticker.Stop()
+	// Poll for changes based on configured interval (default 60s)
+	interval := f.PollInterval
+	if interval == 0 {
+		interval = 60 * time.Second
+	}
+	ticker := time.NewTicker(interval)
 
 	go func() {
+		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
