@@ -8,6 +8,7 @@ git_commit=$(shell git describe --tags --always --dirty)
 build_date=$(shell date -u '+%Y%m%d')
 version=v${build_date}-${git_commit}
 
+SOURCE_GIT_TAG=v1.0.0+$(shell git rev-parse --short=7 HEAD)
 # Use standard GO_BUILD_FLAGS for build tags (e.g., -tags gcs)
 GO_BUILD_FLAGS ?=
 
