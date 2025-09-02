@@ -31,9 +31,8 @@ type OrgDataServiceInterface interface {
 
 	// Data management
 	GetVersion() orgdatacore.DataVersion
-	LoadFromFiles(filePaths []string) error
-	LoadFromGCS(ctx context.Context, config orgdatacore.GCSConfig) error
-	StartGCSWatcher(ctx context.Context, config orgdatacore.GCSConfig) error
+	LoadFromDataSource(ctx context.Context, source orgdatacore.DataSource) error
+	StartDataSourceWatcher(ctx context.Context, source orgdatacore.DataSource) error
 
 	// Core service access for DataSource operations
 	GetCore() orgdatacore.ServiceInterface
@@ -47,8 +46,7 @@ func NewIndexedOrgDataService() OrgDataServiceInterface {
 
 // slackOrgDataService wraps the core service to provide Slack-specific functionality
 type slackOrgDataService struct {
-	core       orgdatacore.ServiceInterface
-	dataSource orgdatacore.DataSource //nolint:unused // Keep reference to data source for watching (used with build tags)
+	core orgdatacore.ServiceInterface
 }
 
 // IsSlackUserUID checks if a Slack ID corresponds to a specific UID
@@ -114,8 +112,12 @@ func (s *slackOrgDataService) GetVersion() orgdatacore.DataVersion {
 	return s.core.GetVersion()
 }
 
-func (s *slackOrgDataService) LoadFromFiles(filePaths []string) error {
-	return s.core.LoadFromFiles(filePaths)
+func (s *slackOrgDataService) LoadFromDataSource(ctx context.Context, source orgdatacore.DataSource) error {
+	return s.core.LoadFromDataSource(ctx, source)
+}
+
+func (s *slackOrgDataService) StartDataSourceWatcher(ctx context.Context, source orgdatacore.DataSource) error {
+	return s.core.StartDataSourceWatcher(ctx, source)
 }
 
 func (s *slackOrgDataService) GetCore() orgdatacore.ServiceInterface {

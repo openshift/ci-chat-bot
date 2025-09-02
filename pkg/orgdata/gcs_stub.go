@@ -5,17 +5,13 @@ package orgdata
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	orgdatacore "github.com/openshift-eng/cyborg-data"
 )
 
-// LoadFromGCS returns an error when GCS support is not enabled
-func (s *slackOrgDataService) LoadFromGCS(ctx context.Context, config orgdatacore.GCSConfig) error {
-	return fmt.Errorf("GCS support not enabled. Build with '-tags gcs' to enable GCS functionality")
-}
-
-// StartGCSWatcher returns an error when GCS support is not enabled
-func (s *slackOrgDataService) StartGCSWatcher(ctx context.Context, config orgdatacore.GCSConfig) error {
-	return fmt.Errorf("GCS support not enabled. Build with '-tags gcs' to enable GCS functionality")
+// SetupGCSDataSource logs a warning when GCS support is not enabled
+func SetupGCSDataSource(ctx context.Context, gcsConfig orgdatacore.GCSConfig, orgDataService OrgDataServiceInterface) {
+	log.Printf("GCS support not enabled. Build with '-tags gcs' to enable GCS functionality")
+	log.Printf("Skipping GCS setup for gs://%s/%s", gcsConfig.Bucket, gcsConfig.ObjectPath)
 }
