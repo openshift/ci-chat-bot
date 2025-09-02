@@ -412,57 +412,63 @@ func run() error {
 			CheckInterval:   opt.gcsCheckInterval,
 		}
 
-		log.Printf("Loading organizational data from GCS: gs://%s/%s", gcsConfig.Bucket, gcsConfig.ObjectPath)
-		if err := orgDataService.LoadFromGCS(ctx, gcsConfig); err != nil {
-			log.Printf("Warning: Failed to load organizational data from GCS: %v", err)
-		} else {
-			log.Printf("Successfully loaded organizational data from GCS")
-			// Start GCS watcher for hot reload
-			go func() {
-				if err := orgDataService.StartGCSWatcher(ctx, gcsConfig); err != nil {
-					log.Printf("Warning: Failed to start GCS watcher: %v", err)
+		// Setup GCS data source (implementation varies based on build tags)
+		if err := orgdata.SetupGCSDataSource(ctx, gcsConfig, orgDataService); err != nil {
+			// GCS setup failed - check if we have file paths as fallback
+			if len(opt.orgDataPaths) > 0 {
+				log.Printf("GCS setup failed (%v), falling back to file-based data: %v", err, opt.orgDataPaths)
+				fileSource := orgdatacore.NewFileDataSource(opt.orgDataPaths...)
+				if err := orgDataService.LoadFromDataSource(ctx, fileSource); err != nil {
+					log.Fatalf("Failed to load organizational data from files: %v", err)
 				}
-			}()
-
-			// Initialize authorization service if config is provided
-			if opt.authorizationConfigPath != "" {
-				log.Printf("Initializing authorization service with config: %s", opt.authorizationConfigPath)
-				authService = orgdata.NewAuthorizationService(orgDataService, opt.authorizationConfigPath)
-				if err := authService.LoadConfig(ctx); err != nil {
-					log.Printf("Warning: Failed to load authorization config: %v", err)
-					// Keep the authService even if config fails to load - it will allow all commands
-				} else {
-					// Start config watcher
-					go func() {
-						if err := authService.StartConfigWatcher(ctx); err != nil {
-							log.Printf("Authorization config watcher stopped: %v", err)
-						}
-					}()
-					log.Printf("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
-				}
+				log.Printf("Successfully loaded organizational data from files")
+				// Start file watcher for hot reload
+				go func() {
+					if err := orgDataService.StartDataSourceWatcher(ctx, fileSource); err != nil {
+						log.Printf("Warning: Failed to start file watcher: %v", err)
+					}
+				}()
 			} else {
-				log.Printf("No authorization config path provided, creating authorization service without config")
-				// Create authorization service without config - will allow all commands
-				authService = orgdata.NewAuthorizationService(orgDataService, "")
+				log.Fatalf("GCS setup failed and no file paths provided as fallback: %v", err)
 			}
+		}
+
+		// Initialize authorization service if config is provided
+		if opt.authorizationConfigPath != "" {
+			log.Printf("Initializing authorization service with config: %s", opt.authorizationConfigPath)
+			authService = orgdata.NewAuthorizationService(orgDataService, opt.authorizationConfigPath)
+			if err := authService.LoadConfig(ctx); err != nil {
+				log.Printf("Warning: Failed to load authorization config: %v", err)
+				// Keep the authService even if config fails to load - it will allow all commands
+			} else {
+				// Start config watcher
+				go func() {
+					if err := authService.StartConfigWatcher(ctx); err != nil {
+						log.Printf("Authorization config watcher stopped: %v", err)
+					}
+				}()
+				log.Printf("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
+			}
+		} else {
+			log.Printf("No authorization config path provided, creating authorization service without config")
+			// Create authorization service without config - will allow all commands
+			authService = orgdata.NewAuthorizationService(orgDataService, "")
 		}
 	} else if len(opt.orgDataPaths) > 0 {
 		log.Printf("Initializing indexed organizational data service with %d data files", len(opt.orgDataPaths))
 		orgDataService = orgdata.NewIndexedOrgDataService()
 
-		if err := orgDataService.LoadFromFiles(opt.orgDataPaths); err != nil {
+		fileSource := orgdatacore.NewFileDataSource(opt.orgDataPaths...)
+		if err := orgDataService.LoadFromDataSource(ctx, fileSource); err != nil {
 			log.Printf("Warning: Failed to load indexed organizational data: %v", err)
 		} else {
 			log.Printf("Successfully loaded indexed organizational data")
 			// Start file watcher for hot reload
-			if len(opt.orgDataPaths) > 0 {
-				go func() {
-					fileSource := orgdatacore.NewFileDataSource(opt.orgDataPaths...)
-					if err := orgDataService.GetCore().StartDataSourceWatcher(ctx, fileSource); err != nil {
-						log.Printf("Warning: Failed to start file watcher: %v", err)
-					}
-				}()
-			}
+			go func() {
+				if err := orgDataService.StartDataSourceWatcher(ctx, fileSource); err != nil {
+					log.Printf("Warning: Failed to start file watcher: %v", err)
+				}
+			}()
 
 			// Initialize authorization service if config is provided
 			if opt.authorizationConfigPath != "" {
