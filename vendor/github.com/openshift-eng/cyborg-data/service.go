@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"sync"
 	"time"
 )
@@ -21,14 +20,6 @@ func NewService() *Service {
 	return &Service{}
 }
 
-// LoadFromFiles loads organizational data from JSON files
-// Deprecated: Use LoadFromDataSource with FileDataSource for better architecture
-func (s *Service) LoadFromFiles(filePaths []string) error {
-	// Use FileDataSource to maintain consistency with DataSource pattern
-	fileSource := NewFileDataSource(filePaths...)
-	return s.LoadFromDataSource(context.Background(), fileSource)
-}
-
 // LoadFromDataSource loads organizational data from a data source
 func (s *Service) LoadFromDataSource(ctx context.Context, source DataSource) error {
 	reader, err := source.Load(ctx)
@@ -38,14 +29,10 @@ func (s *Service) LoadFromDataSource(ctx context.Context, source DataSource) err
 	defer reader.Close()
 
 	// Read all data
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return fmt.Errorf("failed to read data from source %s: %w", source.String(), err)
-	}
-
-	// Parse JSON
+	// Decode JSON streaming to avoid buffering entire file
 	var orgData Data
-	if err := json.Unmarshal(data, &orgData); err != nil {
+	decoder := json.NewDecoder(reader)
+	if err := decoder.Decode(&orgData); err != nil {
 		return fmt.Errorf("failed to parse JSON from source %s: %w", source.String(), err)
 	}
 
@@ -65,6 +52,12 @@ func (s *Service) LoadFromDataSource(ctx context.Context, source DataSource) err
 
 // StartDataSourceWatcher starts watching a data source for changes
 func (s *Service) StartDataSourceWatcher(ctx context.Context, source DataSource) error {
+	// Perform an initial load so data is immediately available
+	if err := s.LoadFromDataSource(ctx, source); err != nil {
+		return err
+	}
+
+	// Start watcher that reloads on change
 	callback := func() error {
 		return s.LoadFromDataSource(ctx, source)
 	}
@@ -120,13 +113,12 @@ func (s *Service) GetTeamByName(teamName string) *Team {
 		return nil
 	}
 
-	// Find team by name (linear search for now)
-	for _, team := range s.data.Lookups.Teams {
-		if team.Name == teamName {
-			return &team
-		}
+	// Get team directly from teams lookup
+	team, exists := s.data.Lookups.Teams[teamName]
+	if !exists {
+		return nil
 	}
-	return nil
+	return &team
 }
 
 // GetOrgByName returns an organization by name
@@ -158,7 +150,7 @@ func (s *Service) GetTeamsForUID(uid string) []string {
 	memberships := s.data.Indexes.Membership.MembershipIndex[uid]
 	var teams []string
 	for _, membership := range memberships {
-		if membership.Type == "team" {
+		if membership.Type == MembershipTypeTeam {
 			teams = append(teams, membership.Name)
 		}
 	}
@@ -236,9 +228,9 @@ func (s *Service) IsEmployeeInOrg(uid string, orgName string) bool {
 	teamsIndex := relationshipIndex["teams"]
 
 	for _, membership := range memberships {
-		if membership.Type == "org" && membership.Name == orgName {
+		if membership.Type == MembershipTypeOrg && membership.Name == orgName {
 			return true
-		} else if membership.Type == "team" {
+		} else if membership.Type == MembershipTypeTeam {
 			// Check if team belongs to the specified org through relationship index
 			if teamRelationships, exists := teamsIndex[membership.Name]; exists {
 				for _, org := range teamRelationships.Ancestry.Orgs {
@@ -289,16 +281,16 @@ func (s *Service) GetUserOrganizations(slackUserID string) []OrgInfo {
 			if !seenItems[membership.Name] {
 				orgs = append(orgs, OrgInfo{
 					Name: membership.Name,
-					Type: "Organization",
+					Type: OrgInfoTypeOrganization,
 				})
 				seenItems[membership.Name] = true
 			}
-		} else if membership.Type == "team" {
+		} else if membership.Type == MembershipTypeTeam {
 			// Add the team membership itself
 			if !seenItems[membership.Name] {
 				orgs = append(orgs, OrgInfo{
 					Name: membership.Name,
-					Type: "Team",
+					Type: OrgInfoTypeTeam,
 				})
 				seenItems[membership.Name] = true
 			}
@@ -326,7 +318,7 @@ func addAncestryItems(orgs *[]OrgInfo, seenItems *map[string]bool, ancestry stru
 		if !(*seenItems)[orgName] {
 			*orgs = append(*orgs, OrgInfo{
 				Name: orgName,
-				Type: "Organization",
+				Type: OrgInfoTypeOrganization,
 			})
 			(*seenItems)[orgName] = true
 		}
@@ -337,7 +329,7 @@ func addAncestryItems(orgs *[]OrgInfo, seenItems *map[string]bool, ancestry stru
 		if !(*seenItems)[pillarName] {
 			*orgs = append(*orgs, OrgInfo{
 				Name: pillarName,
-				Type: "Pillar",
+				Type: OrgInfoTypePillar,
 			})
 			(*seenItems)[pillarName] = true
 		}
@@ -348,7 +340,7 @@ func addAncestryItems(orgs *[]OrgInfo, seenItems *map[string]bool, ancestry stru
 		if !(*seenItems)[teamGroupName] {
 			*orgs = append(*orgs, OrgInfo{
 				Name: teamGroupName,
-				Type: "Team Group",
+				Type: OrgInfoTypeTeamGroup,
 			})
 			(*seenItems)[teamGroupName] = true
 		}
@@ -359,7 +351,7 @@ func addAncestryItems(orgs *[]OrgInfo, seenItems *map[string]bool, ancestry stru
 		if !(*seenItems)[parentTeamName] {
 			*orgs = append(*orgs, OrgInfo{
 				Name: parentTeamName,
-				Type: "Parent Team",
+				Type: OrgInfoTypeParentTeam,
 			})
 			(*seenItems)[parentTeamName] = true
 		}

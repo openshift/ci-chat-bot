@@ -27,6 +27,7 @@ The `orgdatacore` package is designed to be a reusable component that can be con
 package main
 
 import (
+    "context"
     orgdatacore "github.com/openshift-eng/cyborg-data"
 )
 
@@ -34,8 +35,9 @@ func main() {
     // Create a new service
     service := orgdatacore.NewService()
     
-    // Load data from JSON files
-    err := service.LoadFromFiles([]string{"comprehensive_index_dump.json"})
+    // Load data using FileDataSource
+    fileSource := orgdatacore.NewFileDataSource("comprehensive_index_dump.json")
+    err := service.LoadFromDataSource(context.Background(), fileSource)
     if err != nil {
         log.Fatal(err)
     }

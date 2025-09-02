@@ -45,7 +45,6 @@ type ServiceInterface interface {
 	// Data management
 
 	GetVersion() DataVersion
-	LoadFromFiles(filePaths []string) error
 	LoadFromDataSource(ctx context.Context, source DataSource) error
 	StartDataSourceWatcher(ctx context.Context, source DataSource) error
 }

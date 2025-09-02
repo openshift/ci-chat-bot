@@ -10,7 +10,7 @@ replace (
 	//github.com/google/cel-go => github.com/google/cel-go v0.17.8
 	github.com/moby/buildkit => github.com/dmcgowan/buildkit v0.0.0-20170731200553-da2b9dc7dab9
 	// Temporary: Use personal fork until official OpenShift org repository is created
-	github.com/openshift-eng/cyborg-data => github.com/hoxhaeris/cyborg-data v0.0.0-20250901134110-ca6b76ff6c9c
+	github.com/openshift-eng/cyborg-data => github.com/hoxhaeris/cyborg-data v0.0.0-20250902191624-c08aaab506d6
 	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20240528061634-b054aa794d87
 	github.com/openshift/hive => github.com/openshift/hive v0.0.0-20240904155057-b6cdaa9cb317
 	github.com/openshift/hive/apis => github.com/openshift/hive/apis v0.0.0-20240904155057-b6cdaa9cb317
