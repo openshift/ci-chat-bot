@@ -11,6 +11,6 @@ import (
 )
 
 // SetupGCSDataSource returns an error when GCS support is not enabled
-func SetupGCSDataSource(ctx context.Context, gcsConfig orgdatacore.GCSConfig, orgDataService OrgDataServiceInterface) error {
+func SetupGCSDataSource(ctx context.Context, gcsConfig orgdatacore.GCSConfig, orgDataService orgdatacore.ServiceInterface) error {
 	return fmt.Errorf("GCS support not enabled. Build with '-tags gcs' to enable GCS functionality for gs://%s/%s", gcsConfig.Bucket, gcsConfig.ObjectPath)
 }
