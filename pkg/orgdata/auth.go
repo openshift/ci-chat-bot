@@ -122,13 +122,13 @@ func (f *FileAuthConfigSource) String() string {
 // AuthorizationService handles authorization checking
 type AuthorizationService struct {
 	config         *AuthorizationConfig
-	orgDataService OrgDataServiceInterface
+	orgDataService orgdatacore.ServiceInterface
 	configSource   AuthConfigSource
 	mu             sync.RWMutex
 }
 
 // NewAuthorizationService creates a new authorization service with file-based config
-func NewAuthorizationService(orgDataService OrgDataServiceInterface, configPath string) *AuthorizationService {
+func NewAuthorizationService(orgDataService orgdatacore.ServiceInterface, configPath string) *AuthorizationService {
 	configSource := NewFileAuthConfigSource(configPath)
 	return &AuthorizationService{
 		orgDataService: orgDataService,
@@ -137,7 +137,7 @@ func NewAuthorizationService(orgDataService OrgDataServiceInterface, configPath 
 }
 
 // NewAuthorizationServiceWithSource creates a new authorization service with a custom config source
-func NewAuthorizationServiceWithSource(orgDataService OrgDataServiceInterface, configSource AuthConfigSource) *AuthorizationService {
+func NewAuthorizationServiceWithSource(orgDataService orgdatacore.ServiceInterface, configSource AuthConfigSource) *AuthorizationService {
 	return &AuthorizationService{
 		orgDataService: orgDataService,
 		configSource:   configSource,
@@ -188,8 +188,9 @@ func (a *AuthorizationService) CheckAuthorization(slackUserID, command string) (
 	}
 
 	// Check if the user is in the allowed UIDs (the highest specificity)
+	employee := a.orgDataService.GetEmployeeBySlackID(slackUserID)
 	for _, allowedUID := range matchingRule.AllowedUIDs {
-		if a.orgDataService.IsSlackUserUID(slackUserID, allowedUID) {
+		if employee != nil && employee.UID == allowedUID {
 			return true, ""
 		}
 	}
@@ -306,6 +307,7 @@ func (a *AuthorizationService) GetUserCommands(slackUserID string) map[string][]
 	// Track which commands have rules
 	commandsWithRules := make(map[string]bool)
 
+	employee := a.orgDataService.GetEmployeeBySlackID(slackUserID)
 	for _, rule := range a.config.Rules {
 		commandsWithRules[rule.Command] = true
 
@@ -323,7 +325,7 @@ func (a *AuthorizationService) GetUserCommands(slackUserID string) map[string][]
 		// Check if user has access via UID
 		hasUIDAccess := false
 		for _, allowedUID := range rule.AllowedUIDs {
-			if a.orgDataService.IsSlackUserUID(slackUserID, allowedUID) {
+			if employee != nil && employee.UID == allowedUID {
 				result["by_uid"] = append(result["by_uid"], rule.Command)
 				hasUIDAccess = true
 				break

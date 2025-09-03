@@ -396,12 +396,12 @@ func run() error {
 	}
 
 	// Initialize orgdata and authorization services
-	var orgDataService orgdata.OrgDataServiceInterface
+	var orgDataService orgdatacore.ServiceInterface
 	var authService *orgdata.AuthorizationService
 
 	if opt.gcsEnabled {
 		log.Printf("Initializing indexed organizational data service with GCS backend")
-		orgDataService = orgdata.NewIndexedOrgDataService()
+		orgDataService = orgdatacore.NewService()
 
 		// Configure GCS
 		gcsConfig := orgdatacore.GCSConfig{
@@ -456,7 +456,7 @@ func run() error {
 		}
 	} else if len(opt.orgDataPaths) > 0 {
 		log.Printf("Initializing indexed organizational data service with %d data files", len(opt.orgDataPaths))
-		orgDataService = orgdata.NewIndexedOrgDataService()
+		orgDataService = orgdatacore.NewService()
 
 		fileSource := orgdatacore.NewFileDataSource(opt.orgDataPaths...)
 		if err := orgDataService.LoadFromDataSource(ctx, fileSource); err != nil {

@@ -12,7 +12,7 @@ import (
 )
 
 // SetupGCSDataSource creates and configures a GCS data source when GCS support is enabled
-func SetupGCSDataSource(ctx context.Context, gcsConfig orgdatacore.GCSConfig, orgDataService OrgDataServiceInterface) error {
+func SetupGCSDataSource(ctx context.Context, gcsConfig orgdatacore.GCSConfig, orgDataService orgdatacore.ServiceInterface) error {
 	log.Printf("Loading organizational data from GCS: gs://%s/%s", gcsConfig.Bucket, gcsConfig.ObjectPath)
 	gcsSource, err := orgdatacore.NewGCSDataSourceWithSDK(ctx, gcsConfig)
 	if err != nil {
