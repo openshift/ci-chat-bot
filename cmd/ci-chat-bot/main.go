@@ -17,7 +17,9 @@ import (
 	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/adrg/xdg"
+	orgdatacore "github.com/openshift-eng/cyborg-data"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/orgdata"
 	"github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	botversion "github.com/openshift/ci-chat-bot/pkg/version"
@@ -90,6 +92,18 @@ type options struct {
 	overrideRosaSecretName   string
 
 	jiraOptions flagutil.JiraOptions
+
+	// Orgdata configuration
+	orgDataPaths            []string
+	authorizationConfigPath string
+
+	// GCS configuration for orgdata
+	gcsEnabled         bool
+	gcsBucket          string
+	gcsObjectPath      string
+	gcsProjectID       string
+	gcsCredentialsJSON string
+	gcsCheckInterval   time.Duration
 }
 
 func (o *options) Validate() error {
@@ -98,6 +112,19 @@ func (o *options) Validate() error {
 			return fmt.Errorf("error accessing --release-cluster-kubeconfig: %w", err)
 		}
 	}
+
+	// Validate GCS configuration
+	if o.gcsEnabled {
+		if o.gcsBucket == "" {
+			return fmt.Errorf("--gcs-bucket is required when --gcs-enabled is true")
+		}
+		if len(o.orgDataPaths) > 0 {
+			return fmt.Errorf("cannot use both --orgdata-paths and --gcs-enabled at the same time")
+		}
+	} else if len(o.orgDataPaths) == 0 {
+		log.Printf("Warning: Neither --orgdata-paths nor --gcs-enabled specified. Authorization will be disabled.")
+	}
+
 	for _, group := range []flagutil.OptionGroup{&o.GitHubOptions, &o.KubernetesOptions, &o.InstrumentationOptions} {
 		if err := group.Validate(false); err != nil {
 			return err
@@ -145,6 +172,16 @@ func run() error {
 	pflag.StringVar(&opt.rosaSubnetListPath, "rosa-subnetlist-path", "", "Path to list of comma-separated subnets to use for ROSA hosted clusters.")
 	pflag.StringVar(&opt.rosaOIDCConfigId, "rosa-oidcConfigId-path", "", "Path to the OIDC configuration ID")
 	pflag.StringVar(&opt.rosaBillingAccount, "rosa-billingAccount-path", "", "Path to the Billing Account ID.")
+	pflag.StringSliceVar(&opt.orgDataPaths, "orgdata-paths", []string{}, "Paths to organizational data JSON files (comma-separated). Used for authorization.")
+	pflag.StringVar(&opt.authorizationConfigPath, "authorization-config", "", "Path to authorization configuration file. If not provided, all users have access to all commands.")
+
+	// GCS flags for orgdata
+	pflag.BoolVar(&opt.gcsEnabled, "gcs-enabled", false, "Enable loading organizational data from Google Cloud Storage instead of local files.")
+	pflag.StringVar(&opt.gcsBucket, "gcs-bucket", "", "GCS bucket name containing organizational data. Required when --gcs-enabled is true.")
+	pflag.StringVar(&opt.gcsObjectPath, "gcs-object-path", "orgdata/comprehensive_index_dump.json", "Path to organizational data JSON file within the GCS bucket.")
+	pflag.StringVar(&opt.gcsProjectID, "gcs-project-id", "", "GCS project ID. If not provided, will use default from environment.")
+	pflag.StringVar(&opt.gcsCredentialsJSON, "gcs-credentials-json", "", "GCS service account credentials JSON. If not provided, will use Application Default Credentials.")
+	pflag.DurationVar(&opt.gcsCheckInterval, "gcs-check-interval", 5*time.Minute, "How often to check GCS for updated organizational data.")
 
 	opt.prowconfig.AddFlags(emptyFlags)
 	opt.GitHubOptions.AddFlags(emptyFlags)
@@ -352,14 +389,117 @@ func run() error {
 		return fmt.Errorf("unable to load initial configuration: %w", err)
 	}
 
-	bot := slack.NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows)
+	// Initialize orgdata and authorization services
+	var orgDataService orgdatacore.ServiceInterface
+	var authService *orgdata.AuthorizationService
+
+	if opt.gcsEnabled {
+		log.Printf("Initializing indexed organizational data service with GCS backend")
+		orgDataService = orgdatacore.NewService()
+
+		// Configure GCS
+		gcsConfig := orgdatacore.GCSConfig{
+			Bucket:          opt.gcsBucket,
+			ObjectPath:      opt.gcsObjectPath,
+			ProjectID:       opt.gcsProjectID,
+			CredentialsJSON: opt.gcsCredentialsJSON,
+			CheckInterval:   opt.gcsCheckInterval,
+		}
+
+		// Setup GCS data source (implementation varies based on build tags)
+		if err := orgdata.SetupGCSDataSource(ctx, gcsConfig, orgDataService); err != nil {
+			// GCS setup failed - check if we have file paths as fallback
+			if len(opt.orgDataPaths) > 0 {
+				log.Printf("GCS setup failed (%v), falling back to file-based data: %v", err, opt.orgDataPaths)
+				fileSource := orgdatacore.NewFileDataSource(opt.orgDataPaths...)
+				if err := orgDataService.LoadFromDataSource(ctx, fileSource); err != nil {
+					log.Fatalf("Failed to load organizational data from files: %v", err)
+				}
+				log.Printf("Successfully loaded organizational data from files")
+				// Start file watcher for hot reload
+				go func() {
+					if err := orgDataService.StartDataSourceWatcher(ctx, fileSource); err != nil {
+						log.Printf("Warning: Failed to start file watcher: %v", err)
+					}
+				}()
+			} else {
+				log.Fatalf("GCS setup failed and no file paths provided as fallback: %v", err)
+			}
+		}
+
+		// Initialize authorization service if config is provided
+		if opt.authorizationConfigPath != "" {
+			log.Printf("Initializing authorization service with config: %s", opt.authorizationConfigPath)
+			authService = orgdata.NewAuthorizationService(orgDataService, opt.authorizationConfigPath)
+			if err := authService.LoadConfig(ctx); err != nil {
+				log.Printf("Warning: Failed to load authorization config: %v", err)
+				// Keep the authService even if config fails to load - it will allow all commands
+			} else {
+				// Start config watcher
+				go func() {
+					if err := authService.StartConfigWatcher(ctx); err != nil {
+						log.Printf("Authorization config watcher stopped: %v", err)
+					}
+				}()
+				log.Printf("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
+			}
+		} else {
+			log.Printf("No authorization config path provided, creating authorization service without config")
+			// Create authorization service without config - will allow all commands
+			authService = orgdata.NewAuthorizationService(orgDataService, "")
+		}
+	} else if len(opt.orgDataPaths) > 0 {
+		log.Printf("Initializing indexed organizational data service with %d data files", len(opt.orgDataPaths))
+		orgDataService = orgdatacore.NewService()
+
+		fileSource := orgdatacore.NewFileDataSource(opt.orgDataPaths...)
+		if err := orgDataService.LoadFromDataSource(ctx, fileSource); err != nil {
+			log.Printf("Warning: Failed to load indexed organizational data: %v", err)
+		} else {
+			log.Printf("Successfully loaded indexed organizational data")
+			// Start file watcher for hot reload
+			go func() {
+				if err := orgDataService.StartDataSourceWatcher(ctx, fileSource); err != nil {
+					log.Printf("Warning: Failed to start file watcher: %v", err)
+				}
+			}()
+
+			// Initialize authorization service if config is provided
+			if opt.authorizationConfigPath != "" {
+				log.Printf("Initializing authorization service with config: %s", opt.authorizationConfigPath)
+				authService = orgdata.NewAuthorizationService(orgDataService, opt.authorizationConfigPath)
+				if err := authService.LoadConfig(ctx); err != nil {
+					log.Printf("Warning: Failed to load authorization config: %v", err)
+					// Keep the authService even if config fails to load - it will allow all commands
+				} else {
+					// Start config watcher
+					go func() {
+						if err := authService.StartConfigWatcher(ctx); err != nil {
+							log.Printf("Authorization config watcher stopped: %v", err)
+						}
+					}()
+					log.Printf("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
+				}
+			} else {
+				log.Printf("No authorization config path provided, creating authorization service without config")
+				// Create authorization service without config - will allow all commands
+				authService = orgdata.NewAuthorizationService(orgDataService, "")
+			}
+		}
+	} else {
+		log.Printf("No organizational data source configured, running without authorization")
+	}
+
+	log.Printf("Debug: authService is nil: %v", authService == nil)
+
+	bot := slack.NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows, authService)
 	jiraclient, err := opt.jiraOptions.Client()
 	httpClient := &http.Client{Timeout: 60 * time.Second}
 	if err != nil {
 		klog.Errorf("failed to load the Jira Client: %s", err)
-		Start(bot, nil, jobManager, nil, health, opt.InstrumentationOptions, clusterBotMetrics)
+		Start(bot, nil, jobManager, nil, health, opt.InstrumentationOptions, clusterBotMetrics, authService)
 	} else {
-		Start(bot, jiraclient.JiraClient(), jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics)
+		Start(bot, jiraclient.JiraClient(), jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics, authService)
 	}
 
 	return err
