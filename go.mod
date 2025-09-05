@@ -9,8 +9,6 @@ replace (
 	github.com/docker/docker => github.com/openshift/moby-moby v1.4.2-0.20190308215630-da810a85109d
 	//github.com/google/cel-go => github.com/google/cel-go v0.17.8
 	github.com/moby/buildkit => github.com/dmcgowan/buildkit v0.0.0-20170731200553-da2b9dc7dab9
-	// Temporary: Use personal fork until official OpenShift org repository is created
-	github.com/openshift-eng/cyborg-data => github.com/hoxhaeris/cyborg-data v0.0.0-20250902191624-c08aaab506d6
 	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20240528061634-b054aa794d87
 	github.com/openshift/hive => github.com/openshift/hive v0.0.0-20240904155057-b6cdaa9cb317
 	github.com/openshift/hive/apis => github.com/openshift/hive/apis v0.0.0-20240904155057-b6cdaa9cb317
@@ -41,7 +39,7 @@ require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.36.3
-	github.com/openshift-eng/cyborg-data v0.0.0-00010101000000-000000000000
+	github.com/openshift-eng/cyborg-data v0.0.0-20250904191738-fe3a33433675
 	github.com/openshift-online/ocm-sdk-go v0.1.465
 	github.com/openshift/api v0.0.0-20240708071937-c9a91940bf0f
 	github.com/openshift/build-machinery-go v0.0.0-20240419090851-af9c868bcf52
