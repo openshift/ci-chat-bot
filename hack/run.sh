@@ -36,7 +36,7 @@ if [[ "${USE_GCS_ORGDATA:-false}" == "true" ]]; then
   # GCS configuration with defaults
   GCS_BUCKET="${GCS_BUCKET:-resolved-org}"
   GCS_OBJECT_PATH="${GCS_OBJECT_PATH:-orgdata/comprehensive_index_dump.json}"
-  GCS_PROJECT_ID="${GCS_PROJECT_ID:-openshift-crt-mce}"
+  GCS_PROJECT_ID="${GCS_PROJECT_ID:-openshift-crt}"
   GCS_CHECK_INTERVAL="${GCS_CHECK_INTERVAL:-5m}"
   
   echo "GCS Config: gs://${GCS_BUCKET}/${GCS_OBJECT_PATH}"
