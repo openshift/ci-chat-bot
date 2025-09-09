@@ -96,7 +96,7 @@ func (m *jobManager) createManagedCluster(imageSet, platform, user, slackChannel
 	}
 	var baseDomain string
 	if platform == "gcp" {
-		baseDomain = fmt.Sprintf("openshift-crt-mce.%s.devcluster.openshift.com", platform)
+		baseDomain = fmt.Sprintf("openshift-crt.%s.devcluster.openshift.com", platform)
 	} else {
 		baseDomain = fmt.Sprintf("crt-mce-%s.devcluster.openshift.com", platform)
 	}
@@ -182,7 +182,7 @@ func (m *jobManager) createManagedCluster(imageSet, platform, user, slackChannel
 				InstanceType: "n1-standard-4",
 			},
 		}
-		projectID := "openshift-crt-mce"
+		projectID := "openshift-crt"
 		if mceUserConfig.GcpProjectID != "" {
 			projectID = mceUserConfig.GcpProjectID
 		}
