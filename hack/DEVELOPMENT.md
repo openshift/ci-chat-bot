@@ -19,7 +19,7 @@ export BOT_SIGNING_SECRET="your-slack-signing-secret"
 export USE_GCS_ORGDATA=true
 export GCS_BUCKET="resolved-org"                    # Default: resolved-org
 export GCS_OBJECT_PATH="orgdata/comprehensive_index_dump.json"  # Default path
-export GCS_PROJECT_ID="openshift-crt-mce"           # Default project
+export GCS_PROJECT_ID="openshift-crt"           # Default project
 export GCS_CHECK_INTERVAL="5m"                      # Default: 5 minutes
 export GCS_CREDENTIALS_JSON='{"type":"service_account",...}'  # Optional: explicit creds
 ```
@@ -43,7 +43,7 @@ export AUTH_CONFIG="/path/to/your/authorization.yaml"
 ```bash
 # Authenticate with gcloud
 gcloud auth login
-gcloud config set project openshift-crt-mce
+gcloud config set project openshift-crt
 ```
 
 ### Using Service Account (Production)

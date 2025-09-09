@@ -12,7 +12,7 @@ export USE_GCS_ORGDATA=true
 # GCS Configuration (with your existing values)
 export GCS_BUCKET="resolved-org"
 export GCS_OBJECT_PATH="orgdata/comprehensive_index_dump.json"
-export GCS_PROJECT_ID="openshift-crt-mce"
+export GCS_PROJECT_ID="openshift-crt"
 export GCS_CHECK_INTERVAL="5m"
 
 # Optional: Set custom authorization config

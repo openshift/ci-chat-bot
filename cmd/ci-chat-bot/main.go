@@ -13,8 +13,7 @@ import (
 
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/go-logr/logr"
-	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
+	"k8s.io/klog/v2"
 
 	"github.com/adrg/xdg"
 	orgdatacore "github.com/openshift-eng/cyborg-data"
@@ -52,7 +51,6 @@ import (
 	"github.com/openshift/ci-tools/pkg/lease"
 
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/klog"
 	prowclientset "sigs.k8s.io/prow/pkg/client/clientset/versioned"
 	prowinformers "sigs.k8s.io/prow/pkg/client/informers/externalversions"
 	configflagutil "sigs.k8s.io/prow/pkg/flagutil/config"
@@ -122,7 +120,7 @@ func (o *options) Validate() error {
 			return fmt.Errorf("cannot use both --orgdata-paths and --gcs-enabled at the same time")
 		}
 	} else if len(o.orgDataPaths) == 0 {
-		log.Printf("Warning: Neither --orgdata-paths nor --gcs-enabled specified. Authorization will be disabled.")
+		klog.Warning("Neither --orgdata-paths nor --gcs-enabled specified. Authorization will be disabled.")
 	}
 
 	for _, group := range []flagutil.OptionGroup{&o.GitHubOptions, &o.KubernetesOptions, &o.InstrumentationOptions} {
@@ -153,9 +151,6 @@ func run() error {
 		KubernetesOptions:        flagutil.KubernetesOptions{NOInClusterConfigDefault: true},
 		rosaClusterAdminUsername: "cluster-admin",
 	}
-
-	// Initialize a standard logger for k8s controller-runtime
-	ctrlruntimelog.SetLogger(logr.New(ctrlruntimelog.NullLogSink{}))
 
 	pflag.StringVar(&opt.ConfigResolver, "config-resolver", opt.ConfigResolver, "A URL pointing to a config resolver for retrieving ci-operator config. You may pass a location on disk with file://<abs_path_to_ci_operator_config>")
 	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
@@ -400,7 +395,7 @@ func run() error {
 	var authService *orgdata.AuthorizationService
 
 	if opt.gcsEnabled {
-		log.Printf("Initializing indexed organizational data service with GCS backend")
+		klog.Info("Initializing indexed organizational data service with GCS backend")
 		orgDataService = orgdatacore.NewService()
 
 		// Configure GCS
@@ -416,87 +411,89 @@ func run() error {
 		if err := orgdata.SetupGCSDataSource(ctx, gcsConfig, orgDataService); err != nil {
 			// GCS setup failed - check if we have file paths as fallback
 			if len(opt.orgDataPaths) > 0 {
-				log.Printf("GCS setup failed (%v), falling back to file-based data: %v", err, opt.orgDataPaths)
+				klog.Warningf("GCS setup failed (%v), falling back to file-based data: %v", err, opt.orgDataPaths)
 				fileSource := orgdatacore.NewFileDataSource(opt.orgDataPaths...)
 				if err := orgDataService.LoadFromDataSource(ctx, fileSource); err != nil {
-					log.Fatalf("Failed to load organizational data from files: %v", err)
+					klog.Fatalf("Failed to load organizational data from files: %v", err)
 				}
-				log.Printf("Successfully loaded organizational data from files")
+				klog.Info("Successfully loaded organizational data from files")
 				// Start file watcher for hot reload
 				go func() {
 					if err := orgDataService.StartDataSourceWatcher(ctx, fileSource); err != nil {
-						log.Printf("Warning: Failed to start file watcher: %v", err)
+						klog.Warningf("Failed to start file watcher: %v", err)
 					}
 				}()
 			} else {
-				log.Fatalf("GCS setup failed and no file paths provided as fallback: %v", err)
+				klog.Fatalf("GCS setup failed and no file paths provided as fallback: %v", err)
 			}
 		}
 
 		// Initialize authorization service if config is provided
 		if opt.authorizationConfigPath != "" {
-			log.Printf("Initializing authorization service with config: %s", opt.authorizationConfigPath)
+			klog.Infof("Initializing authorization service with config: %s", opt.authorizationConfigPath)
 			authService = orgdata.NewAuthorizationService(orgDataService, opt.authorizationConfigPath)
 			if err := authService.LoadConfig(ctx); err != nil {
-				log.Printf("Warning: Failed to load authorization config: %v", err)
+				klog.Warningf("Failed to load authorization config: %v", err)
 				// Keep the authService even if config fails to load - it will allow all commands
 			} else {
-				// Start config watcher
-				go func() {
-					if err := authService.StartConfigWatcher(ctx); err != nil {
-						log.Printf("Authorization config watcher stopped: %v", err)
-					}
-				}()
-				log.Printf("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
+				klog.Infof("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
 			}
+
+			// Start config watcher regardless of initial load success - it will detect file creation
+			go func() {
+				if err := authService.StartConfigWatcher(ctx); err != nil {
+					klog.Infof("Authorization config watcher stopped: %v", err)
+				}
+			}()
 		} else {
-			log.Printf("No authorization config path provided, creating authorization service without config")
+			klog.Info("No authorization config path provided, creating authorization service without config")
 			// Create authorization service without config - will allow all commands
 			authService = orgdata.NewAuthorizationService(orgDataService, "")
 		}
 	} else if len(opt.orgDataPaths) > 0 {
-		log.Printf("Initializing indexed organizational data service with %d data files", len(opt.orgDataPaths))
+		klog.Infof("Initializing indexed organizational data service with %d data files", len(opt.orgDataPaths))
 		orgDataService = orgdatacore.NewService()
 
 		fileSource := orgdatacore.NewFileDataSource(opt.orgDataPaths...)
 		if err := orgDataService.LoadFromDataSource(ctx, fileSource); err != nil {
-			log.Printf("Warning: Failed to load indexed organizational data: %v", err)
+			klog.Warningf("Failed to load indexed organizational data: %v", err)
 		} else {
-			log.Printf("Successfully loaded indexed organizational data")
+			klog.Info("Successfully loaded indexed organizational data")
 			// Start file watcher for hot reload
 			go func() {
 				if err := orgDataService.StartDataSourceWatcher(ctx, fileSource); err != nil {
-					log.Printf("Warning: Failed to start file watcher: %v", err)
+					klog.Warningf("Failed to start file watcher: %v", err)
 				}
 			}()
 
 			// Initialize authorization service if config is provided
 			if opt.authorizationConfigPath != "" {
-				log.Printf("Initializing authorization service with config: %s", opt.authorizationConfigPath)
+				klog.Infof("Initializing authorization service with config: %s", opt.authorizationConfigPath)
 				authService = orgdata.NewAuthorizationService(orgDataService, opt.authorizationConfigPath)
 				if err := authService.LoadConfig(ctx); err != nil {
-					log.Printf("Warning: Failed to load authorization config: %v", err)
+					klog.Warningf("Failed to load authorization config: %v", err)
 					// Keep the authService even if config fails to load - it will allow all commands
 				} else {
-					// Start config watcher
-					go func() {
-						if err := authService.StartConfigWatcher(ctx); err != nil {
-							log.Printf("Authorization config watcher stopped: %v", err)
-						}
-					}()
-					log.Printf("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
+					klog.Infof("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
 				}
+
+				// Start config watcher regardless of initial load success - it will detect file creation
+				go func() {
+					if err := authService.StartConfigWatcher(ctx); err != nil {
+						klog.Infof("Authorization config watcher stopped: %v", err)
+					}
+				}()
 			} else {
-				log.Printf("No authorization config path provided, creating authorization service without config")
+				klog.Info("No authorization config path provided, creating authorization service without config")
 				// Create authorization service without config - will allow all commands
 				authService = orgdata.NewAuthorizationService(orgDataService, "")
 			}
 		}
 	} else {
-		log.Printf("No organizational data source configured, running without authorization")
+		klog.Info("No organizational data source configured, running without authorization")
 	}
 
-	log.Printf("Debug: authService is nil: %v", authService == nil)
+	klog.V(2).Infof("Debug: authService is nil: %v", authService == nil)
 
 	bot := slack.NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows, authService)
 	jiraclient, err := opt.jiraOptions.Client()

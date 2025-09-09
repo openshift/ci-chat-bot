@@ -10,6 +10,7 @@ import (
 
 	orgdatacore "github.com/openshift-eng/cyborg-data"
 	"gopkg.in/yaml.v2"
+	"k8s.io/klog/v2"
 )
 
 // AuthConfigSource defines the interface for loading authorization configuration from different sources
@@ -95,14 +96,14 @@ func (f *FileAuthConfigSource) Watch(ctx context.Context, callback func(*Authori
 		case <-ticker.C:
 			stat, err := os.Stat(f.filePath)
 			if err != nil {
-				fmt.Printf("Failed to check auth config file: %v\n", err)
+				klog.Errorf("Failed to check auth config file %s: %v", f.filePath, err)
 				continue
 			}
 
 			if stat.ModTime().After(f.lastMod) {
 				config, err := f.Load(ctx)
 				if err != nil {
-					fmt.Printf("Failed to reload auth config: %v\n", err)
+					klog.Errorf("Failed to reload auth config %s: %v", f.filePath, err)
 					continue
 				}
 				callback(config)
@@ -366,7 +367,7 @@ func (a *AuthorizationService) StartConfigWatcher(ctx context.Context) error {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		a.config = config
-		fmt.Printf("Authorization config reloaded from %s\n", a.configSource.String())
+		klog.Infof("Authorization config reloaded from %s", a.configSource.String())
 	}
 
 	return a.configSource.Watch(ctx, callback)
