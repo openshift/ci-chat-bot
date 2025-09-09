@@ -26,7 +26,12 @@ func (s *Service) LoadFromDataSource(ctx context.Context, source DataSource) err
 	if err != nil {
 		return fmt.Errorf("failed to load from data source %s: %w", source.String(), err)
 	}
-	defer reader.Close()
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			// Log the close error but don't override the main error
+			fmt.Printf("Warning: failed to close reader: %v\n", closeErr)
+		}
+	}()
 
 	// Read all data
 	// Decode JSON streaming to avoid buffering entire file
@@ -276,7 +281,8 @@ func (s *Service) GetUserOrganizations(slackUserID string) []OrgInfo {
 	teamsIndex := relationshipIndex["teams"]
 
 	for _, membership := range memberships {
-		if membership.Type == "org" {
+		switch membership.Type {
+		case "org":
 			// Direct organization membership
 			if !seenItems[membership.Name] {
 				orgs = append(orgs, OrgInfo{
@@ -285,7 +291,7 @@ func (s *Service) GetUserOrganizations(slackUserID string) []OrgInfo {
 				})
 				seenItems[membership.Name] = true
 			}
-		} else if membership.Type == MembershipTypeTeam {
+		case MembershipTypeTeam:
 			// Add the team membership itself
 			if !seenItems[membership.Name] {
 				orgs = append(orgs, OrgInfo{
