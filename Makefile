@@ -62,7 +62,7 @@ help-ci-chat-bot:
 	@echo "Environment variables for hack scripts:"
 	@echo "  USE_GCS_ORGDATA  - Set to 'true' to use GCS backend"
 	@echo "  GCS_BUCKET       - GCS bucket name (default: resolved-org)"
-	@echo "  GCS_PROJECT_ID   - GCS project ID (default: openshift-crt-mce)"
+	@echo "  GCS_PROJECT_ID   - GCS project ID (default: openshift-crt)"
 	@echo "  ORGDATA_PATHS    - Local orgdata file path"
 	@echo "  AUTH_CONFIG      - Authorization config file path"
 	@echo ""

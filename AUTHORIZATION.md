@@ -102,7 +102,7 @@ make BUILD_FLAGS="-tags gcs" build
   --gcs-enabled=true \
   --gcs-bucket="resolved-org" \
   --gcs-object-path="orgdata/comprehensive_index_dump.json" \
-  --gcs-project-id="openshift-crt-mce" \
+  --gcs-project-id="openshift-crt" \
   --gcs-check-interval="5m" \
   --authorization-config="/path/to/authorization.yaml" \
   [other flags...]
@@ -333,7 +333,7 @@ err := service.LoadFromFiles([]string{"comprehensive_index_dump.json"})
 gcsConfig := orgdata.GCSConfig{
     Bucket:        "resolved-org",
     ObjectPath:    "orgdata/comprehensive_index_dump.json", 
-    ProjectID:     "openshift-crt-mce",
+    ProjectID:     "openshift-crt",
     CheckInterval: 5 * time.Minute,
 }
 err := service.LoadFromGCS(ctx, gcsConfig)
@@ -404,7 +404,7 @@ The system can load organizational data from multiple sources:
 --gcs-enabled=true \
 --gcs-bucket="resolved-org" \
 --gcs-object-path="orgdata/comprehensive_index_dump.json" \
---gcs-project-id="openshift-crt-mce"
+--gcs-project-id="openshift-crt"
 ```
 - **Best for**: Production, cross-cluster deployments
 - **Hot Reload**: Configurable polling (default: 5 minutes)
