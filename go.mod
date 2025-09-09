@@ -39,7 +39,7 @@ require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.36.3
-	github.com/openshift-eng/cyborg-data v0.0.0-20250904191738-fe3a33433675
+	github.com/openshift-eng/cyborg-data v0.0.0-20250909122327-e42cc43525f5
 	github.com/openshift-online/ocm-sdk-go v0.1.465
 	github.com/openshift/api v0.0.0-20240708071937-c9a91940bf0f
 	github.com/openshift/build-machinery-go v0.0.0-20240419090851-af9c868bcf52
@@ -359,7 +359,7 @@ require (
 	gopkg.in/robfig/cron.v2 v2.0.0-20150107220207-be2e0b0deed5 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/component-base v0.32.2 // indirect
-	k8s.io/klog/v2 v2.130.1 // indirect
+	k8s.io/klog/v2 v2.130.1
 	k8s.io/kube-openapi v0.0.0-20241105132330-32ad38e42d3f // indirect
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738
 	knative.dev/pkg v0.0.0-20240416145024-0f34a8815650 // indirect
