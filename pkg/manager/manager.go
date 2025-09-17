@@ -199,7 +199,7 @@ func (m *jobManager) updateImageSetList() error {
 	m.mceClusters.lock.RLock()
 	for _, imageset := range imagesetList.Items {
 		// clean up orphaned imagesets; wait until managed cluster list is not empty to avoid deleting in-use imagesets on restart
-		if len(m.mceClusters.clusters) > 0 && strings.HasPrefix(imageset.Name, "chat-bot") {
+		if len(m.mceClusters.clusters) > 0 && imageset.Labels[utils.LaunchLabel] == "true" {
 			if _, ok := m.mceClusters.clusters[imageset.Name]; !ok {
 				if err := m.dpcrHiveClient.Delete(context.TODO(), &imageset); err != nil {
 					metrics.RecordError(errorMCECleanupImagesets, m.errorMetric)

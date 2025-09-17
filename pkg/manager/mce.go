@@ -418,6 +418,9 @@ func (m *jobManager) createCustomImageset(releaseURL, imagesetName string) error
 	imageset := hivev1.ClusterImageSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: imagesetName,
+			Labels: map[string]string{
+				utils.LaunchLabel: "true",
+			},
 		},
 		Spec: hivev1.ClusterImageSetSpec{
 			ReleaseImage: releaseURL,
