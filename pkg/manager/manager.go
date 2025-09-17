@@ -80,6 +80,7 @@ const (
 	maxTotalClusters = 80
 
 	maxTotalMCEClusters = 15
+	MaxMCEDuration      = time.Duration(8 * time.Hour)
 )
 
 const (
@@ -979,6 +980,18 @@ func (m *jobManager) estimateCompletion(requestedAt time.Time) time.Duration {
 		return time.Minute
 	}
 	return lastEstimate.Truncate(time.Second)
+}
+
+func (m *jobManager) GetUserCluster(user string) *Job {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	for _, job := range m.jobs {
+		if user == job.RequestedBy && (job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch) {
+			return job
+		}
+	}
+	return nil
 }
 
 func (m *jobManager) ListJobs(user string, filters ListFilters) string {
@@ -2435,16 +2448,13 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 		m.mceConfig.Mutex.RLock()
 		// this section is nested to allow the defer to be executed before calling the createManagedCluster function
 		defer m.mceConfig.Mutex.RUnlock()
-		userConfig, ok := m.mceConfig.Users[user]
-		if !ok {
-			return fmt.Errorf("User `%s` is currently unauthorized to use MCE.", user) //nolint:staticcheck
-		}
+		userConfig := m.mceConfig.Users[user]
 		// configure defaults
 		if platform == "" {
 			platform = "aws"
 		}
 		if duration == 0 {
-			duration = time.Duration(min(userConfig.MaxClusterAge, 6)) * time.Hour
+			duration = min(time.Duration(userConfig.MaxClusterAge)*time.Hour, MaxMCEDuration)
 		}
 		m.mceClusters.lock.RLock()
 		defer m.mceClusters.lock.RUnlock()
@@ -2455,7 +2465,7 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 		if duration.Hours() > float64(userConfig.MaxClusterAge) {
 			return fmt.Errorf("Your user's maximum duration for an MCE cluster is %d hours.", userConfig.MaxClusterAge) //nolint:staticcheck
 		}
-		if !mcePlatforms.Has(platform) {
+		if !MCEPlatforms.Has(platform) {
 			return fmt.Errorf("%s is not a supported platform for MCE.", platform) //nolint:staticcheck
 		}
 		if !m.mceClusters.imagesets.Has(imageset) {

@@ -1,4 +1,4 @@
-package done
+package delete
 
 import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"

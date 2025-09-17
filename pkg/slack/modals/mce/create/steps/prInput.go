@@ -9,32 +9,33 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/launch"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/mce/create"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
 	"k8s.io/klog"
 )
 
 func RegisterPRInput(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(launch.IdentifierPRInputView, launch.PRInputView(nil, modals.CallbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+	return modals.ForView(create.IdentifierPRInputView, create.PRInputView(nil, modals.CallbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
 		slack.InteractionTypeViewSubmission: processNextPRInput(client, jobmanager, httpclient),
 	})
 }
 
 func processNextPRInput(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
-	return interactions.HandlerFunc(string(launch.IdentifierPRInputView), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+	return interactions.HandlerFunc(string(create.IdentifierPRInputView), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+		klog.Infof("Private Metadata: %s", callback.View.PrivateMetadata)
 		submissionData := modals.MergeCallbackData(callback)
 		errorsResponse := validatePRInputView(submissionData, jobmanager)
 		if errorsResponse != nil {
 			return errorsResponse, nil
 		}
-		go modals.OverwriteView(updater, launch.ThirdStepView(callback, jobmanager, httpclient, submissionData), callback, logger)
-		return modals.SubmitPrepare(launch.ModalTitle, string(launch.IdentifierPRInputView), logger)
+		go modals.OverwriteView(updater, create.ThirdStepView(callback, jobmanager, httpclient, submissionData), callback, logger)
+		return modals.SubmitPrepare(create.ModalTitle, string(create.IdentifierPRInputView), logger)
 	})
 }
 
 func validatePRInputView(submissionData modals.CallbackData, jobmanager manager.JobManager) []byte {
-	prs, ok := submissionData.Input[launch.LaunchFromPR]
+	prs, ok := submissionData.Input[create.LaunchFromPR]
 	if !ok {
 		return nil
 	}
@@ -73,7 +74,7 @@ func validatePRInputView(submissionData modals.CallbackData, jobmanager manager.
 		return nil
 	}
 
-	errors[launch.LaunchFromPR] = strings.Join(prErrors, "; ")
+	errors[create.LaunchFromPR] = strings.Join(prErrors, "; ")
 	response, err := modals.ValidationError(errors)
 	if err != nil {
 		klog.Warningf("failed to build validation error: %v", err)

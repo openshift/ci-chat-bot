@@ -1,7 +1,6 @@
 package steps
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -20,19 +19,15 @@ func RegisterLaunchOptionsStep(client *slack.Client, jobmanager manager.JobManag
 	})
 }
 
-func processLaunchOptionsStep(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
+func processLaunchOptionsStep(updater *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
 	return interactions.HandlerFunc(string(launch.Identifier3rdStep), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		var launchInputs []string
-		data := launch.CallbackData{
-			Input:             modals.CallBackInputAll(callback),
-			MultipleSelection: modals.CallbackMultipleSelect(callback),
-			Context:           callbackContext(callback),
-		}
-		platform := data.Context[launch.LaunchPlatform]
-		architecture := data.Context[launch.LaunchArchitecture]
-		version := data.Context[launch.LaunchVersion]
+		data := modals.MergeCallbackData(callback)
+		platform := data.Input[launch.LaunchPlatform]
+		architecture := data.Input[launch.LaunchArchitecture]
+		version := data.Input[launch.LaunchVersion]
 		launchInputs = append(launchInputs, version)
-		prs, ok := data.Context[launch.LaunchFromPR]
+		prs, ok := data.Input[launch.LaunchFromPR]
 		if ok && prs != "none" {
 			prSlice := strings.Split(prs, ",")
 			for _, pr := range prSlice {
@@ -56,39 +51,26 @@ func processLaunchOptionsStep(updater modals.ViewUpdater, jobmanager manager.Job
 			JobParams:       parametersMap,
 			Architecture:    architecture,
 		}
+		conversation, _, _, err := updater.OpenConversation(&slack.OpenConversationParameters{Users: []string{callback.User.ID}})
+		if err != nil {
+			logger.Errorf("Failed to get user message channel: %v", err)
+		}
+		if conversation != nil {
+			job.Channel = conversation.ID
+		}
 		errorResponse := validateLaunchOptionsStepSubmission(jobmanager, job)
 		if errorResponse != nil {
 			return errorResponse, nil
 		}
 		go func() {
 			msg, err := jobmanager.LaunchJobForUser(job)
-			overwriteView := func(view slack.ModalViewRequest) {
-				// don't pass a hash, so we overwrite the View always
-				response, err := updater.UpdateView(view, "", "", callback.View.ID)
-				if err != nil {
-					logger.WithError(err).Warn("Failed to update a modal View.")
-					_, err := updater.UpdateView(launch.ErrorView(err.Error()), "", "", callback.View.ID)
-					if err != nil {
-						logger.WithError(err).Warn("Failed to update a modal View.")
-					}
-				}
-				logger.WithField("response", response).Trace("Got a modal response.")
-			}
 			if err != nil {
-				overwriteView(launch.SubmissionView(err.Error()))
+				modals.OverwriteView(updater, launch.SubmissionView(err.Error()), callback, logger)
 			} else {
-				overwriteView(launch.SubmissionView(msg))
+				modals.OverwriteView(updater, launch.SubmissionView(msg), callback, logger)
 			}
 		}()
-		response, err := json.Marshal(&slack.ViewSubmissionResponse{
-			ResponseAction: slack.RAUpdate,
-			View:           launch.PrepareNextStepView(),
-		})
-		if err != nil {
-			logger.WithError(err).Error("Failed to marshal FirstStepView update submission response.")
-			return nil, err
-		}
-		return response, nil
+		return modals.SubmitPrepare(launch.ModalTitle, string(launch.Identifier3rdStep), logger)
 	})
 }
 

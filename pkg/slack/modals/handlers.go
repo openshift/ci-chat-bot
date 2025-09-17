@@ -8,13 +8,15 @@ import (
 	"text/template"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog"
 
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
 
+	"maps"
+
 	"github.com/openshift/ci-chat-bot/pkg/jira"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
-	"maps"
 )
 
 const (
@@ -185,6 +187,34 @@ func JiraView(key string) slack.ModalViewRequest {
 	}
 }
 
+func SubmitPrepare(title, modalName string, logger *logrus.Entry) ([]byte, error) {
+	response, err := json.Marshal(&slack.ViewSubmissionResponse{
+		ResponseAction: slack.RAUpdate,
+		View:           PrepareNextStepView(title),
+	})
+	if err != nil {
+		logger.WithError(err).Errorf("Failed to marshal %s update submission response.", modalName)
+		return nil, err
+	}
+	return response, err
+}
+
+func PrepareNextStepView(title string) *slack.ModalViewRequest {
+	return &slack.ModalViewRequest{
+		Type:  slack.VTModal,
+		Title: &slack.TextBlockObject{Type: slack.PlainTextType, Text: title},
+		Blocks: slack.Blocks{BlockSet: []slack.Block{
+			&slack.SectionBlock{
+				Type: slack.MBTSection,
+				Text: &slack.TextBlockObject{
+					Type: slack.MarkdownType,
+					Text: "Processing the next step, do not close this window...",
+				},
+			},
+		}},
+	}
+}
+
 // ErrorView is a modal View to show the user an error
 func ErrorView(action string, err error) slack.ModalViewRequest {
 	return slack.ModalViewRequest{
@@ -202,6 +232,36 @@ func ErrorView(action string, err error) slack.ModalViewRequest {
 			},
 		}},
 	}
+}
+
+func SubmissionView(title, msg string) slack.ModalViewRequest {
+	return slack.ModalViewRequest{
+		Type:  slack.VTModal,
+		Title: &slack.TextBlockObject{Type: slack.PlainTextType, Text: title},
+		Close: &slack.TextBlockObject{Type: slack.PlainTextType, Text: "Close"},
+		Blocks: slack.Blocks{BlockSet: []slack.Block{
+			&slack.SectionBlock{
+				Type: slack.MBTSection,
+				Text: &slack.TextBlockObject{
+					Type: slack.MarkdownType,
+					Text: msg,
+				},
+			},
+		}},
+	}
+}
+
+func OverwriteView(client ViewUpdater, view slack.ModalViewRequest, callback *slack.InteractionCallback, logger *logrus.Entry) {
+	// don't pass a hash, so we overwrite the View always
+	response, err := client.UpdateView(view, "", "", callback.View.ID)
+	if err != nil {
+		logger.WithError(err).WithField("messages", response.ResponseMetadata.Messages).Warn("Failed to update a modal View.")
+		_, err := client.UpdateView(ErrorView("updating the modal view", err), "", "", callback.View.ID)
+		if err != nil {
+			logger.WithError(err).Warn("failed to update a modal View.")
+		}
+	}
+	logger.WithField("response", response).Trace("Got a modal response.")
 }
 
 // valuesFor extracts values identified by the block IDs and exposes them
@@ -327,4 +387,42 @@ func BuildOptions(options []string, blacklist sets.Set[string]) []*slack.OptionB
 		}
 	}
 	return slackOptions
+}
+
+func MergeCallbackData(callback *slack.InteractionCallback) CallbackData {
+	merged := CallbackData{}
+	if err := json.Unmarshal([]byte(callback.View.PrivateMetadata), &merged); err != nil {
+		klog.Errorf("Failed to unmarshal private metadata: %v", err)
+	}
+	if merged.Input == nil {
+		merged.Input = make(map[string]string)
+	}
+	maps.Copy(merged.Input, CallBackInputAll(callback))
+	if merged.MultipleSelection == nil {
+		merged.MultipleSelection = make(map[string][]string)
+	}
+	maps.Copy(merged.MultipleSelection, CallbackMultipleSelect(callback))
+	return merged
+}
+
+func CallbackDataToMetadata(data CallbackData, identifier string) string {
+	dataWithIdentifier := CallbackDataAndIdentifier{
+		data,
+		identifier,
+	}
+	privateMetadata, err := json.Marshal(dataWithIdentifier)
+	if err != nil {
+		klog.Errorf("Failed to marshal callback data: %v", err)
+	}
+	return string(privateMetadata)
+}
+
+// CallbackData contains only the user-generated input portion of slack.InteractionCallback
+type CallbackData struct {
+	Input             map[string]string
+	MultipleSelection map[string][]string
+}
+type CallbackDataAndIdentifier struct {
+	CallbackData
+	Identifier string
 }

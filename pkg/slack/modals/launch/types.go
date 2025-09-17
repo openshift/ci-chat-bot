@@ -25,18 +25,13 @@ const (
 	LaunchParameters            = "parameters"
 	LaunchVersion               = "version"
 	launchStepContext           = "context"
-	defaultPlatform             = "hypershift-hosted"
-	defaultArchitecture         = "amd64"
+	DefaultPlatform             = "hypershift-hosted"
+	DefaultArchitecture         = "amd64"
 	LaunchMode                  = "launch_mode"
 	LaunchModeVersion           = "version"
 	LaunchModePR                = "pr"
 	LaunchModePRKey             = "One or multiple PRs"
 	LaunchModeVersionKey        = "A Version"
 	LaunchModeContext           = "Launch Mode"
+	ModalTitle                  = "Launch a Cluster"
 )
-
-type CallbackData struct {
-	Input             map[string]string
-	MultipleSelection map[string][]string
-	Context           map[string]string
-}

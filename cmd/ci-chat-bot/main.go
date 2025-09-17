@@ -357,7 +357,7 @@ func run() error {
 	httpClient := &http.Client{Timeout: 60 * time.Second}
 	if err != nil {
 		klog.Errorf("failed to load the Jira Client: %s", err)
-		Start(bot, nil, jobManager, nil, health, opt.InstrumentationOptions, clusterBotMetrics)
+		Start(bot, nil, jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics)
 	} else {
 		Start(bot, jiraclient.JiraClient(), jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics)
 	}

@@ -1,7 +1,6 @@
 package steps
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
@@ -14,18 +13,14 @@ import (
 )
 
 func RegisterLaunchModeStep(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(launch.IdentifierRegisterLaunchMode, launch.ThirdStepView(nil, jobmanager, httpclient, launch.CallbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+	return modals.ForView(launch.IdentifierRegisterLaunchMode, launch.ThirdStepView(nil, jobmanager, httpclient, modals.CallbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
 		slack.InteractionTypeViewSubmission: processNextLaunchModeStep(client, jobmanager, httpclient),
 	})
 }
 
 func processNextLaunchModeStep(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
-	return interactions.HandlerFunc("launch3", func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
-		submissionData := launch.CallbackData{
-			Input:             modals.CallBackInputAll(callback),
-			Context:           callbackContext(callback),
-			MultipleSelection: modals.CallbackMultipleSelect(callback),
-		}
+	return interactions.HandlerFunc(string(launch.IdentifierRegisterLaunchMode), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+		submissionData := modals.MergeCallbackData(callback)
 		mode := sets.New[string]()
 		for _, selection := range submissionData.MultipleSelection[launch.LaunchMode] {
 			switch selection {
@@ -36,33 +31,13 @@ func processNextLaunchModeStep(updater modals.ViewUpdater, jobmanager manager.Jo
 			}
 		}
 		go func() {
-			overwriteView := func(view slack.ModalViewRequest) {
-				// don't pass a hash, so we overwrite the View always
-				response, err := updater.UpdateView(view, "", "", callback.View.ID)
-				if err != nil {
-					logger.WithError(err).Warn("Failed to update a modal View.")
-					_, err := updater.UpdateView(launch.ErrorView(err.Error()), "", "", callback.View.ID)
-					if err != nil {
-						logger.WithError(err).Warn("Failed to update a modal View.")
-					}
-				}
-				logger.WithField("response", response).Trace("Got a modal response.")
-			}
 			if mode.Has(launch.LaunchModeVersion) {
-				overwriteView(launch.FilterVersionView(callback, jobmanager, submissionData, httpclient, mode))
+				modals.OverwriteView(updater, launch.FilterVersionView(callback, jobmanager, submissionData, httpclient, mode), callback, logger)
 			} else {
-				overwriteView(launch.PRInputView(callback, submissionData))
+				modals.OverwriteView(updater, launch.PRInputView(callback, submissionData), callback, logger)
 			}
 
 		}()
-		response, err := json.Marshal(&slack.ViewSubmissionResponse{
-			ResponseAction: slack.RAUpdate,
-			View:           launch.PrepareNextStepView(),
-		})
-		if err != nil {
-			logger.WithError(err).Error("Failed to marshal FirstStepView update submission response.")
-			return nil, err
-		}
-		return response, nil
+		return modals.SubmitPrepare(launch.ModalTitle, string(launch.IdentifierRegisterLaunchMode), logger)
 	})
 }

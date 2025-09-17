@@ -49,7 +49,7 @@ func (b *Bot) JobResponder(s *slack.Client) func(manager.Job) {
 				return
 			}
 		}
-		NotifyJob(s, &job)
+		NotifyJob(s, &job, true)
 	}
 }
 
@@ -100,7 +100,7 @@ func (b *Bot) MceResponder(s *slack.Client) func(*clusterv1.ManagedCluster, *hiv
 				return
 			}
 		}
-		NotifyMce(s, cluster, clusterDeployment, clusterProvision, kubeconfig, password, errMsg)
+		NotifyMce(s, cluster, clusterDeployment, clusterProvision, kubeconfig, password, true, errMsg)
 	}
 }
 
@@ -347,45 +347,57 @@ func parseParameterValue(value string) string {
 	return value
 }
 
-func NotifyJob(client *slack.Client, job *manager.Job) {
+func NotifyJob(client *slack.Client, job *manager.Job, postMessage bool) (string, string) {
+	var msg, kubeconfig string
 	switch job.Mode {
 	case manager.JobTypeLaunch, manager.JobTypeWorkflowLaunch:
 		switch {
 		case len(job.Failure) > 0 && len(job.URL) > 0:
-			message := fmt.Sprintf("your cluster failed to launch: %s (<%s|logs>)", job.Failure, job.URL)
-			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-			if err != nil {
-				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+			msg = fmt.Sprintf("your cluster failed to launch: %s (<%s|logs>)", job.Failure, job.URL)
+			if postMessage {
+				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+				if err != nil {
+					klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+				}
 			}
 		case len(job.Failure) > 0:
-			message := fmt.Sprintf("your cluster failed to launch: %s", job.Failure)
-			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-			if err != nil {
-				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+			msg = fmt.Sprintf("your cluster failed to launch: %s", job.Failure)
+			if postMessage {
+				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+				if err != nil {
+					klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+				}
 			}
 		case len(job.Credentials) == 0 && len(job.URL) > 0:
-			message := fmt.Sprintf("cluster is still starting (launched %d minutes ago, <%s|logs>)", time.Since(job.RequestedAt)/time.Minute, job.URL)
-			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-			if err != nil {
-				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+			msg = fmt.Sprintf("cluster is still starting (launched %d minutes ago, <%s|logs>)", time.Since(job.RequestedAt)/time.Minute, job.URL)
+			if postMessage {
+				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+				if err != nil {
+					klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+				}
 			}
 		case len(job.Credentials) == 0:
-			message := fmt.Sprintf("cluster is still starting (launched %d minutes ago)", time.Since(job.RequestedAt)/time.Minute)
-			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-			if err != nil {
-				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+			msg = fmt.Sprintf("cluster is still starting (launched %d minutes ago)", time.Since(job.RequestedAt)/time.Minute)
+			if postMessage {
+				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+				if err != nil {
+					klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+				}
 			}
 		default:
-			comment := fmt.Sprintf(
+			msg = fmt.Sprintf(
 				"Your cluster is ready, it will be shut down automatically in ~%d minutes.",
 				time.Until(job.ExpiresAt)/time.Minute,
 			)
 			if len(job.PasswordSnippet) > 0 {
-				comment += "\n" + job.PasswordSnippet
+				msg += "\n" + job.PasswordSnippet
 			}
-			SendKubeConfig(client, job.RequestedChannel, job.Credentials, comment, job.RequestedAt.Format("2006-01-02-150405"))
+			kubeconfig = job.Credentials
+			if postMessage {
+				SendKubeConfig(client, job.RequestedChannel, kubeconfig, msg, job.RequestedAt.Format("2006-01-02-150405"))
+			}
 		}
-		return
+		return msg, kubeconfig
 	}
 
 	// Catalog builds incomplete after the job completes; assume complete unless catalog build
@@ -408,37 +420,45 @@ func NotifyJob(client *slack.Client, job *manager.Job) {
 	if !incomplete {
 		if len(job.URL) > 0 {
 			if failure {
-				message := fmt.Sprintf("job <%s | %s> failed", job.URL, job.OriginalMessage)
-				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-				if err != nil {
-					klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+				msg = fmt.Sprintf("job <%s | %s> failed", job.URL, job.OriginalMessage)
+				if postMessage {
+					_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+					if err != nil {
+						klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+					}
 				}
-				return
+				return msg, kubeconfig
 			}
 			if success {
-				message := fmt.Sprintf("job <%s | %s> succeeded", job.URL, job.OriginalMessage)
-				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-				if err != nil {
-					klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+				msg = fmt.Sprintf("job <%s | %s> succeeded", job.URL, job.OriginalMessage)
+				if postMessage {
+					_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+					if err != nil {
+						klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+					}
 				}
-				return
+				return msg, kubeconfig
 			}
 		} else {
 			if failure {
-				message := fmt.Sprintf("job %s failed, but no details could be retrieved", job.OriginalMessage)
-				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-				if err != nil {
-					klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+				msg = fmt.Sprintf("job %s failed, but no details could be retrieved", job.OriginalMessage)
+				if postMessage {
+					_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+					if err != nil {
+						klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+					}
 				}
-				return
+				return msg, kubeconfig
 			}
 			if success {
-				message := fmt.Sprintf("job %s succeded, but no details could be retrieved", job.OriginalMessage)
-				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-				if err != nil {
-					klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+				msg = fmt.Sprintf("job %s succeded, but no details could be retrieved", job.OriginalMessage)
+				if postMessage {
+					_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+					if err != nil {
+						klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+					}
 				}
-				return
+				return msg, kubeconfig
 			}
 		}
 	}
@@ -446,37 +466,47 @@ func NotifyJob(client *slack.Client, job *manager.Job) {
 	switch {
 	case len(job.Credentials) == 0 && len(job.URL) > 0:
 		if len(job.OriginalMessage) > 0 {
-			message := fmt.Sprintf("job <%s|%s> is running", job.URL, job.OriginalMessage)
-			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-			if err != nil {
-				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+			msg = fmt.Sprintf("job <%s|%s> is running", job.URL, job.OriginalMessage)
+			if postMessage {
+				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+				if err != nil {
+					klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+				}
 			}
 		} else {
-			message := fmt.Sprintf("job is running, see %s for details", job.URL)
-			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-			if err != nil {
-				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+			msg = fmt.Sprintf("job is running, see %s for details", job.URL)
+			if postMessage {
+				_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+				if err != nil {
+					klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+				}
 			}
 		}
 	case len(job.Credentials) == 0:
-		message := fmt.Sprintf("job is running (launched %d minutes ago)", time.Since(job.RequestedAt)/time.Minute)
-		_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(message, false))
-		if err != nil {
-			klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, job.RequestedChannel)
+		msg = fmt.Sprintf("job is running (launched %d minutes ago)", time.Since(job.RequestedAt)/time.Minute)
+		if postMessage {
+			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+			if err != nil {
+				klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+			}
 		}
 	default:
-		comment := "Your job has started a cluster, it will be shut down when the test ends."
+		msg = "Your job has started a cluster, it will be shut down when the test ends."
 		if len(job.URL) > 0 {
-			comment += fmt.Sprintf(" See %s for details.", job.URL)
+			msg += fmt.Sprintf(" See %s for details.", job.URL)
 		}
 		if len(job.PasswordSnippet) > 0 {
-			comment += "\n" + job.PasswordSnippet
+			msg += "\n" + job.PasswordSnippet
 		}
-		SendKubeConfig(client, job.RequestedChannel, job.Credentials, comment, job.RequestedAt.Format("2006-01-02-150405"))
+		kubeconfig = job.Credentials
+		if postMessage {
+			SendKubeConfig(client, job.RequestedChannel, kubeconfig, msg, job.RequestedAt.Format("2006-01-02-150405"))
+		}
 	}
+	return msg, kubeconfig
 }
 
-func SendKubeConfig(client *slack.Client, channel, contents, comment, identifier string) {
+func SendKubeConfig(client *slack.Client, channel, contents, comment, identifier string) string {
 	params := slack.UploadFileV2Parameters{
 		Content:        contents,
 		FileSize:       len(contents),
@@ -484,12 +514,13 @@ func SendKubeConfig(client *slack.Client, channel, contents, comment, identifier
 		Filename:       fmt.Sprintf("cluster-bot-%s.kubeconfig", identifier),
 		InitialComment: comment,
 	}
-	_, err := client.UploadFileV2(params)
+	summary, err := client.UploadFileV2(params)
 	if err != nil {
 		klog.Errorf("error: unable to send attachment with message: %v", err)
-		return
+		return ""
 	}
 	klog.Infof("successfully uploaded file to %s", channel)
+	return summary.ID
 }
 
 func CodeSlice(items []string) []string {
@@ -592,14 +623,16 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 	return platform, architecture, params, nil
 }
 
-func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterDeployment *hivev1.ClusterDeployment, clusterProvision *hivev1.ClusterProvision, kubeconfig, password string, errMsg error) {
+func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterDeployment *hivev1.ClusterDeployment, clusterProvision *hivev1.ClusterProvision, kubeconfig, password string, postMessage bool, errMsg error) (string, string) {
 	channel := cluster.Annotations[utils.ChannelTag]
 	if errMsg != nil {
 		msg := fmt.Sprintf("Creation of your cluster has failed with the following message: ```%s```\nExisting cluster resources will be deleted.", errMsg.Error())
-		if _, _, err := client.PostMessage(channel, slack.MsgOptionText(msg, false)); err != nil {
-			klog.Warningf("Failed to post the message to the channel: %s.", channel)
+		if postMessage {
+			if _, _, err := client.PostMessage(channel, slack.MsgOptionText(msg, false)); err != nil {
+				klog.Warningf("Failed to post the message to the channel: %s.", channel)
+			}
 		}
-		return
+		return msg, ""
 	}
 	var availability string
 	for _, condition := range cluster.Status.Conditions {
@@ -616,10 +649,12 @@ func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterD
 		}
 		message := fmt.Sprintf("your cluster (name: `%s`) has failed to provision. Reason for failure is: `%s`. Error message is:\n```%s```", cluster.GetName(), failedCondition.Reason, failedCondition.Message)
 		if clusterProvision.Spec.InstallLog == nil {
-			if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
-				klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+			if postMessage {
+				if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
+					klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+				}
 			}
-			return
+			return message, ""
 		}
 		params := slack.UploadFileV2Parameters{
 			Content:        *clusterProvision.Spec.InstallLog,
@@ -631,9 +666,9 @@ func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterD
 		_, err := client.UploadFileV2(params)
 		if err != nil {
 			klog.Errorf("error: unable to send attachment with message: %v", err)
-			return
+			return message, ""
 		}
-		return
+		return message, ""
 	}
 	// in some cases, an early provisioning fail may result in a ClusterProvision not being created
 	if clusterDeployment != nil {
@@ -641,10 +676,12 @@ func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterD
 			if provisionCondition.Type == hivev1.ProvisionFailedCondition {
 				if provisionCondition.Status == "True" {
 					message := fmt.Sprintf("your cluster (name: `%s`) has failed to provision. Reason for failure is: `%s`.  Error message is:\n```%s```", cluster.GetName(), provisionCondition.Reason, provisionCondition.Message)
-					if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
-						klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+					if postMessage {
+						if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
+							klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+						}
 					}
-					return
+					return message, ""
 				}
 				break
 			}
@@ -669,12 +706,17 @@ func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterD
 		message += "\n" + clusterDeployment.Status.WebConsoleURL
 		ocLoginCommand := fmt.Sprintf("oc login %s --username kubeadmin --password %s", clusterDeployment.Status.APIURL, password)
 		message += "\n\nLog in to the console with user `kubeadmin` and password `" + password + "`.\nTo use the `oc` command, log in by running `" + ocLoginCommand + "`."
-		SendKubeConfig(client, channel, kubeconfig, message, parsedRequestTime.Format("2006-01-02-150405"))
-		return
+		if postMessage {
+			SendKubeConfig(client, channel, kubeconfig, message, parsedRequestTime.Format("2006-01-02-150405"))
+		}
+		return message, kubeconfig
 	}
-	if _, _, err := client.PostMessage(channel, slack.MsgOptionText(fmt.Sprintf("Cluster %s is not yet available", cluster.GetName()), false)); err != nil {
-		klog.Warningf("Failed to post the message to the channel: %s.", channel)
+	if postMessage {
+		if _, _, err := client.PostMessage(channel, slack.MsgOptionText(fmt.Sprintf("Cluster %s is not yet available", cluster.GetName()), false)); err != nil {
+			klog.Warningf("Failed to post the message to the channel: %s.", channel)
+		}
 	}
+	return fmt.Sprintf("Cluster %s is not yet available", cluster.GetName()), ""
 }
 
 func NotifyRosa(client *slack.Client, cluster *clustermgmtv1.Cluster, password string) {

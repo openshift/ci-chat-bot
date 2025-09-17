@@ -2,19 +2,24 @@ package apphome
 
 import (
 	"encoding/json"
+	"fmt"
+	"time"
 
+	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/events"
+	"github.com/openshift/ci-chat-bot/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"k8s.io/klog"
+	clusterv1 "open-cluster-management.io/api/cluster/v1"
 )
 
 type publishView interface {
 	PublishView(userID string, view slack.HomeTabViewRequest, hash string) (*slack.ViewResponse, error)
 }
 
-func Handler(client publishView) events.PartialHandler {
+func Handler(client publishView, jobManager manager.JobManager) events.PartialHandler {
 	return events.PartialHandlerFunc("workflow-execution-event", func(callback *slackevents.EventsAPIEvent, logger *logrus.Entry) (handled bool, err error) {
 		if callback.Type != slackevents.CallbackEvent {
 			return false, nil
@@ -23,7 +28,7 @@ func Handler(client publishView) events.PartialHandler {
 		if !ok {
 			return false, nil
 		}
-		_, err = client.PublishView(event.User, View(), "")
+		_, err = client.PublishView(event.User, View(jobManager, event.User), "")
 		if err != nil {
 			return false, err
 		}
@@ -31,12 +36,50 @@ func Handler(client publishView) events.PartialHandler {
 	})
 }
 
-func View() slack.HomeTabViewRequest {
+func View(jobManager manager.JobManager, user string) slack.HomeTabViewRequest {
 	home := slack.HomeTabViewRequest{}
 	err := json.Unmarshal([]byte(homeJson), &home)
 	if err != nil {
 		klog.Warningf("Failed to unmarshall the app home JSON: %s", err)
 		return slack.HomeTabViewRequest{}
+	}
+	userJob := jobManager.GetUserCluster(user)
+	if userJob != nil {
+		for index, block := range home.Blocks.BlockSet {
+			if block.BlockType() == slack.MBTHeader {
+				header := block.(*slack.HeaderBlock)
+				if header.Text.Text == "Launch a Cluster" {
+					// TODO: this looks kinda messy; we need to clean it up; maybe place it in its own block?
+					header.Text.Text = fmt.Sprintf("Launch a Cluster (Your active %s cluster will expire at %s; switch to another view to update this text)", userJob.Platform, userJob.ExpiresAt.Format(time.Kitchen))
+					home.Blocks.BlockSet[index] = header
+					break
+				}
+			}
+		}
+	}
+
+	managed, _, _, _, _ := jobManager.GetManagedClustersForUser(user)
+	// for now, just assume a maximum of one managed cluster per user
+	if len(managed) != 0 {
+		var cluster *clusterv1.ManagedCluster
+		for _, value := range managed {
+			cluster = value
+		}
+		for index, block := range home.Blocks.BlockSet {
+			if block.BlockType() == slack.MBTHeader {
+				header := block.(*slack.HeaderBlock)
+				if header.Text.Text == "MCE Clusters" {
+					expiryTime, err := time.Parse(time.RFC3339, cluster.Annotations[utils.ExpiryTimeTag])
+					if err != nil {
+						break
+					}
+					// TODO: this looks kinda messy; we need to clean it up; maybe place it in its own block?
+					header.Text.Text = fmt.Sprintf("MCE Clusters (Your active %s MCE cluster will expire at %s; switch to another view to update this text)", cluster.Labels["Cloud"], expiryTime.Format(time.Kitchen+" on Mon Jan 2"))
+					home.Blocks.BlockSet[index] = header
+					break
+				}
+			}
+		}
 	}
 	return home
 }
@@ -78,121 +121,6 @@ const homeJson = `
 				},
 				"value": "launch",
 				"action_id": "launch",
-				"style": "primary"
-			}
-		},
-		{
-			"type": "header",
-			"text": {
-				"type": "plain_text",
-				"text": "Workflows",
-				"emoji": true
-			}
-		},
-		{
-			"type": "divider"
-		},
-		{
-			"type": "section",
-			"text": {
-				"type": "mrkdwn",
-				"text": "Launch a cluster using the requested workflow from an image,release or built PRs"
-			},
-			"accessory": {
-				"type": "button",
-				"text": {
-					"type": "plain_text",
-					"text": "Workflow-Launch",
-					"emoji": true
-				},
-				"value": "workflow_launch",
-				"action_id": "workflow_launch",
-				"style": "primary"
-			}
-		},
-		{
-			"type": "section",
-			"text": {
-				"type": "mrkdwn",
-				"text": "Start the test using the requested workflow from an image,release or built PRs"
-			},
-			"accessory": {
-				"type": "button",
-				"text": {
-					"type": "plain_text",
-					"text": "Workflow-Test",
-					"emoji": true
-				},
-				"value": "workflow_test",
-				"action_id": "workflow_test",
-				"style": "primary"
-			}
-		},
-		{
-			"type": "section",
-			"text": {
-				"type": "mrkdwn",
-				"text": "Run a custom upgrade using the requested workflow from an image or release or built PRs to a specified version/image/pr from https://amd64.ocp.releases.ci.openshift.org"
-			},
-			"accessory": {
-				"type": "button",
-				"text": {
-					"type": "plain_text",
-					"text": "Workflow-Upgrade",
-					"emoji": true
-				},
-				"value": "workflow_upgrade",
-				"action_id": "workflow_upgrade",
-				"style": "primary"
-			}
-		},
-		{
-			"type": "divider"
-		},
-		{
-			"type": "header",
-			"text": {
-				"type": "plain_text",
-				"text": "Test",
-				"emoji": true
-			}
-		},
-		{
-			"type": "divider"
-		},
-		{
-			"type": "section",
-			"text": {
-				"type": "mrkdwn",
-				"text": "Run the requested test suite from an image or release or built PRs"
-			},
-			"accessory": {
-				"type": "button",
-				"text": {
-					"type": "plain_text",
-					"text": "Test",
-					"emoji": true
-				},
-				"value": "test",
-				"action_id": "test",
-				"style": "primary"
-			}
-		},
-		{
-			"type": "section",
-			"text": {
-				"type": "mrkdwn",
-				"text": "Run the upgrade tests between two release images"
-			},
-			"accessory": {
-				"type": "button",
-				"text": {
-					"type": "plain_text",
-					"text": "Test Upgrade",
-					"emoji": true
-				},
-				"value": "test_upgrade",
-				"action_id": "test_upgrade",
 				"style": "primary"
 			}
 		},
@@ -280,20 +208,31 @@ const homeJson = `
 			}
 		},
 		{
+			"type": "header",
+			"text": {
+				"type": "plain_text",
+				"text": "MCE Clusters",
+				"emoji": true
+			}
+		},
+		{
+			"type": "divider"
+		},
+		{
 			"type": "section",
 			"text": {
 				"type": "mrkdwn",
-				"text": "Report the version of the bot\n"
+				"text": "Launch an MCE Cluster\n"
 			},
 			"accessory": {
 				"type": "button",
 				"text": {
 					"type": "plain_text",
-					"text": "Version",
+					"text": "Launch",
 					"emoji": true
 				},
-				"value": "version",
-				"action_id": "version",
+				"value": "mce_create",
+				"action_id": "mce_create",
 				"style": "primary"
 			}
 		},
@@ -301,17 +240,53 @@ const homeJson = `
 			"type": "section",
 			"text": {
 				"type": "mrkdwn",
-				"text": "Get info about a version\n"
+				"text": "Terminate MCE Cluster\n"
 			},
 			"accessory": {
 				"type": "button",
 				"text": {
 					"type": "plain_text",
-					"text": "Lookup",
+					"text": "Delete",
 					"emoji": true
 				},
-				"value": "lookup",
-				"action_id": "lookup",
+				"value": "mce_delete",
+				"action_id": "mce_delete",
+				"style": "primary"
+			}
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "Retrieve MCE Cluster Auth\n"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "Auth",
+					"emoji": true
+				},
+				"value": "mce_auth",
+				"action_id": "mce_auth",
+				"style": "primary"
+			}
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "List All Running MCE Clusters\n"
+			},
+			"accessory": {
+				"type": "button",
+				"text": {
+					"type": "plain_text",
+					"text": "List",
+					"emoji": true
+				},
+				"value": "mce_list",
+				"action_id": "mce_list",
 				"style": "primary"
 			}
 		}

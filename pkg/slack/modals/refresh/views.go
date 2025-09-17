@@ -1,6 +1,9 @@
 package refresh
 
-import slackClient "github.com/slack-go/slack"
+import (
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
+	slackClient "github.com/slack-go/slack"
+)
 
 func ResultView(msg string) slackClient.ModalViewRequest {
 	return slackClient.ModalViewRequest{
@@ -22,7 +25,7 @@ func ResultView(msg string) slackClient.ModalViewRequest {
 func View() slackClient.ModalViewRequest {
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
-		PrivateMetadata: Identifier,
+		PrivateMetadata: modals.CallbackDataToMetadata(modals.CallbackData{}, identifier),
 		Title:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Refresh the Status"},
 		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
 		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Submit"},

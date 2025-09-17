@@ -358,14 +358,10 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	pj.Annotations["ci-chat-bot.openshift.io/expires"] = strconv.Itoa(int(m.maxAge.Seconds() + launchDeadline.Seconds()))
 	prow.OverrideJobEnvVar(&pj.Spec, "CLUSTER_DURATION", strconv.Itoa(int(m.maxAge.Seconds())))
 	switch job.Mode {
-	case JobTypeBuild, JobTypeCatalog:
-		// keep the built payload images around for a week
+	case JobTypeBuild, JobTypeCatalog, JobTypeMCECustomImage:
+		// keep the built payload images around for a week; MCE complains if the image disappears while the cluster is up
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "168h")
 		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "168h")
-	case JobTypeMCECustomImage:
-		// set preserve long enough for 2 install attempts of an mce cluster
-		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "2h")
-		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "12h")
 	default:
 		prow.SetJobEnvVar(&pj.Spec, "PRESERVE_DURATION", "1h")
 		prow.SetJobEnvVar(&pj.Spec, "DELETE_AFTER", "12h")
