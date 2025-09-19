@@ -51,6 +51,252 @@ func LaunchCluster(client *slack.Client, jobManager manager.JobManager, event *s
 	return msg
 }
 
+func ValidateCommand(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	command := strings.TrimSpace(properties.StringParam("command", ""))
+	if command == "" {
+		return "Error: Please specify a command to validate. Example: `validate launch 4.19 aws,compact`"
+	}
+
+	// Parse the command to determine its type
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return "Error: Invalid command format"
+	}
+
+	commandType := strings.ToLower(parts[0])
+
+	switch commandType {
+	case "launch":
+		if len(parts) < 2 {
+			return "Error: launch command requires at least an image/version. Example: `validate launch 4.19 aws`"
+		}
+		return validateLaunchCommand(jobManager, command, parts[1:], event.User)
+	case "test":
+		if len(parts) < 3 {
+			return "Error: test command requires test name and image/version. Example: `validate test e2e 4.19 aws`"
+		}
+		return validateTestCommand(jobManager, command, parts[1:], event.User)
+	case "build":
+		if len(parts) < 2 {
+			return "Error: build command requires PR. Example: `validate build openshift/installer#123`"
+		}
+		return validateBuildCommand(jobManager, command, parts[1:], event.User)
+	default:
+		return fmt.Sprintf("Error: Validation is not yet supported for '%s' command. Currently supported: launch, test, build", commandType)
+	}
+}
+
+func validateLaunchCommand(jobManager manager.JobManager, originalCommand string, args []string, userID string) string {
+	// Parse the launch command similar to LaunchCluster
+	from, err := ParseImageInput(args[0])
+	if err != nil {
+		return fmt.Sprintf("❌ Invalid input: %v", err)
+	}
+
+	var inputs [][]string
+	if len(from) > 0 {
+		inputs = [][]string{from}
+	}
+
+	options := ""
+	if len(args) > 1 {
+		options = strings.Join(args[1:], " ")
+	}
+
+	platform, architecture, params, err := ParseOptions(options, inputs, manager.JobTypeInstall)
+	if err != nil {
+		return fmt.Sprintf("❌ Invalid options: %v", err)
+	}
+
+	// Create a job request for validation
+	jobRequest := &manager.JobRequest{
+		OriginalMessage: originalCommand,
+		User:            userID,
+		UserName:        "validation-user",
+		Inputs:          inputs,
+		Type:            manager.JobTypeInstall,
+		Platform:        platform,
+		JobParams:       params,
+		Architecture:    architecture,
+	}
+
+	// Validate the configuration
+	err = jobManager.CheckValidJobConfiguration(jobRequest)
+	if err != nil {
+		return fmt.Sprintf("❌ Configuration error: %v", err)
+	}
+
+	// Success message with details
+	msg := "✅ **Valid launch configuration**\n\n"
+	msg += fmt.Sprintf("**Would launch:** OpenShift cluster\n")
+	msg += fmt.Sprintf("**Input:** %s\n", strings.Join(from, ", "))
+	msg += fmt.Sprintf("**Platform:** %s\n", platform)
+	msg += fmt.Sprintf("**Architecture:** %s\n", architecture)
+	if len(params) > 0 {
+		var paramsList []string
+		for key, value := range params {
+			if value == "true" {
+				paramsList = append(paramsList, key)
+			} else {
+				paramsList = append(paramsList, fmt.Sprintf("%s=%s", key, value))
+			}
+		}
+		msg += fmt.Sprintf("**Parameters:** %s\n", strings.Join(paramsList, ", "))
+	}
+	msg += "\n*This command would create a cluster with the above configuration.*"
+
+	return msg
+}
+
+func validateTestCommand(jobManager manager.JobManager, originalCommand string, args []string, userID string) string {
+	if strings.ToLower(args[0]) == "upgrade" {
+		// Handle test upgrade
+		if len(args) < 3 {
+			return "❌ test upgrade requires from and to versions. Example: `validate test upgrade 4.18 4.19 aws`"
+		}
+		return validateTestUpgradeCommand(jobManager, originalCommand, args[1:], userID)
+	}
+
+	// Regular test command
+	testName := args[0]
+	from, err := ParseImageInput(args[1])
+	if err != nil {
+		return fmt.Sprintf("❌ Invalid input: %v", err)
+	}
+
+	options := ""
+	if len(args) > 2 {
+		options = strings.Join(args[2:], " ")
+	}
+
+	platform, architecture, params, err := ParseOptions(options, [][]string{from}, manager.JobTypeTest)
+	if err != nil {
+		return fmt.Sprintf("❌ Invalid options: %v", err)
+	}
+
+	params["test"] = testName
+	if strings.Contains(params["test"], "-upgrade") {
+		return "❌ Upgrade type tests require the 'test upgrade' command"
+	}
+
+	jobRequest := &manager.JobRequest{
+		OriginalMessage: originalCommand,
+		User:            userID,
+		UserName:        "validation-user",
+		Inputs:          [][]string{from},
+		Type:            manager.JobTypeTest,
+		Platform:        platform,
+		JobParams:       params,
+		Architecture:    architecture,
+	}
+
+	err = jobManager.CheckValidJobConfiguration(jobRequest)
+	if err != nil {
+		return fmt.Sprintf("❌ Configuration error: %v", err)
+	}
+
+	msg := "✅ **Valid test configuration**\n\n"
+	msg += fmt.Sprintf("**Would run:** %s test suite\n", testName)
+	msg += fmt.Sprintf("**Input:** %s\n", strings.Join(from, ", "))
+	msg += fmt.Sprintf("**Platform:** %s (%s)\n", platform, architecture)
+	msg += "\n*This command would run the specified test suite.*"
+
+	return msg
+}
+
+func validateTestUpgradeCommand(jobManager manager.JobManager, originalCommand string, args []string, userID string) string {
+	fromInput, err := ParseImageInput(args[0])
+	if err != nil {
+		return fmt.Sprintf("❌ Invalid from version: %v", err)
+	}
+
+	toInput, err := ParseImageInput(args[1])
+	if err != nil {
+		return fmt.Sprintf("❌ Invalid to version: %v", err)
+	}
+
+	options := ""
+	if len(args) > 2 {
+		options = strings.Join(args[2:], " ")
+	}
+
+	platform, architecture, params, err := ParseOptions(options, [][]string{fromInput, toInput}, manager.JobTypeUpgrade)
+	if err != nil {
+		return fmt.Sprintf("❌ Invalid options: %v", err)
+	}
+
+	if len(params["test"]) == 0 {
+		params["test"] = "e2e-upgrade"
+	}
+	if !strings.Contains(params["test"], "-upgrade") {
+		return "❌ Only upgrade type tests may be run from this command"
+	}
+
+	jobRequest := &manager.JobRequest{
+		OriginalMessage: originalCommand,
+		User:            userID,
+		UserName:        "validation-user",
+		Inputs:          [][]string{fromInput, toInput},
+		Type:            manager.JobTypeUpgrade,
+		Platform:        platform,
+		JobParams:       params,
+		Architecture:    architecture,
+	}
+
+	err = jobManager.CheckValidJobConfiguration(jobRequest)
+	if err != nil {
+		return fmt.Sprintf("❌ Configuration error: %v", err)
+	}
+
+	msg := "✅ **Valid upgrade test configuration**\n\n"
+	msg += fmt.Sprintf("**Would test:** Upgrade from %s to %s\n", strings.Join(fromInput, ", "), strings.Join(toInput, ", "))
+	msg += fmt.Sprintf("**Test type:** %s\n", params["test"])
+	msg += fmt.Sprintf("**Platform:** %s (%s)\n", platform, architecture)
+	msg += "\n*This command would test the specified upgrade path.*"
+
+	return msg
+}
+
+func validateBuildCommand(jobManager manager.JobManager, originalCommand string, args []string, userID string) string {
+	from, err := ParseImageInput(args[0])
+	if err != nil {
+		return fmt.Sprintf("❌ Invalid PR input: %v", err)
+	}
+
+	options := ""
+	if len(args) > 1 {
+		options = strings.Join(args[1:], " ")
+	}
+
+	platform, architecture, params, err := ParseOptions(options, [][]string{from}, manager.JobTypeBuild)
+	if err != nil {
+		return fmt.Sprintf("❌ Invalid options: %v", err)
+	}
+
+	jobRequest := &manager.JobRequest{
+		OriginalMessage: originalCommand,
+		User:            userID,
+		UserName:        "validation-user",
+		Inputs:          [][]string{from},
+		Type:            manager.JobTypeBuild,
+		Platform:        platform,
+		JobParams:       params,
+		Architecture:    architecture,
+	}
+
+	err = jobManager.CheckValidJobConfiguration(jobRequest)
+	if err != nil {
+		return fmt.Sprintf("❌ Configuration error: %v", err)
+	}
+
+	msg := "✅ **Valid build configuration**\n\n"
+	msg += fmt.Sprintf("**Would build:** Release image from %s\n", strings.Join(from, ", "))
+	msg += fmt.Sprintf("**Platform:** %s (%s)\n", platform, architecture)
+	msg += "\n*This command would create a custom release image from the specified PR(s).*"
+
+	return msg
+}
+
 func Lookup(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
 	if err != nil {
