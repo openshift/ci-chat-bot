@@ -169,6 +169,7 @@ func GenerateHelpOverviewMessage(allowPrivate bool) string {
 	helpMessage += "\n*Information:*\n"
 	helpMessage += "• `version` - Report the bot version\n"
 	helpMessage += "• `lookup <image_or_version_or_prs> <architecture>` - Get version info\n"
+	helpMessage += "• `validate <command>` - Check command syntax without executing\n"
 
 	if allowPrivate {
 		helpMessage += "\n*MCE Clusters (Private):*\n"
@@ -193,6 +194,7 @@ func GenerateHelpOverviewMessage(allowPrivate bool) string {
 	helpMessage += "\n*Examples:*\n"
 	helpMessage += "• `launch 4.19 aws` - Launch OpenShift 4.19 on AWS\n"
 	helpMessage += "• `rosa create 4.19 3h` - Create ROSA cluster for 3 hours\n"
+	helpMessage += "• `validate launch 4.19 aws,compact` - Check launch command\n"
 	helpMessage += "• `help launch` - See all launch options\n\n"
 
 	helpMessage += "*Additional Links*\n"

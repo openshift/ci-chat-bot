@@ -223,6 +223,11 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Description: "List available versions for MCE clusters.",
 			Handler:     MceImageSets,
 		}, true),
+		parser.NewBotCommand("validate <command>", &parser.CommandDefinition{
+			Description: "Validate a command without executing it. Shows what would happen and checks for syntax errors.",
+			Example:     "validate launch 4.19 aws,compact",
+			Handler:     ValidateCommand,
+		}, false),
 	}
 }
 
