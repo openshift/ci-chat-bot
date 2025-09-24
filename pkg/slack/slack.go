@@ -507,14 +507,64 @@ func ParseImageInput(input string) ([]string, error) {
 	}
 	input = utils.StripLinks(input)
 	parts := strings.Split(input, ",")
-	for i, part := range parts {
+	var validParts []string
+	for _, part := range parts {
 		part = strings.TrimSpace(part)
-		if len(part) == 0 {
-			return nil, fmt.Errorf("image inputs must not contain empty items")
+		if len(part) > 0 {
+			validParts = append(validParts, part)
 		}
-		parts[i] = part // store trimmed variant
 	}
-	return parts, nil
+	if len(validParts) == 0 {
+		return nil, fmt.Errorf("no valid inputs found. Please provide at least one version, image, or PR")
+	}
+	return validParts, nil
+}
+
+// findClosestMatch finds the closest match to input from a list of valid options
+func findClosestMatch(input string, validOptions []string) string {
+	input = strings.ToLower(input)
+	var bestMatch string
+	bestScore := 0
+
+	for _, option := range validOptions {
+		optionLower := strings.ToLower(option)
+		score := 0
+
+		// Exact match
+		if input == optionLower {
+			return option
+		}
+
+		// Prefix match gets high score
+		if strings.HasPrefix(optionLower, input) {
+			score = len(input) * 2
+		}
+
+		// Contains match gets medium score
+		if strings.Contains(optionLower, input) {
+			score = len(input)
+		}
+
+		// Simple character overlap
+		for _, char := range input {
+			if strings.ContainsRune(optionLower, char) {
+				score++
+			}
+		}
+
+		if score > bestScore {
+			bestScore = score
+			bestMatch = option
+		}
+	}
+
+	// Only suggest if we have a reasonable match
+	// Require at least 2/3 of the characters to match, minimum score of 2
+	minScore := max(2, (len(input)*2)/3)
+	if bestScore >= minScore {
+		return bestMatch
+	}
+	return ""
 }
 
 func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (string, string, map[string]string, error) {
@@ -542,7 +592,25 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 		case slices.Contains(manager.SupportedParameters, opt):
 			// do nothing
 		default:
-			return "", "", nil, fmt.Errorf("unrecognized option: %s", opt)
+			// Try to find a close match
+			allOptions := make([]string, 0, len(manager.SupportedPlatforms)+len(manager.SupportedArchitectures)+len(manager.SupportedParameters))
+			allOptions = append(allOptions, manager.SupportedPlatforms...)
+			allOptions = append(allOptions, manager.SupportedArchitectures...)
+			allOptions = append(allOptions, manager.SupportedParameters...)
+
+			suggestion := findClosestMatch(opt, allOptions)
+			if suggestion != "" {
+				return "", "", nil, fmt.Errorf("unrecognized option '%s'. Did you mean '%s'?\n\nValid options:\n- Platforms: %s\n- Architectures: %s\n- Parameters: %s",
+					opt, suggestion,
+					strings.Join(manager.SupportedPlatforms, ", "),
+					strings.Join(manager.SupportedArchitectures, ", "),
+					strings.Join(manager.SupportedParameters, ", "))
+			}
+			return "", "", nil, fmt.Errorf("unrecognized option '%s'.\n\nValid options:\n- Platforms: %s\n- Architectures: %s\n- Parameters: %s",
+				opt,
+				strings.Join(manager.SupportedPlatforms, ", "),
+				strings.Join(manager.SupportedArchitectures, ", "),
+				strings.Join(manager.SupportedParameters, ", "))
 		}
 	}
 	if len(platform) == 0 {
