@@ -37,6 +37,7 @@ require (
 	github.com/adrg/xdg v0.4.0
 	github.com/andygrunwald/go-jira v1.16.0
 	github.com/blang/semver v3.5.1+incompatible
+	github.com/containers/image/v5 v5.34.0
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.36.3
 	github.com/openshift-eng/cyborg-data v0.0.0-20250909122327-e42cc43525f5
@@ -80,7 +81,6 @@ require (
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/containers/common v0.62.0 // indirect
-	github.com/containers/image/v5 v5.34.0 // indirect
 	github.com/containers/libtrust v0.0.0-20230121012942-c1716e8a8d01 // indirect
 	github.com/containers/ocicrypt v1.2.1 // indirect
 	github.com/containers/storage v1.57.1 // indirect
