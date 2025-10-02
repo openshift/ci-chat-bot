@@ -332,6 +332,9 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 			"prow.k8s.io/type": string(pj.Spec.Type),
 			"prow.k8s.io/job":  pj.Spec.Job,
+
+			"ci-operator.openshift.io/cloud":                 job.Platform,
+			"ci-operator.openshift.io/cloud-cluster-profile": job.Platform,
 		},
 	}
 	if job.ManagedClusterName != "" {
@@ -1714,18 +1717,15 @@ func (e *resolvedEnvironment) Lookup(name string) string {
 	return ""
 }
 
-func convertToAccount2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration, profileName, profileSecret, profileConfigMap, accountDomain string) error {
-	job.Annotations["ci-operator.openshift.io/cloud-cluster-profile"] = profileName
+func convertToAccount2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration, profileName, profileSecret, accountDomain string) error {
+	job.Labels["ci-operator.openshift.io/cloud-cluster-profile"] = profileName
 	for index, volume := range job.Spec.PodSpec.Volumes {
+		// TODO: only some ci-chat-bot jobs have this; check if they can all be removed
 		if volume.Name == "cluster-profile" {
 			if volume.Projected == nil {
 				volume.Projected = &corev1.ProjectedVolumeSource{}
 			}
 			volume.Projected.Sources = []corev1.VolumeProjection{{Secret: &corev1.SecretProjection{LocalObjectReference: corev1.LocalObjectReference{Name: profileSecret}}}}
-			// gcp-2 has both a secret and a configmap for some reason...
-			if profileConfigMap != "" {
-				volume.Projected.Sources = append(volume.Projected.Sources, corev1.VolumeProjection{ConfigMap: &corev1.ConfigMapProjection{LocalObjectReference: corev1.LocalObjectReference{Name: profileConfigMap}}})
-			}
 			job.Spec.PodSpec.Volumes[index] = volume
 		}
 	}
@@ -1750,13 +1750,13 @@ func convertToAccount2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuil
 }
 
 func convertAWSToAWS2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration) error {
-	return convertToAccount2(job, sourceConfig, "aws-2", "cluster-secrets-aws-2", "", "aws-2.ci.openshift.org")
+	return convertToAccount2(job, sourceConfig, "aws-2", "cluster-secrets-aws-2", "aws-2.ci.openshift.org")
 }
 
 func convertAzureToAzure2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration) error {
-	return convertToAccount2(job, sourceConfig, "azure-2", "cluster-secrets-azure-2", "", "ci2.azure.devcluster.openshift.com")
+	return convertToAccount2(job, sourceConfig, "azure-2", "cluster-secrets-azure-2", "ci2.azure.devcluster.openshift.com")
 }
 
 func convertGCPToGCP2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration) error {
-	return convertToAccount2(job, sourceConfig, "gcp-openshift-gce-devel-ci-2", "cluster-secrets-gcp-openshift-gce-devel-ci-2", "cluster-profile-gcp-openshift-gce-devel-ci-2", "")
+	return convertToAccount2(job, sourceConfig, "gcp-openshift-gce-devel-ci-2", "cluster-secrets-gcp-openshift-gce-devel-ci-2", "")
 }
