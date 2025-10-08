@@ -163,7 +163,7 @@ func GenerateHelpOverviewMessage(allowPrivate bool) string {
 	helpMessage += "• `workflow-upgrade <name> <from> <to> <parameters>` - Custom upgrade workflows\n"
 
 	helpMessage += "\n*Building:*\n"
-	helpMessage += "• `build <pullrequest>` - Create release image from PRs (preserved 12h)\n"
+	helpMessage += "• `build <pullrequest>` - Create release image from PRs (preserved 1 week)\n"
 	helpMessage += "• `catalog build <pullrequest> <bundle_name>` - Create operator catalog from PR\n"
 
 	helpMessage += "\n*Information:*\n"
