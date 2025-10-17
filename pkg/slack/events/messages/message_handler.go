@@ -254,7 +254,7 @@ func GenerateLaunchHelpMessage() string {
 
 	helpMessage += "*Advanced Options (combine as needed):*\n"
 	helpMessage += "• Installation: `upi`, `preserve-bootstrap`\n"
-	helpMessage += "• Runtime: `cgroupsv2`, `crun`, `techpreview`\n"
+	helpMessage += "• Runtime: `techpreview`\n"
 	helpMessage += "• Infrastructure: `mirror`, `shared-vpc`, `no-spot`, `virtualization-support`\n"
 	helpMessage += "• Special: `test`, `bundle`, `nfv`\n\n"
 
@@ -272,7 +272,7 @@ func GenerateLaunchHelpMessage() string {
 	helpMessage += "• `launch ci azure,compact,ovn` - CI build + size + networking\n"
 	helpMessage += "• `launch 4.19 aws,arm64,fips,private` - Security-focused cluster\n"
 	helpMessage += "• `launch 4.19.0-0.nightly metal,single-node,techpreview` - Advanced config\n"
-	helpMessage += "• `launch openshift/installer#123 vsphere,multi,cgroupsv2` - PR testing\n"
+	helpMessage += "• `launch openshift/installer#123 vsphere,multi,techpreview` - PR testing\n"
 	helpMessage += "• `launch 4.19,openshift/installer#123,openshift/mco#456 aws,multi-zone` - Multi-PR\n"
 
 	return helpMessage
