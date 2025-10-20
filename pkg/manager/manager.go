@@ -2668,7 +2668,7 @@ func (m *jobManager) CreateRosaCluster(user, channel, version string, duration t
 	if existing, ok := m.requests[user]; ok {
 		klog.Infof("user %q already requested cluster", user)
 		m.lock.Unlock()
-		return "", fmt.Errorf("you have already requested a cluster via the `launch` commaned and it should be ready in ~ %d minutes", m.estimateCompletion(existing.RequestedAt)/time.Minute)
+		return "", fmt.Errorf("you have already requested a cluster via the `launch` command and it should be ready in ~ %d minutes", m.estimateCompletion(existing.RequestedAt)/time.Minute)
 	}
 	m.lock.Unlock()
 	m.rosaClusters.lock.Lock()
