@@ -34,7 +34,7 @@ func processNextLaunchModeStep(updater modals.ViewUpdater, jobmanager manager.Jo
 		}
 		go func() {
 			if mode.Has(create.LaunchModeVersion) {
-				modals.OverwriteView(updater, create.FilterVersionView(callback, jobmanager, submissionData, httpclient, mode), callback, logger)
+				modals.OverwriteView(updater, create.FilterVersionView(callback, jobmanager, submissionData, httpclient, mode, false), callback, logger)
 			} else {
 				modals.OverwriteView(updater, create.PRInputView(callback, submissionData), callback, logger)
 			}

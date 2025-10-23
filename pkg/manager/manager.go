@@ -993,7 +993,7 @@ func (m *jobManager) GetUserCluster(user string) *Job {
 	defer m.lock.RUnlock()
 
 	for _, job := range m.jobs {
-		if user == job.RequestedBy && (job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch) {
+		if user == job.RequestedBy && (job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch) && (job.State != prowapiv1.SuccessState && !job.Complete) {
 			return job
 		}
 	}

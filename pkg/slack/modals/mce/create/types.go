@@ -22,7 +22,7 @@ const (
 	LaunchFromMajorMinor        = "major_minor"
 	LaunchFromStream            = "stream"
 	LaunchFromLatestBuild       = "latest_build"
-	launchFromReleaseController = "release_controller_version"
+	LaunchFromReleaseController = "release_controller_version"
 	LaunchFromCustom            = "custom"
 	LaunchVersion               = "version"
 	launchStepContext           = "context"

@@ -10,10 +10,11 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/launch"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 func RegisterFilterVersion(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(launch.IdentifierFilterVersionView, launch.FilterVersionView(nil, nil, modals.CallbackData{}, nil, nil)).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+	return modals.ForView(launch.IdentifierFilterVersionView, launch.FilterVersionView(nil, nil, modals.CallbackData{}, nil, nil, false)).WithFollowUps(map[slack.InteractionType]interactions.Handler{
 		slack.InteractionTypeViewSubmission: processNextFilterVersion(client, jobmanager, httpclient),
 	})
 }
@@ -27,15 +28,18 @@ func processNextFilterVersion(updater modals.ViewUpdater, jobmanager manager.Job
 		}
 		nightlyOrCi := submissionData.Input[launch.LaunchFromLatestBuild]
 		customBuild := submissionData.Input[launch.LaunchFromCustom]
+		stream := submissionData.Input[launch.LaunchFromStream]
 		mode := submissionData.MultipleSelection[launch.LaunchMode]
 		launchWithPr := false
 		for _, key := range mode {
-			if strings.TrimSpace(key) == launch.LaunchModePR {
+			if strings.TrimSpace(key) == launch.LaunchModePRKey {
 				launchWithPr = true
 			}
 		}
 		go func() {
-			if (nightlyOrCi != "" || customBuild != "") && launchWithPr {
+			if (nightlyOrCi == "") && customBuild == "" && !launchWithPr && stream == "" {
+				modals.OverwriteView(updater, launch.FilterVersionView(callback, jobmanager, submissionData, httpclient, sets.New(mode...), true), callback, logger)
+			} else if (nightlyOrCi != "" || customBuild != "") && launchWithPr {
 				modals.OverwriteView(updater, launch.PRInputView(callback, submissionData), callback, logger)
 			} else if (nightlyOrCi != "" || customBuild != "") && !launchWithPr {
 				modals.OverwriteView(updater, launch.ThirdStepView(callback, jobmanager, httpclient, submissionData), callback, logger)

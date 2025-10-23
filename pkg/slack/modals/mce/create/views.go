@@ -102,7 +102,7 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 			if !ok {
 				version, ok = data.Input[LaunchFromStream]
 				if !ok {
-					version, ok = data.Input[launchFromReleaseController]
+					version, ok = data.Input[LaunchFromReleaseController]
 					if !ok {
 						version, ok = data.Input[LaunchFromCustom]
 						if !ok {
@@ -208,20 +208,21 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 	}
 }
 
-func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, data modals.CallbackData, httpclient *http.Client, mode sets.Set[string]) slackClient.ModalViewRequest {
+func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, data modals.CallbackData, httpclient *http.Client, mode sets.Set[string], noneSelected bool) slackClient.ModalViewRequest {
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
 	klog.Infof("Callback Data: %+v", data)
 	platform := data.Input[CreatePlatform]
 	duration := data.Input[CreateDuration]
+	latestBuildOptions := []*slackClient.OptionBlockObject{}
 	_, nightly, _, err := jobmanager.ResolveImageOrVersion("nightly", "", "amd64")
-	if err != nil {
-		nightly = fmt.Sprintf("unable to find a release matching `nightly` for %s", "amd64")
+	if err == nil {
+		latestBuildOptions = append(latestBuildOptions, &slackClient.OptionBlockObject{Value: "nightly", Text: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: nightly}})
 	}
 	_, ci, _, err := jobmanager.ResolveImageOrVersion("ci", "", "amd64")
-	if err != nil {
-		ci = fmt.Sprintf("unable to find a release matching \"ci\" for %s", "amd64")
+	if err == nil {
+		latestBuildOptions = append(latestBuildOptions, &slackClient.OptionBlockObject{Value: "ci", Text: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: ci}})
 	}
 	releases, err := FetchReleases(httpclient, "amd64")
 	if err != nil {
@@ -246,7 +247,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	sort.Strings(streams)
 	streamsOptions := modals.BuildOptions(streams, nil)
 	metadata := fmt.Sprintf("Duration: %s;Platform: %s;%s: %s", duration, platform, LaunchModeContext, strings.Join(sets.List(mode), ","))
-	return slackClient.ModalViewRequest{
+	view := slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: modals.CallbackDataToMetadata(data, string(IdentifierFilterVersionView)),
 		Title:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch a Cluster"},
@@ -299,10 +300,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 				Element: &slackClient.SelectBlockElement{
 					Type:        slackClient.OptTypeStatic,
 					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an entry..."},
-					Options: []*slackClient.OptionBlockObject{
-						{Value: "nightly", Text: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: nightly}},
-						{Value: "ci", Text: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: ci}},
-					},
+					Options:     latestBuildOptions,
 				},
 			},
 			&slackClient.DividerBlock{
@@ -344,6 +342,10 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			},
 		}},
 	}
+	if noneSelected {
+		view.Blocks.BlockSet = append([]slackClient.Block{slackClient.NewHeaderBlock(slackClient.NewTextBlockObject(slackClient.PlainTextType, ":warning: Error: At least one option must be selected :warning:", true, false))}, view.Blocks.BlockSet...)
+	}
+	return view
 }
 
 func PRInputView(callback *slackClient.InteractionCallback, data modals.CallbackData) slackClient.ModalViewRequest {
@@ -355,7 +357,7 @@ func PRInputView(callback *slackClient.InteractionCallback, data modals.Callback
 	mode := data.MultipleSelection[LaunchMode]
 	launchWithVersion := false
 	for _, key := range mode {
-		if strings.TrimSpace(key) == LaunchVersion {
+		if strings.TrimSpace(key) == LaunchModeVersionKey {
 			launchWithVersion = true
 		}
 	}
@@ -468,10 +470,9 @@ func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager man
 				BlockID: "divider",
 			},
 			&slackClient.InputBlock{
-				Type:     slackClient.MBTInput,
-				BlockID:  LaunchVersion,
-				Optional: true,
-				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select a version:"},
+				Type:    slackClient.MBTInput,
+				BlockID: LaunchVersion,
+				Label:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select a version:"},
 				Element: &slackClient.SelectBlockElement{
 					Type:        slackClient.OptTypeStatic,
 					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an entry..."},
@@ -567,10 +568,9 @@ func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *htt
 				BlockID: "divider",
 			},
 			&slackClient.InputBlock{
-				Type:     slackClient.MBTInput,
-				BlockID:  LaunchFromMajorMinor,
-				Optional: true,
-				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Specify the Major.Minor:"},
+				Type:    slackClient.MBTInput,
+				BlockID: LaunchFromMajorMinor,
+				Label:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Specify the Major.Minor:"},
 				Element: &slackClient.SelectBlockElement{
 					Type:        slackClient.OptTypeStatic,
 					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an entry..."},

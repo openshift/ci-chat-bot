@@ -10,11 +10,12 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/mce/create"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 )
 
 func RegisterFilterVersion(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(create.IdentifierFilterVersionView, create.FilterVersionView(nil, nil, modals.CallbackData{}, nil, nil)).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+	return modals.ForView(create.IdentifierFilterVersionView, create.FilterVersionView(nil, nil, modals.CallbackData{}, nil, nil, false)).WithFollowUps(map[slack.InteractionType]interactions.Handler{
 		slack.InteractionTypeViewSubmission: processNextFilterVersion(client, jobmanager, httpclient),
 	})
 }
@@ -29,15 +30,18 @@ func processNextFilterVersion(updater modals.ViewUpdater, jobmanager manager.Job
 		}
 		nightlyOrCi := submissionData.Input[create.LaunchFromLatestBuild]
 		customBuild := submissionData.Input[create.LaunchFromCustom]
+		stream := submissionData.Input[create.LaunchFromStream]
 		mode := submissionData.MultipleSelection[create.LaunchMode]
 		createWithPr := false
 		for _, key := range mode {
-			if strings.TrimSpace(key) == create.LaunchModePR {
+			if strings.TrimSpace(key) == create.LaunchModePRKey {
 				createWithPr = true
 			}
 		}
 		go func() {
-			if (nightlyOrCi != "" || customBuild != "") && createWithPr {
+			if (nightlyOrCi == "") && customBuild == "" && !createWithPr && stream == "" {
+				modals.OverwriteView(updater, create.FilterVersionView(callback, jobmanager, submissionData, httpclient, sets.New(mode...), true), callback, logger)
+			} else if (nightlyOrCi != "" || customBuild != "") && createWithPr {
 				modals.OverwriteView(updater, create.PRInputView(callback, submissionData), callback, logger)
 			} else if (nightlyOrCi != "" || customBuild != "") && !createWithPr {
 				modals.OverwriteView(updater, create.ThirdStepView(callback, jobmanager, httpclient, submissionData), callback, logger)

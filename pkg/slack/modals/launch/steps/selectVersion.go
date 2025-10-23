@@ -24,7 +24,7 @@ func processNextSelectVersion(updater modals.ViewUpdater, jobmanager manager.Job
 		mode := submissionData.MultipleSelection[launch.LaunchMode]
 		launchWithPR := false
 		for _, key := range mode {
-			if strings.TrimSpace(key) == launch.LaunchModePR {
+			if strings.TrimSpace(key) == launch.LaunchModePRKey {
 				launchWithPR = true
 			}
 		}

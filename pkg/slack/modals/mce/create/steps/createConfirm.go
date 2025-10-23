@@ -28,7 +28,22 @@ func processLaunchOptionsStep(updater *slack.Client, jobmanager manager.JobManag
 		platform := data.Input[create.CreatePlatform]
 		duration := data.Input[create.CreateDuration]
 		parsedDuration, _ := time.ParseDuration(duration)
-		version := data.Input[create.LaunchVersion]
+		version, ok := data.Input[create.LaunchFromLatestBuild]
+		if !ok {
+			version, ok = data.Input[create.LaunchFromMajorMinor]
+			if !ok {
+				version, ok = data.Input[create.LaunchFromStream]
+				if !ok {
+					version, ok = data.Input[create.LaunchFromReleaseController]
+					if !ok {
+						version, ok = data.Input[create.LaunchFromCustom]
+						if !ok {
+							_, version, _, _ = jobmanager.ResolveImageOrVersion("nightly", "", "amd64")
+						}
+					}
+				}
+			}
+		}
 		createInputs = append(createInputs, version)
 		prs, ok := data.Input[create.LaunchFromPR]
 		if ok && prs != "none" {

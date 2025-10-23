@@ -25,7 +25,22 @@ func processLaunchOptionsStep(updater *slack.Client, jobmanager manager.JobManag
 		data := modals.MergeCallbackData(callback)
 		platform := data.Input[launch.LaunchPlatform]
 		architecture := data.Input[launch.LaunchArchitecture]
-		version := data.Input[launch.LaunchVersion]
+		version, ok := data.Input[launch.LaunchFromLatestBuild]
+		if !ok {
+			version, ok = data.Input[launch.LaunchFromMajorMinor]
+			if !ok {
+				version, ok = data.Input[launch.LaunchFromStream]
+				if !ok {
+					version, ok = data.Input[launch.LaunchFromReleaseController]
+					if !ok {
+						version, ok = data.Input[launch.LaunchFromCustom]
+						if !ok {
+							_, version, _, _ = jobmanager.ResolveImageOrVersion("nightly", "", architecture)
+						}
+					}
+				}
+			}
+		}
 		launchInputs = append(launchInputs, version)
 		prs, ok := data.Input[launch.LaunchFromPR]
 		if ok && prs != "none" {
