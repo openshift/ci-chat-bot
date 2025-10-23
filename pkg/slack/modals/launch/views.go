@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
 	slackClient "github.com/slack-go/slack"
+	"golang.org/x/mod/semver"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 )
@@ -560,7 +562,15 @@ func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *htt
 		}
 
 	}
-	sort.Strings(majorMinorReleases)
+	// the x/mod/semver requires a `v` prefix for a version to be considered valid
+	for index, version := range majorMinorReleases {
+		majorMinorReleases[index] = "v" + version
+	}
+	semver.Sort(majorMinorReleases)
+	for index, version := range majorMinorReleases {
+		majorMinorReleases[index] = strings.TrimPrefix(version, "v")
+	}
+	slices.Reverse(majorMinorReleases)
 	majorMinorOptions := modals.BuildOptions(majorMinorReleases, nil)
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
