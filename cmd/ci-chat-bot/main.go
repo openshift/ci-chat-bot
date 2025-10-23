@@ -21,7 +21,6 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	botversion "github.com/openshift/ci-chat-bot/pkg/version"
-
 	"github.com/openshift/rosa/pkg/rosa"
 
 	"sigs.k8s.io/prow/pkg/config/secret"
@@ -81,6 +80,7 @@ type options struct {
 	leaseServerCredentialsFile string
 	leaseClient                manager.LeaseClient
 
+	disableRosa              bool
 	rosaClusterLimit         int
 	rosaClusterAdminUsername string
 	rosaSubnetListPath       string
@@ -145,6 +145,7 @@ func run() error {
 	pflag.StringVar(&opt.rosaSubnetListPath, "rosa-subnetlist-path", "", "Path to list of comma-separated subnets to use for ROSA hosted clusters.")
 	pflag.StringVar(&opt.rosaOIDCConfigId, "rosa-oidcConfigId-path", "", "Path to the OIDC configuration ID")
 	pflag.StringVar(&opt.rosaBillingAccount, "rosa-billingAccount-path", "", "Path to the Billing Account ID.")
+	pflag.BoolVar(&opt.disableRosa, "disable-rosa", false, "Do not load the rosa client")
 
 	opt.prowconfig.AddFlags(emptyFlags)
 	opt.GitHubOptions.AddFlags(emptyFlags)
@@ -300,8 +301,13 @@ func run() error {
 	}
 
 	// ROSA setup
-	rosaClient := rosa.NewRuntime().WithAWS().WithOCM()
-	defer rosaClient.Cleanup()
+	var rosaClient *rosa.Runtime
+	if !opt.disableRosa {
+		rosaClient = rosa.NewRuntime().WithAWS().WithOCM()
+		defer rosaClient.Cleanup()
+	} else {
+		rosaClient = nil
+	}
 
 	rosaSubnets := manager.RosaSubnets{}
 	go manageRosaSubnetList(opt.rosaSubnetListPath, &rosaSubnets)

@@ -9,7 +9,6 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
-	slackClient "github.com/slack-go/slack"
 )
 
 const identifier = "mce_auth"
@@ -43,13 +42,13 @@ func process(updater *slack.Client, jobManager manager.JobManager, httpclient *h
 			// add kubeconfig block if exists
 			if kubeconfig != "" {
 				submission.Blocks.BlockSet = append(submission.Blocks.BlockSet,
-					slackClient.NewDividerBlock(),
-					slackClient.NewHeaderBlock(slackClient.NewTextBlockObject(slackClient.PlainTextType, "KubeConfig File (to download the kubeconfig as a file, send `mce auth` in the message tab):", true, false)),
-					slackClient.NewRichTextBlock("submission", &slackClient.RichTextPreformatted{
-						RichTextSection: slackClient.RichTextSection{
-							Type: slackClient.RTEPreformatted,
-							Elements: []slackClient.RichTextSectionElement{
-								slackClient.NewRichTextSectionTextElement(kubeconfig, &slackClient.RichTextSectionTextStyle{Code: false}),
+					slack.NewDividerBlock(),
+					slack.NewHeaderBlock(slack.NewTextBlockObject(slack.PlainTextType, "KubeConfig File (to download the kubeconfig as a file, send `mce auth` in the message tab):", true, false)),
+					slack.NewRichTextBlock("submission", &slack.RichTextPreformatted{
+						RichTextSection: slack.RichTextSection{
+							Type: slack.RTEPreformatted,
+							Elements: []slack.RichTextSectionElement{
+								slack.NewRichTextSectionTextElement(kubeconfig, &slack.RichTextSectionTextStyle{Code: false}),
 							},
 						},
 					}))

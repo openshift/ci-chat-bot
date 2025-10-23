@@ -251,6 +251,9 @@ func (m *jobManager) updateHypershiftSupportedVersions() error {
 }
 
 func (m *jobManager) updateRosaVersions() error {
+	if m.rClient == nil {
+		return nil
+	}
 	vs, err := m.rClient.OCMClient.GetVersionsWithProduct(ocm.HcpProduct, ocm.DefaultChannelGroup, false)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve versions: %s", err)
@@ -515,6 +518,9 @@ func (m *jobManager) mceSync() error {
 }
 
 func (m *jobManager) rosaSync() error {
+	if m.rClient == nil {
+		return nil
+	}
 	start := time.Now()
 	// wrap Observe function into inline function so that time.Since doesn't get immediately evaluated
 	defer func() { rosaSyncTimeMetric.Observe(time.Since(start).Seconds()) }()
