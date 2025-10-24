@@ -23,33 +23,18 @@ func processLaunchOptionsStep(updater *slack.Client, jobmanager manager.JobManag
 	return interactions.HandlerFunc(string(launch.Identifier3rdStep), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		var launchInputs []string
 		data := modals.MergeCallbackData(callback)
-		platform := data.Input[launch.LaunchPlatform]
-		architecture := data.Input[launch.LaunchArchitecture]
-		version, ok := data.Input[launch.LaunchFromLatestBuild]
-		if !ok {
-			version, ok = data.Input[launch.LaunchFromMajorMinor]
-			if !ok {
-				version, ok = data.Input[launch.LaunchFromStream]
-				if !ok {
-					version, ok = data.Input[launch.LaunchFromReleaseController]
-					if !ok {
-						version, ok = data.Input[launch.LaunchFromCustom]
-						if !ok {
-							_, version, _, _ = jobmanager.ResolveImageOrVersion("nightly", "", architecture)
-						}
-					}
-				}
-			}
-		}
+		platform := data.Input[modals.LaunchPlatform]
+		architecture := data.Input[modals.LaunchArchitecture]
+		version := modals.GetVersion(data, jobmanager)
 		launchInputs = append(launchInputs, version)
-		prs, ok := data.Input[launch.LaunchFromPR]
+		prs, ok := data.Input[modals.LaunchFromPR]
 		if ok && prs != "none" {
 			prSlice := strings.Split(prs, ",")
 			for _, pr := range prSlice {
 				launchInputs = append(launchInputs, strings.TrimSpace(pr))
 			}
 		}
-		parameters := data.MultipleSelection[launch.LaunchParameters]
+		parameters := data.MultipleSelection[modals.LaunchParameters]
 		parametersMap := make(map[string]string)
 		for _, parameter := range parameters {
 			parametersMap[parameter] = ""
@@ -93,7 +78,7 @@ func validateLaunchOptionsStepSubmission(jobManager manager.JobManager, job *man
 	err := jobManager.CheckValidJobConfiguration(job)
 	errors := make(map[string]string, 0)
 	if err != nil {
-		errors[launch.LaunchParameters] = err.Error()
+		errors[modals.LaunchParameters] = err.Error()
 	} else {
 		return nil
 	}

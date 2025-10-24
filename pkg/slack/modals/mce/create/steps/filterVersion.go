@@ -28,13 +28,13 @@ func processNextFilterVersion(updater modals.ViewUpdater, jobmanager manager.Job
 		if errorResponse != nil {
 			return errorResponse, nil
 		}
-		nightlyOrCi := submissionData.Input[create.LaunchFromLatestBuild]
-		customBuild := submissionData.Input[create.LaunchFromCustom]
-		stream := submissionData.Input[create.LaunchFromStream]
-		mode := submissionData.MultipleSelection[create.LaunchMode]
+		nightlyOrCi := submissionData.Input[modals.LaunchFromLatestBuild]
+		customBuild := submissionData.Input[modals.LaunchFromCustom]
+		stream := submissionData.Input[modals.LaunchFromStream]
+		mode := submissionData.MultipleSelection[modals.LaunchMode]
 		createWithPr := false
 		for _, key := range mode {
-			if strings.TrimSpace(key) == create.LaunchModePRKey {
+			if strings.TrimSpace(key) == modals.LaunchModePRKey {
 				createWithPr = true
 			}
 		}
@@ -66,17 +66,17 @@ func checkVariables(vars ...string) bool {
 
 func validateFilterVersion(submissionData modals.CallbackData) []byte {
 	errs := make(map[string]string, 0)
-	nightlyOrCi := submissionData.Input[create.LaunchFromLatestBuild]
+	nightlyOrCi := submissionData.Input[modals.LaunchFromLatestBuild]
 	if nightlyOrCi != "" {
-		errs[create.LaunchFromLatestBuild] = "Select only one parameter!"
+		errs[modals.LaunchFromLatestBuild] = "Select only one parameter!"
 	}
-	customBuild := submissionData.Input[create.LaunchFromCustom]
+	customBuild := submissionData.Input[modals.LaunchFromCustom]
 	if customBuild != "" {
-		errs[create.LaunchFromCustom] = "Select only one parameter!"
+		errs[modals.LaunchFromCustom] = "Select only one parameter!"
 	}
-	selectedStream := submissionData.Input[create.LaunchFromStream]
+	selectedStream := submissionData.Input[modals.LaunchFromStream]
 	if selectedStream != "" {
-		errs[create.LaunchFromStream] = "Select only one parameter!"
+		errs[modals.LaunchFromStream] = "Select only one parameter!"
 	}
 	if !checkVariables(nightlyOrCi, customBuild, selectedStream) {
 		response, err := modals.ValidationError(errs)

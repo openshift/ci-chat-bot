@@ -24,16 +24,16 @@ func processNextLaunchModeStep(updater modals.ViewUpdater, jobmanager manager.Jo
 		klog.Infof("Private Metadata: %s", callback.View.PrivateMetadata)
 		submissionData := modals.MergeCallbackData(callback)
 		mode := sets.New[string]()
-		for _, selection := range submissionData.MultipleSelection[create.LaunchMode] {
+		for _, selection := range submissionData.MultipleSelection[modals.LaunchMode] {
 			switch selection {
-			case create.LaunchModePRKey:
-				mode.Insert(create.LaunchModePR)
-			case create.LaunchModeVersionKey:
-				mode.Insert(create.LaunchModeVersion)
+			case modals.LaunchModePRKey:
+				mode.Insert(modals.LaunchModePR)
+			case modals.LaunchModeVersionKey:
+				mode.Insert(modals.LaunchModeVersion)
 			}
 		}
 		go func() {
-			if mode.Has(create.LaunchModeVersion) {
+			if mode.Has(modals.LaunchModeVersion) {
 				modals.OverwriteView(updater, create.FilterVersionView(callback, jobmanager, submissionData, httpclient, mode, false), callback, logger)
 			} else {
 				modals.OverwriteView(updater, create.PRInputView(callback, submissionData), callback, logger)

@@ -22,16 +22,16 @@ func processNextLaunchModeStep(updater modals.ViewUpdater, jobmanager manager.Jo
 	return interactions.HandlerFunc(string(launch.IdentifierRegisterLaunchMode), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		submissionData := modals.MergeCallbackData(callback)
 		mode := sets.New[string]()
-		for _, selection := range submissionData.MultipleSelection[launch.LaunchMode] {
+		for _, selection := range submissionData.MultipleSelection[modals.LaunchMode] {
 			switch selection {
-			case launch.LaunchModePRKey:
-				mode.Insert(launch.LaunchModePR)
-			case launch.LaunchModeVersionKey:
-				mode.Insert(launch.LaunchModeVersion)
+			case modals.LaunchModePRKey:
+				mode.Insert(modals.LaunchModePR)
+			case modals.LaunchModeVersionKey:
+				mode.Insert(modals.LaunchModeVersion)
 			}
 		}
 		go func() {
-			if mode.Has(launch.LaunchModeVersion) {
+			if mode.Has(modals.LaunchModeVersion) {
 				modals.OverwriteView(updater, launch.FilterVersionView(callback, jobmanager, submissionData, httpclient, mode, false), callback, logger)
 			} else {
 				modals.OverwriteView(updater, launch.PRInputView(callback, submissionData), callback, logger)

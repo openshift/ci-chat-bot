@@ -25,27 +25,12 @@ func processLaunchOptionsStep(updater *slack.Client, jobmanager manager.JobManag
 		klog.Infof("Private Metadata: %s", callback.View.PrivateMetadata)
 		var createInputs []string
 		data := modals.MergeCallbackData(callback)
-		platform := data.Input[create.CreatePlatform]
+		platform := data.Input[modals.LaunchPlatform]
 		duration := data.Input[create.CreateDuration]
 		parsedDuration, _ := time.ParseDuration(duration)
-		version, ok := data.Input[create.LaunchFromLatestBuild]
-		if !ok {
-			version, ok = data.Input[create.LaunchFromMajorMinor]
-			if !ok {
-				version, ok = data.Input[create.LaunchFromStream]
-				if !ok {
-					version, ok = data.Input[create.LaunchFromReleaseController]
-					if !ok {
-						version, ok = data.Input[create.LaunchFromCustom]
-						if !ok {
-							_, version, _, _ = jobmanager.ResolveImageOrVersion("nightly", "", "amd64")
-						}
-					}
-				}
-			}
-		}
+		version := modals.GetVersion(data, jobmanager)
 		createInputs = append(createInputs, version)
-		prs, ok := data.Input[create.LaunchFromPR]
+		prs, ok := data.Input[modals.LaunchFromPR]
 		if ok && prs != "none" {
 			prSlice := strings.Split(prs, ",")
 			for _, pr := range prSlice {

@@ -23,15 +23,15 @@ func processNextRegisterFirstStep(updater modals.ViewUpdater, jobmanager manager
 			callbackData := modals.CallbackData{
 				Input: modals.CallBackInputAll(callback),
 			}
-			if callbackData.Input[launch.LaunchPlatform] == "" {
-				callbackData.Input[launch.LaunchPlatform] = launch.DefaultPlatform
+			if callbackData.Input[modals.LaunchPlatform] == "" {
+				callbackData.Input[modals.LaunchPlatform] = launch.DefaultPlatform
 			}
-			if callbackData.Input[launch.LaunchArchitecture] == "" {
+			if callbackData.Input[modals.LaunchArchitecture] == "" {
 				// TODO: handle more inteligently in the future or maybe default to multi
-				if callbackData.Input[launch.LaunchPlatform] == "hypershift-hosted" {
-					callbackData.Input[launch.LaunchArchitecture] = "multi"
+				if callbackData.Input[modals.LaunchPlatform] == "hypershift-hosted" {
+					callbackData.Input[modals.LaunchArchitecture] = "multi"
 				} else {
-					callbackData.Input[launch.LaunchArchitecture] = launch.DefaultArchitecture
+					callbackData.Input[modals.LaunchArchitecture] = launch.DefaultArchitecture
 				}
 			}
 			modals.OverwriteView(updater, launch.SelectModeView(callback, jobmanager, callbackData), callback, logger)

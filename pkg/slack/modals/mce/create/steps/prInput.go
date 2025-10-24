@@ -35,7 +35,7 @@ func processNextPRInput(updater modals.ViewUpdater, jobmanager manager.JobManage
 }
 
 func validatePRInputView(submissionData modals.CallbackData, jobmanager manager.JobManager) []byte {
-	prs, ok := submissionData.Input[create.LaunchFromPR]
+	prs, ok := submissionData.Input[modals.LaunchFromPR]
 	if !ok {
 		return nil
 	}
@@ -74,7 +74,7 @@ func validatePRInputView(submissionData modals.CallbackData, jobmanager manager.
 		return nil
 	}
 
-	errors[create.LaunchFromPR] = strings.Join(prErrors, "; ")
+	errors[modals.LaunchFromPR] = strings.Join(prErrors, "; ")
 	response, err := modals.ValidationError(errors)
 	if err != nil {
 		klog.Warningf("failed to build validation error: %v", err)

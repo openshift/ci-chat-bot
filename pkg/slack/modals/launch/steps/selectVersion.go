@@ -21,10 +21,10 @@ func RegisterSelectVersion(client *slack.Client, jobmanager manager.JobManager, 
 func processNextSelectVersion(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
 	return interactions.HandlerFunc(string(launch.IdentifierSelectVersion), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		submissionData := modals.MergeCallbackData(callback)
-		mode := submissionData.MultipleSelection[launch.LaunchMode]
+		mode := submissionData.MultipleSelection[modals.LaunchMode]
 		launchWithPR := false
 		for _, key := range mode {
-			if strings.TrimSpace(key) == launch.LaunchModePRKey {
+			if strings.TrimSpace(key) == modals.LaunchModePRKey {
 				launchWithPR = true
 			}
 		}

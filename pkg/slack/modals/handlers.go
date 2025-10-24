@@ -16,6 +16,7 @@ import (
 	"maps"
 
 	"github.com/openshift/ci-chat-bot/pkg/jira"
+	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 )
 
@@ -387,6 +388,23 @@ func BuildOptions(options []string, blacklist sets.Set[string]) []*slack.OptionB
 		}
 	}
 	return slackOptions
+}
+
+var launchTypes = []string{LaunchFromLatestBuild, LaunchFromMajorMinor, LaunchFromStream, LaunchFromReleaseController, LaunchFromCustom}
+
+func GetVersion(data CallbackData, jobmanager manager.JobManager) string {
+	var version string
+	var ok bool
+	for _, launchType := range launchTypes {
+		version, ok = data.Input[launchType]
+		if ok {
+			break
+		}
+	}
+	if version == "" {
+		_, version, _, _ = jobmanager.ResolveImageOrVersion("nightly", "", "amd64")
+	}
+	return version
 }
 
 func MergeCallbackData(callback *slack.InteractionCallback) CallbackData {

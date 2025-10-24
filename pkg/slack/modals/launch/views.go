@@ -55,7 +55,7 @@ func FirstStepView() slackClient.ModalViewRequest {
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  LaunchPlatform,
+				BlockID:  modals.LaunchPlatform,
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: fmt.Sprintf("Platform (Default - %s)", DefaultPlatform)},
 				Element: &slackClient.SelectBlockElement{
@@ -66,7 +66,7 @@ func FirstStepView() slackClient.ModalViewRequest {
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  LaunchArchitecture,
+				BlockID:  modals.LaunchArchitecture,
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: fmt.Sprintf("Architecture (Default - %s)", DefaultArchitecture)},
 				Element: &slackClient.SelectBlockElement{
@@ -83,28 +83,13 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
-	platform := data.Input[LaunchPlatform]
-	architecture := data.Input[LaunchArchitecture]
-	prs, ok := data.Input[LaunchFromPR]
+	platform := data.Input[modals.LaunchPlatform]
+	architecture := data.Input[modals.LaunchArchitecture]
+	prs, ok := data.Input[modals.LaunchFromPR]
 	if !ok {
 		prs = "None"
 	}
-	version, ok := data.Input[LaunchFromLatestBuild]
-	if !ok {
-		version, ok = data.Input[LaunchFromMajorMinor]
-		if !ok {
-			version, ok = data.Input[LaunchFromStream]
-			if !ok {
-				version, ok = data.Input[LaunchFromReleaseController]
-				if !ok {
-					version, ok = data.Input[LaunchFromCustom]
-					if !ok {
-						_, version, _, _ = jobmanager.ResolveImageOrVersion("nightly", "", architecture)
-					}
-				}
-			}
-		}
-	}
+	version := modals.GetVersion(data, jobmanager)
 	blacklist := sets.Set[string]{}
 	for _, parameter := range manager.SupportedParameters {
 		for k, envs := range manager.MultistageParameters {
@@ -127,7 +112,7 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  LaunchParameters,
+				BlockID:  modals.LaunchParameters,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select one or more parameters for your cluster:"},
 				Optional: true,
 				Element: &slackClient.SelectBlockElement{
@@ -142,7 +127,7 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 			},
 			&slackClient.ContextBlock{
 				Type:    slackClient.MBTContext,
-				BlockID: launchStepContext,
+				BlockID: modals.LaunchStepContext,
 				ContextElements: slackClient.ContextElements{Elements: []slackClient.MixedElement{
 					&slackClient.TextBlockObject{
 						Type:     slackClient.PlainTextType,
@@ -177,16 +162,16 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
-	platform, ok := data.Input[LaunchPlatform]
+	platform, ok := data.Input[modals.LaunchPlatform]
 	if !ok {
 		platform = DefaultPlatform
 	}
-	architecture, ok := data.Input[LaunchArchitecture]
+	architecture, ok := data.Input[modals.LaunchArchitecture]
 	if !ok {
 		architecture = DefaultArchitecture
 	}
 	metadata := fmt.Sprintf("Architecture: %s; Platform: %s", architecture, platform)
-	options := modals.BuildOptions([]string{LaunchModePRKey, LaunchModeVersionKey}, nil)
+	options := modals.BuildOptions([]string{modals.LaunchModePRKey, modals.LaunchModeVersionKey}, nil)
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: modals.CallbackDataToMetadata(data, string(IdentifierRegisterLaunchMode)),
@@ -205,7 +190,7 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 			},
 			&slackClient.InputBlock{
 				Type:    slackClient.MBTInput,
-				BlockID: LaunchMode,
+				BlockID: modals.LaunchMode,
 				Label:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch the Cluster using:"},
 				Element: &slackClient.CheckboxGroupsBlockElement{
 					Type:    slackClient.METCheckboxGroups,
@@ -218,7 +203,7 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 			},
 			&slackClient.ContextBlock{
 				Type:    slackClient.MBTContext,
-				BlockID: launchStepContext,
+				BlockID: modals.LaunchStepContext,
 				ContextElements: slackClient.ContextElements{Elements: []slackClient.MixedElement{
 					&slackClient.TextBlockObject{
 						Type:     slackClient.PlainTextType,
@@ -236,8 +221,8 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
-	platform := data.Input[LaunchPlatform]
-	architecture := data.Input[LaunchArchitecture]
+	platform := data.Input[modals.LaunchPlatform]
+	architecture := data.Input[modals.LaunchArchitecture]
 	latestBuildOptions := []*slackClient.OptionBlockObject{}
 	_, nightly, _, err := jobmanager.ResolveImageOrVersion("nightly", "", architecture)
 	if err == nil {
@@ -269,7 +254,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 
 	sort.Strings(streams)
 	streamsOptions := modals.BuildOptions(streams, nil)
-	metadata := fmt.Sprintf("Architecture: %s;Platform: %s;%s: %s", architecture, platform, LaunchModeContext, strings.Join(sets.List(mode), ","))
+	metadata := fmt.Sprintf("Architecture: %s;Platform: %s;%s: %s", architecture, platform, modals.LaunchModeContext, strings.Join(sets.List(mode), ","))
 	view := slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: modals.CallbackDataToMetadata(data, string(IdentifierFilterVersionView)),
@@ -295,7 +280,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  LaunchFromStream,
+				BlockID:  modals.LaunchFromStream,
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Specify the Stream:"},
 				Element: &slackClient.SelectBlockElement{
@@ -317,7 +302,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  LaunchFromLatestBuild,
+				BlockID:  modals.LaunchFromLatestBuild,
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "The latest build (nightly) or CI build:"},
 				Element: &slackClient.SelectBlockElement{
@@ -339,7 +324,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			},
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
-				BlockID:  LaunchFromCustom,
+				BlockID:  modals.LaunchFromCustom,
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Enter a Custom Pull Spec:"},
 				Element: &slackClient.PlainTextInputBlockElement{
@@ -353,7 +338,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			},
 			&slackClient.ContextBlock{
 				Type:    slackClient.MBTContext,
-				BlockID: launchStepContext,
+				BlockID: modals.LaunchStepContext,
 				ContextElements: slackClient.ContextElements{Elements: []slackClient.MixedElement{
 					&slackClient.TextBlockObject{
 						Type:     slackClient.PlainTextType,
@@ -375,23 +360,23 @@ func PRInputView(callback *slackClient.InteractionCallback, data modals.Callback
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
-	platform := data.Input[LaunchPlatform]
-	architecture := data.Input[LaunchArchitecture]
-	mode := data.MultipleSelection[LaunchMode]
+	platform := data.Input[modals.LaunchPlatform]
+	architecture := data.Input[modals.LaunchArchitecture]
+	mode := data.MultipleSelection[modals.LaunchMode]
 	launchWithVersion := false
 	for _, key := range mode {
-		if strings.TrimSpace(key) == LaunchModeVersionKey {
+		if strings.TrimSpace(key) == modals.LaunchModeVersionKey {
 			launchWithVersion = true
 		}
 	}
-	metadata := fmt.Sprintf("Architecture: %s; Platform: %s;%s: %s", architecture, platform, LaunchModeContext, mode)
+	metadata := fmt.Sprintf("Architecture: %s; Platform: %s;%s: %s", architecture, platform, modals.LaunchModeContext, mode)
 	if launchWithVersion {
-		version := data.Input[LaunchVersion]
+		version := data.Input[modals.LaunchVersion]
 		if version == "" {
-			version = data.Input[LaunchFromLatestBuild]
+			version = data.Input[modals.LaunchFromLatestBuild]
 		}
 		if version == "" {
-			version = data.Input[LaunchFromCustom]
+			version = data.Input[modals.LaunchFromCustom]
 		}
 		metadata = fmt.Sprintf("%s;Version: %s", metadata, version)
 	}
@@ -413,7 +398,7 @@ func PRInputView(callback *slackClient.InteractionCallback, data modals.Callback
 			},
 			&slackClient.InputBlock{
 				Type:    slackClient.MBTInput,
-				BlockID: LaunchFromPR,
+				BlockID: modals.LaunchFromPR,
 				Label:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Enter one or more PRs, separated by coma:"},
 				Element: &slackClient.PlainTextInputBlockElement{
 					Type:        slackClient.METPlainTextInput,
@@ -426,7 +411,7 @@ func PRInputView(callback *slackClient.InteractionCallback, data modals.Callback
 			},
 			&slackClient.ContextBlock{
 				Type:    slackClient.MBTContext,
-				BlockID: launchStepContext,
+				BlockID: modals.LaunchStepContext,
 				ContextElements: slackClient.ContextElements{Elements: []slackClient.MixedElement{
 					&slackClient.TextBlockObject{
 						Type:     slackClient.PlainTextType,
@@ -445,15 +430,15 @@ func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager man
 		return slackClient.ModalViewRequest{}
 	}
 
-	platform := data.Input[LaunchPlatform]
-	architecture := data.Input[LaunchArchitecture]
-	mode := data.MultipleSelection[LaunchMode]
-	selectedStream := data.Input[LaunchFromStream]
+	platform := data.Input[modals.LaunchPlatform]
+	architecture := data.Input[modals.LaunchArchitecture]
+	mode := data.MultipleSelection[modals.LaunchMode]
+	selectedStream := data.Input[modals.LaunchFromStream]
 	if selectedStream == "" {
-		selectedStream = data.Input[LaunchFromStream]
+		selectedStream = data.Input[modals.LaunchFromStream]
 	}
-	selectedMajorMinor := data.Input[LaunchFromMajorMinor]
-	metadata := fmt.Sprintf("Architecture: %s; Platform: %s; %s: %s", architecture, platform, LaunchModeContext, mode)
+	selectedMajorMinor := data.Input[modals.LaunchFromMajorMinor]
+	metadata := fmt.Sprintf("Architecture: %s; Platform: %s; %s: %s", architecture, platform, modals.LaunchModeContext, mode)
 	releases, err := FetchReleases(httpclient, architecture)
 	if err != nil {
 		klog.Warningf("failed to fetch the data from release controller: %s", err)
@@ -497,7 +482,7 @@ func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			},
 			&slackClient.InputBlock{
 				Type:    slackClient.MBTInput,
-				BlockID: LaunchVersion,
+				BlockID: modals.LaunchVersion,
 				Label:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select a version:"},
 				Element: &slackClient.SelectBlockElement{
 					Type:        slackClient.OptTypeStatic,
@@ -511,7 +496,7 @@ func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			},
 			&slackClient.ContextBlock{
 				Type:    slackClient.MBTContext,
-				BlockID: launchStepContext,
+				BlockID: modals.LaunchStepContext,
 				ContextElements: slackClient.ContextElements{Elements: []slackClient.MixedElement{
 					&slackClient.TextBlockObject{
 						Type:     slackClient.PlainTextType,
@@ -530,11 +515,11 @@ func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *htt
 		return slackClient.ModalViewRequest{}
 	}
 
-	platform := data.Input[LaunchPlatform]
-	architecture := data.Input[LaunchArchitecture]
-	mode := data.MultipleSelection[LaunchMode]
-	selectedStream := data.Input[LaunchFromStream]
-	metadata := fmt.Sprintf("Architecture: %s; Platform: %s; %s: %s; %s: %s", architecture, platform, LaunchModeContext, mode, LaunchFromStream, selectedStream)
+	platform := data.Input[modals.LaunchPlatform]
+	architecture := data.Input[modals.LaunchArchitecture]
+	mode := data.MultipleSelection[modals.LaunchMode]
+	selectedStream := data.Input[modals.LaunchFromStream]
+	metadata := fmt.Sprintf("Architecture: %s; Platform: %s; %s: %s; %s: %s", architecture, platform, modals.LaunchModeContext, mode, modals.LaunchFromStream, selectedStream)
 	releases, err := FetchReleases(httpclient, architecture)
 	if err != nil {
 		klog.Warningf("failed to fetch the data from release controller: %s", err)
@@ -546,7 +531,7 @@ func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *htt
 		if stream != selectedStream {
 			continue
 		}
-		if strings.HasPrefix(stream, stableReleasesPrefix) {
+		if strings.HasPrefix(stream, modals.StableReleasesPrefix) {
 			for _, tag := range tags {
 				splitTag := strings.Split(tag, ".")
 				if len(splitTag) >= 2 {
@@ -595,7 +580,7 @@ func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *htt
 			},
 			&slackClient.InputBlock{
 				Type:    slackClient.MBTInput,
-				BlockID: LaunchFromMajorMinor,
+				BlockID: modals.LaunchFromMajorMinor,
 				Label:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Specify the Major.Minor:"},
 				Element: &slackClient.SelectBlockElement{
 					Type:        slackClient.OptTypeStatic,
@@ -609,7 +594,7 @@ func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *htt
 			},
 			&slackClient.ContextBlock{
 				Type:    slackClient.MBTContext,
-				BlockID: launchStepContext,
+				BlockID: modals.LaunchStepContext,
 				ContextElements: slackClient.ContextElements{Elements: []slackClient.MixedElement{
 					&slackClient.TextBlockObject{
 						Type:     slackClient.PlainTextType,

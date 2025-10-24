@@ -13,25 +13,7 @@ const (
 )
 
 const (
-	stableReleasesPrefix        = "4-stable"
-	LaunchFromPR                = "pr"
-	LaunchFromMajorMinor        = "major_minor"
-	LaunchFromStream            = "stream"
-	LaunchFromLatestBuild       = "latest_build"
-	LaunchFromReleaseController = "release_controller_version"
-	LaunchFromCustom            = "custom"
-	LaunchPlatform              = "platform"
-	LaunchArchitecture          = "architecture"
-	LaunchParameters            = "parameters"
-	LaunchVersion               = "version"
-	launchStepContext           = "context"
-	DefaultPlatform             = "hypershift-hosted"
-	DefaultArchitecture         = "amd64"
-	LaunchMode                  = "launch_mode"
-	LaunchModeVersion           = "version"
-	LaunchModePR                = "pr"
-	LaunchModePRKey             = "One or multiple PRs"
-	LaunchModeVersionKey        = "A Version"
-	LaunchModeContext           = "Launch Mode"
-	ModalTitle                  = "Launch a Cluster"
+	DefaultPlatform     = "hypershift-hosted"
+	DefaultArchitecture = "amd64"
+	ModalTitle          = "Launch a Cluster"
 )

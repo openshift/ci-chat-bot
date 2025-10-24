@@ -23,10 +23,10 @@ func processNextSelectVersion(updater modals.ViewUpdater, jobmanager manager.Job
 	return interactions.HandlerFunc(string(create.IdentifierSelectVersion), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		klog.Infof("Private Metadata: %s", callback.View.PrivateMetadata)
 		submissionData := modals.MergeCallbackData(callback)
-		mode := submissionData.MultipleSelection[create.LaunchMode]
+		mode := submissionData.MultipleSelection[modals.LaunchMode]
 		createWithPR := false
 		for _, key := range mode {
-			if strings.TrimSpace(key) == create.LaunchModePRKey {
+			if strings.TrimSpace(key) == modals.LaunchModePRKey {
 				createWithPR = true
 			}
 		}

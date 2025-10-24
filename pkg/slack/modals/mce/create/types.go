@@ -13,24 +13,8 @@ const (
 )
 
 const (
-	CreatePlatform              = "platform"
-	CreateDuration              = "duration"
-	defaultPlatform             = "aws"
-	defaultDuration             = "6h"
-	stableReleasesPrefix        = "4-stable"
-	LaunchFromPR                = "pr"
-	LaunchFromMajorMinor        = "major_minor"
-	LaunchFromStream            = "stream"
-	LaunchFromLatestBuild       = "latest_build"
-	LaunchFromReleaseController = "release_controller_version"
-	LaunchFromCustom            = "custom"
-	LaunchVersion               = "version"
-	launchStepContext           = "context"
-	LaunchMode                  = "launch_mode"
-	LaunchModeVersion           = "version"
-	LaunchModePR                = "pr"
-	LaunchModePRKey             = "One or multiple PRs"
-	LaunchModeVersionKey        = "A Version"
-	LaunchModeContext           = "Launch Mode"
-	ModalTitle                  = "Launch an MCE Cluster"
+	defaultPlatform = "aws"
+	defaultDuration = "6h"
+	CreateDuration  = "duration"
+	ModalTitle      = "Launch an MCE Cluster"
 )
