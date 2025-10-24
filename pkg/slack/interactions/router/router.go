@@ -1,14 +1,21 @@
 package router
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/auth"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/done"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/launch/steps"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/list"
+	mceauth "github.com/openshift/ci-chat-bot/pkg/slack/modals/mce/auth"
+	mcecreate "github.com/openshift/ci-chat-bot/pkg/slack/modals/mce/create/steps"
+	mcedelete "github.com/openshift/ci-chat-bot/pkg/slack/modals/mce/delete"
+	mcelist "github.com/openshift/ci-chat-bot/pkg/slack/modals/mce/list"
+	mcelookup "github.com/openshift/ci-chat-bot/pkg/slack/modals/mce/lookup"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/refresh"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/stepsFromApp"
 	"github.com/sirupsen/logrus"
@@ -33,8 +40,20 @@ func ForModals(client *slack.Client, jobmanager manager.JobManager, httpclient *
 		steps.RegisterPRInput(client, jobmanager, httpclient),
 		steps.RegisterSelectMinorMajor(client, jobmanager, httpclient),
 		list.Register(client, jobmanager),
+		auth.Register(client, jobmanager),
 		done.Register(client, jobmanager),
 		refresh.Register(client, jobmanager),
+		mcecreate.RegisterFirstStep(client, jobmanager, httpclient),
+		mcecreate.RegisterLaunchModeStep(client, jobmanager, httpclient),
+		mcecreate.RegisterSelectVersion(client, jobmanager, httpclient),
+		mcecreate.RegisterFilterVersion(client, jobmanager, httpclient),
+		mcecreate.RegisterPRInput(client, jobmanager, httpclient),
+		mcecreate.RegisterSelectMinorMajor(client, jobmanager, httpclient),
+		mcecreate.RegisterCreateConfirmStep(client, jobmanager, httpclient),
+		mceauth.Register(client, jobmanager, httpclient),
+		mcelist.Register(client, jobmanager, httpclient),
+		mcedelete.Register(client, jobmanager),
+		mcelookup.Register(client, jobmanager, httpclient),
 	}
 
 	for _, entry := range toRegister {
@@ -70,7 +89,7 @@ func (r *modalRouter) Handle(callback *slack.InteractionCallback, logger *logrus
 		}
 		return r.delegate(callback, logger)
 	case slack.InteractionTypeViewSubmission:
-		if callback.View.PrivateMetadata == string(slack.InteractionTypeWorkflowStepEdit) {
+		if metadataToIdentifier(callback.View.PrivateMetadata, logger) == string(slack.InteractionTypeWorkflowStepEdit) {
 			input, output := stepsFromApp.StepFromAppSubmit(callback)
 			return nil, r.slackClient.SaveWorkflowStepConfiguration(callback.WorkflowStep.WorkflowStepEditID, &input, &output)
 		}
@@ -124,7 +143,7 @@ func (r *modalRouter) openModal(id modals.Identifier, triggerID string, logger *
 
 	response, err := r.slackClient.OpenView(triggerID, view)
 	if err != nil {
-		logger.WithError(err).Warn("Failed to open a modal flow.")
+		logger.WithError(err).WithField("messages", response.ResponseMetadata.Messages).Warn("Failed to open a modal flow.")
 	}
 	logger.WithField("response", response).Trace("Got a modal response.")
 	return err
@@ -132,7 +151,7 @@ func (r *modalRouter) openModal(id modals.Identifier, triggerID string, logger *
 
 // delegate routes the interaction callback to the appropriate handler
 func (r *modalRouter) delegate(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
-	id := modals.Identifier(callback.View.PrivateMetadata)
+	id := modals.Identifier(metadataToIdentifier(callback.View.PrivateMetadata, logger))
 	logger = logger.WithField("view_id", id)
 	handlersForId, registered := r.handlersByIDAndType[id]
 	if !registered {
@@ -152,4 +171,19 @@ func (r *modalRouter) delegate(callback *slack.InteractionCallback, logger *logr
 
 func (r *modalRouter) Identifier() string {
 	return "modal"
+}
+
+func metadataToIdentifier(privateMetadata string, logger *logrus.Entry) string {
+	dataAndIdentifier := CallbackDataAndIdentifier{}
+	if err := json.Unmarshal([]byte(privateMetadata), &dataAndIdentifier); err != nil {
+		logger.Errorf("Failed to unmarshal private metadata: %v", err)
+	}
+	return dataAndIdentifier.Identifier
+}
+
+type CallbackDataAndIdentifier struct {
+	Input             map[string]string
+	MultipleSelection map[string][]string
+	Context           map[string]string
+	Identifier        string
 }

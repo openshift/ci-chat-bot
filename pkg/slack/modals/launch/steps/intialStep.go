@@ -1,7 +1,6 @@
 package steps
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
@@ -19,33 +18,24 @@ func RegisterFirstStep(client *slack.Client, jobmanager manager.JobManager, http
 }
 
 func processNextRegisterFirstStep(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
-	return interactions.HandlerFunc("initialStep", func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+	return interactions.HandlerFunc(string(launch.IdentifierInitialView), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		go func() {
-			callbackData := launch.CallbackData{
+			callbackData := modals.CallbackData{
 				Input: modals.CallBackInputAll(callback),
 			}
-			overwriteView := func(view slack.ModalViewRequest) {
-				// don't pass a hash, so we overwrite the View always
-				response, err := updater.UpdateView(view, "", "", callback.View.ID)
-				if err != nil {
-					logger.WithError(err).Warn("Failed to update a modal View.")
-					_, err := updater.UpdateView(launch.ErrorView(err.Error()), "", "", callback.View.ID)
-					if err != nil {
-						logger.WithError(err).Warn("Failed to update a modal View.")
-					}
-				}
-				logger.WithField("response", response).Trace("Got a modal response.")
+			if callbackData.Input[modals.LaunchPlatform] == "" {
+				callbackData.Input[modals.LaunchPlatform] = launch.DefaultPlatform
 			}
-			overwriteView(launch.SelectModeView(callback, jobmanager, callbackData))
+			if callbackData.Input[modals.LaunchArchitecture] == "" {
+				// TODO: handle more inteligently in the future or maybe default to multi
+				if callbackData.Input[modals.LaunchPlatform] == "hypershift-hosted" {
+					callbackData.Input[modals.LaunchArchitecture] = "multi"
+				} else {
+					callbackData.Input[modals.LaunchArchitecture] = launch.DefaultArchitecture
+				}
+			}
+			modals.OverwriteView(updater, launch.SelectModeView(callback, jobmanager, callbackData), callback, logger)
 		}()
-		response, err := json.Marshal(&slack.ViewSubmissionResponse{
-			ResponseAction: slack.RAUpdate,
-			View:           launch.PrepareNextStepView(),
-		})
-		if err != nil {
-			logger.WithError(err).Error("Failed to marshal FirstStepView update submission response.")
-			return nil, err
-		}
-		return response, nil
+		return modals.SubmitPrepare(launch.ModalTitle, string(launch.IdentifierInitialView), logger)
 	})
 }

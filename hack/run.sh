@@ -37,4 +37,5 @@ make
   --kubeconfig-suffix=.config \
   --rosa-oidcConfigId-path=$tmp_oidc_config_id \
   --rosa-billingAccount-path=$tmp_billing_account_id \
+  --disable-rosa
   --v=2

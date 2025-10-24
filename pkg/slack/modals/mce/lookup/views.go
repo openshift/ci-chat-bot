@@ -1,4 +1,4 @@
-package done
+package auth
 
 import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
@@ -17,7 +17,7 @@ func View() slackClient.ModalViewRequest {
 				Type: slackClient.MBTSection,
 				Text: &slackClient.TextBlockObject{
 					Type: slackClient.MarkdownType,
-					Text: "Click submit to terminate your running cluster",
+					Text: "Click submit to view all Openshift versions available for MCE.\nNote: CI versions may also be used, but will take longer to launch.",
 				},
 			},
 		}},

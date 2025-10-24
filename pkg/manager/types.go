@@ -401,6 +401,7 @@ type JobManager interface {
 	ListManagedClusters(user string) string
 	ListMceVersions() string
 	GetMceUserConfig() *MceConfig
+	GetUserCluster(user string) *Job
 }
 
 // JobCallbackFunc is invoked when the job changes state in a significant

@@ -20,6 +20,6 @@ func ForEvents(client *slack.Client, manager manager.JobManager, botCommands []s
 		messages.Handle(client, manager, botCommands),
 		mention.Handler(client),
 		workflowSubmissionEvents.Handler(client, filer),
-		apphome.Handler(client),
+		apphome.Handler(client, manager),
 	)
 }

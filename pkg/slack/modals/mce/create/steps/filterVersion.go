@@ -7,20 +7,22 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/launch"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/mce/create"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog"
 )
 
 func RegisterFilterVersion(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(launch.IdentifierFilterVersionView, launch.FilterVersionView(nil, nil, modals.CallbackData{}, nil, nil, false)).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+	return modals.ForView(create.IdentifierFilterVersionView, create.FilterVersionView(nil, nil, modals.CallbackData{}, nil, nil, false)).WithFollowUps(map[slack.InteractionType]interactions.Handler{
 		slack.InteractionTypeViewSubmission: processNextFilterVersion(client, jobmanager, httpclient),
 	})
 }
 
 func processNextFilterVersion(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
-	return interactions.HandlerFunc(string(launch.IdentifierFilterVersionView), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+	return interactions.HandlerFunc(string(create.IdentifierFilterVersionView), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+		klog.Infof("Private Metadata: %s", callback.View.PrivateMetadata)
 		submissionData := modals.MergeCallbackData(callback)
 		errorResponse := validateFilterVersion(submissionData)
 		if errorResponse != nil {
@@ -30,25 +32,25 @@ func processNextFilterVersion(updater modals.ViewUpdater, jobmanager manager.Job
 		customBuild := submissionData.Input[modals.LaunchFromCustom]
 		stream := submissionData.Input[modals.LaunchFromStream]
 		mode := submissionData.MultipleSelection[modals.LaunchMode]
-		launchWithPr := false
+		createWithPr := false
 		for _, key := range mode {
 			if strings.TrimSpace(key) == modals.LaunchModePRKey {
-				launchWithPr = true
+				createWithPr = true
 			}
 		}
 		go func() {
-			if (nightlyOrCi == "") && customBuild == "" && !launchWithPr && stream == "" {
-				modals.OverwriteView(updater, launch.FilterVersionView(callback, jobmanager, submissionData, httpclient, sets.New(mode...), true), callback, logger)
-			} else if (nightlyOrCi != "" || customBuild != "") && launchWithPr {
-				modals.OverwriteView(updater, launch.PRInputView(callback, submissionData), callback, logger)
-			} else if (nightlyOrCi != "" || customBuild != "") && !launchWithPr {
-				modals.OverwriteView(updater, launch.ThirdStepView(callback, jobmanager, httpclient, submissionData), callback, logger)
+			if (nightlyOrCi == "") && customBuild == "" && !createWithPr && stream == "" {
+				modals.OverwriteView(updater, create.FilterVersionView(callback, jobmanager, submissionData, httpclient, sets.New(mode...), true), callback, logger)
+			} else if (nightlyOrCi != "" || customBuild != "") && createWithPr {
+				modals.OverwriteView(updater, create.PRInputView(callback, submissionData), callback, logger)
+			} else if (nightlyOrCi != "" || customBuild != "") && !createWithPr {
+				modals.OverwriteView(updater, create.ThirdStepView(callback, jobmanager, httpclient, submissionData), callback, logger)
 			} else {
-				modals.OverwriteView(updater, launch.SelectVersionView(callback, jobmanager, httpclient, submissionData), callback, logger)
+				modals.OverwriteView(updater, create.SelectVersionView(callback, jobmanager, httpclient, submissionData), callback, logger)
 			}
 
 		}()
-		return modals.SubmitPrepare(launch.ModalTitle, string(launch.IdentifierSelectVersion), logger)
+		return modals.SubmitPrepare(create.ModalTitle, string(create.IdentifierFilterVersionView), logger)
 	})
 }
 

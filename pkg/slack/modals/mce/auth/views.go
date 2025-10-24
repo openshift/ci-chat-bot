@@ -1,4 +1,4 @@
-package done
+package auth
 
 import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
@@ -9,7 +9,7 @@ func View() slackClient.ModalViewRequest {
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: modals.CallbackDataToMetadata(modals.CallbackData{}, identifier),
-		Title:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: title},
+		Title:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "MCE Authentication"},
 		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
 		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Submit"},
 		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
@@ -17,7 +17,7 @@ func View() slackClient.ModalViewRequest {
 				Type: slackClient.MBTSection,
 				Text: &slackClient.TextBlockObject{
 					Type: slackClient.MarkdownType,
-					Text: "Click submit to terminate your running cluster",
+					Text: "Click submit to retrieve the credentials for you MCE cluster",
 				},
 			},
 		}},

@@ -28,7 +28,7 @@ import (
 	hivegcp "github.com/openshift/hive/apis/hive/v1/gcp"
 )
 
-var mcePlatforms = sets.New([]string{"aws", "gcp"}...)
+var MCEPlatforms = sets.New([]string{"aws", "gcp"}...)
 
 func (m *jobManager) createManagedCluster(imageSet, platform, user, slackChannel string, req *JobRequest, duration time.Duration) (*clusterv1.ManagedCluster, error) {
 	m.mceConfig.Mutex.RLock()
