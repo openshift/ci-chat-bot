@@ -13,30 +13,7 @@ const (
 )
 
 const (
-	stableReleasesPrefix        = "4-stable"
-	LaunchFromPR                = "pr"
-	LaunchFromMajorMinor        = "major_minor"
-	LaunchFromStream            = "stream"
-	LaunchFromLatestBuild       = "latest_build"
-	launchFromReleaseController = "release_controller_version"
-	LaunchFromCustom            = "custom"
-	LaunchPlatform              = "platform"
-	LaunchArchitecture          = "architecture"
-	LaunchParameters            = "parameters"
-	LaunchVersion               = "version"
-	launchStepContext           = "context"
-	defaultPlatform             = "hypershift-hosted"
-	defaultArchitecture         = "amd64"
-	LaunchMode                  = "launch_mode"
-	LaunchModeVersion           = "version"
-	LaunchModePR                = "pr"
-	LaunchModePRKey             = "One or multiple PRs"
-	LaunchModeVersionKey        = "A Version"
-	LaunchModeContext           = "Launch Mode"
+	DefaultPlatform     = "hypershift-hosted"
+	DefaultArchitecture = "amd64"
+	ModalTitle          = "Launch a Cluster"
 )
-
-type CallbackData struct {
-	Input             map[string]string
-	MultipleSelection map[string][]string
-	Context           map[string]string
-}

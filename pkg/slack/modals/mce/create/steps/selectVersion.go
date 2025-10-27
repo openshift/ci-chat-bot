@@ -7,34 +7,36 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
-	"github.com/openshift/ci-chat-bot/pkg/slack/modals/launch"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/mce/create"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
+	"k8s.io/klog"
 )
 
 func RegisterSelectVersion(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(launch.IdentifierSelectVersion, launch.SelectVersionView(nil, jobmanager, httpclient, modals.CallbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+	return modals.ForView(create.IdentifierSelectVersion, create.SelectVersionView(nil, jobmanager, httpclient, modals.CallbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
 		slack.InteractionTypeViewSubmission: processNextSelectVersion(client, jobmanager, httpclient),
 	})
 }
 
 func processNextSelectVersion(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
-	return interactions.HandlerFunc(string(launch.IdentifierSelectVersion), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+	return interactions.HandlerFunc(string(create.IdentifierSelectVersion), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+		klog.Infof("Private Metadata: %s", callback.View.PrivateMetadata)
 		submissionData := modals.MergeCallbackData(callback)
 		mode := submissionData.MultipleSelection[modals.LaunchMode]
-		launchWithPR := false
+		createWithPR := false
 		for _, key := range mode {
 			if strings.TrimSpace(key) == modals.LaunchModePRKey {
-				launchWithPR = true
+				createWithPR = true
 			}
 		}
 		go func() {
-			if launchWithPR {
-				modals.OverwriteView(updater, launch.PRInputView(callback, submissionData), callback, logger)
+			if createWithPR {
+				modals.OverwriteView(updater, create.PRInputView(callback, submissionData), callback, logger)
 			} else {
-				modals.OverwriteView(updater, launch.ThirdStepView(callback, jobmanager, httpclient, submissionData), callback, logger)
+				modals.OverwriteView(updater, create.ThirdStepView(callback, jobmanager, httpclient, submissionData), callback, logger)
 			}
 		}()
-		return modals.SubmitPrepare(launch.ModalTitle, string(launch.IdentifierSelectVersion), logger)
+		return modals.SubmitPrepare(create.ModalTitle, string(create.IdentifierSelectVersion), logger)
 	})
 }
