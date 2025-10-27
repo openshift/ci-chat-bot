@@ -77,7 +77,8 @@ func Lookup(client *slack.Client, jobManager manager.JobManager, event *slackeve
 }
 
 func List(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
-	return jobManager.ListJobs(event.User, manager.ListFilters{})
+	list, _, _ := jobManager.ListJobs(event.User, manager.ListFilters{})
+	return list
 }
 
 func Done(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
@@ -600,7 +601,9 @@ func MceList(client *slack.Client, jobManager manager.JobManager, event *slackev
 		return err.Error()
 	}
 	if len(all) > 0 && all[0] == "all" {
-		return jobManager.ListManagedClusters("")
+		list, _, _ := jobManager.ListManagedClusters("")
+		return list
 	}
-	return jobManager.ListManagedClusters(event.User)
+	list, _, _ := jobManager.ListManagedClusters(event.User)
+	return list
 }
