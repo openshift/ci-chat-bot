@@ -241,13 +241,7 @@ func SubmissionView(title, msg string) slack.ModalViewRequest {
 		Title: &slack.TextBlockObject{Type: slack.PlainTextType, Text: title},
 		Close: &slack.TextBlockObject{Type: slack.PlainTextType, Text: "Close"},
 		Blocks: slack.Blocks{BlockSet: []slack.Block{
-			&slack.SectionBlock{
-				Type: slack.MBTSection,
-				Text: &slack.TextBlockObject{
-					Type: slack.MarkdownType,
-					Text: msg,
-				},
-			},
+			slack.NewRichTextBlock("submission", slack.NewRichTextSection(slack.NewRichTextSectionTextElement(msg, &slack.RichTextSectionTextStyle{}))),
 		}},
 	}
 }
