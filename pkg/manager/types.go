@@ -390,7 +390,7 @@ type JobManager interface {
 	DescribeROSACluster(cluster string) (string, error)
 	LookupInputs(inputs []string, architecture string) (string, error)
 	LookupRosaInputs(versionPrefix string) (string, error)
-	ListJobs(users string, filters ListFilters) string
+	ListJobs(users string, filters ListFilters) (string, string, []string)
 	GetWorkflowConfig() *WorkflowConfig
 	ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion, architecture string) (string, string, string, error)
 	ResolveAsPullRequest(spec string) (*prowapiv1.Refs, error)
@@ -398,7 +398,7 @@ type JobManager interface {
 	CreateMceCluster(user, channel, platform string, from [][]string, duration time.Duration) (string, error)
 	DeleteMceCluster(user, clusterName string) (string, error)
 	GetManagedClustersForUser(user string) (map[string]*clusterv1.ManagedCluster, map[string]*hivev1.ClusterDeployment, map[string]*hivev1.ClusterProvision, map[string]string, map[string]string)
-	ListManagedClusters(user string) string
+	ListManagedClusters(user string) (string, string, []string)
 	ListMceVersions() string
 	GetMceUserConfig() *MceConfig
 	GetUserCluster(user string) *Job

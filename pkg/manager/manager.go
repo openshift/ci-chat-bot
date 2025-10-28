@@ -1000,7 +1000,7 @@ func (m *jobManager) GetUserCluster(user string) *Job {
 	return nil
 }
 
-func (m *jobManager) ListJobs(user string, filters ListFilters) string {
+func (m *jobManager) ListJobs(user string, filters ListFilters) (string, string, []string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -1041,11 +1041,15 @@ func (m *jobManager) ListJobs(user string, filters ListFilters) string {
 	})
 
 	buf := &bytes.Buffer{}
+	var beginning string
+	var elements []string
 	now := time.Now()
 	if len(clusters) == 0 {
-		fmt.Fprintf(buf, "No clusters up (start time is approximately %d minutes):\n\n", m.estimateCompletion(time.Time{})/time.Minute)
+		beginning = fmt.Sprintf("No clusters up (start time is approximately %d minutes):\n\n", m.estimateCompletion(time.Time{})/time.Minute)
+		fmt.Fprint(buf, beginning)
 	} else {
-		fmt.Fprintf(buf, "%d/%d clusters up (start time is approximately %d minutes):\n\n", runningClusters, m.maxClusters, m.estimateCompletion(time.Time{})/time.Minute)
+		beginning = fmt.Sprintf("%d/%d clusters up (start time is approximately %d minutes):\n\n", runningClusters, m.maxClusters, m.estimateCompletion(time.Time{})/time.Minute)
+		fmt.Fprint(buf, beginning)
 		for _, job := range clusters {
 			var jobInput JobInput
 			if len(job.Inputs) > 0 {
@@ -1086,17 +1090,29 @@ func (m *jobManager) ListJobs(user string, filters ListFilters) string {
 
 			switch {
 			case job.State == prowapiv1.SuccessState:
-				fmt.Fprintf(buf, "• <@%s>%s - cluster has been shut down%s\n", job.RequestedBy, imageOrVersion, details)
+				element := fmt.Sprintf("• <@%s>%s - cluster has been shut down%s\n", job.RequestedBy, imageOrVersion, details)
+				elements = append(elements, element)
+				fmt.Fprint(buf, element)
 			case job.State == prowapiv1.FailureState:
-				fmt.Fprintf(buf, "• <@%s>%s%s - cluster failed to start%s\n", job.RequestedBy, imageOrVersion, options, details)
+				element := fmt.Sprintf("• <@%s>%s%s - cluster failed to start%s\n", job.RequestedBy, imageOrVersion, options, details)
+				elements = append(elements, element)
+				fmt.Fprint(buf, element)
 			case job.Complete:
-				fmt.Fprintf(buf, "• <@%s>%s%s - cluster has requested shut down%s\n", job.RequestedBy, imageOrVersion, options, details)
+				element := fmt.Sprintf("• <@%s>%s%s - cluster has requested shut down%s\n", job.RequestedBy, imageOrVersion, options, details)
+				elements = append(elements, element)
+				fmt.Fprint(buf, element)
 			case len(job.Credentials) > 0:
-				fmt.Fprintf(buf, "• <@%s>%s%s - available and will be torn down in %d minutes%s\n", job.RequestedBy, imageOrVersion, options, int(job.ExpiresAt.Sub(now)/time.Minute), details)
+				element := fmt.Sprintf("• <@%s>%s%s - available and will be torn down in %d minutes%s\n", job.RequestedBy, imageOrVersion, options, int(job.ExpiresAt.Sub(now)/time.Minute), details)
+				elements = append(elements, element)
+				fmt.Fprint(buf, element)
 			case len(job.Failure) > 0:
-				fmt.Fprintf(buf, "• <@%s>%s%s - failure: %s%s\n", job.RequestedBy, imageOrVersion, options, job.Failure, details)
+				element := fmt.Sprintf("• <@%s>%s%s - failure: %s%s\n", job.RequestedBy, imageOrVersion, options, job.Failure, details)
+				elements = append(elements, element)
+				fmt.Fprint(buf, element)
 			default:
-				fmt.Fprintf(buf, "• <@%s>%s%s - starting, %d minutes elapsed%s\n", job.RequestedBy, imageOrVersion, options, int(now.Sub(job.RequestedAt)/time.Minute), details)
+				element := fmt.Sprintf("• <@%s>%s%s - starting, %d minutes elapsed%s\n", job.RequestedBy, imageOrVersion, options, int(now.Sub(job.RequestedAt)/time.Minute), details)
+				elements = append(elements, element)
+				fmt.Fprint(buf, element)
 			}
 		}
 		fmt.Fprintf(buf, "\n")
@@ -1167,7 +1183,7 @@ func (m *jobManager) ListJobs(user string, filters ListFilters) string {
 	}
 
 	fmt.Fprintf(buf, "\nbot uptime is %.1f minutes", now.Sub(m.started).Seconds()/60)
-	return buf.String()
+	return buf.String(), beginning, elements
 }
 
 func (m *jobManager) GetROSACluster(user string) (*clustermgmtv1.Cluster, string) {
@@ -2585,15 +2601,17 @@ func (m *jobManager) GetManagedClustersForUser(user string) (map[string]*cluster
 	return managed, deployments, provisions, kubeconfigs, passwords
 }
 
-func (m *jobManager) ListManagedClusters(user string) string {
+func (m *jobManager) ListManagedClusters(user string) (string, string, []string) {
 	m.mceClusters.lock.RLock()
 	defer m.mceClusters.lock.RUnlock()
 	numClusters := len(m.mceClusters.clusters)
 	buf := &bytes.Buffer{}
 	if numClusters == 0 {
-		return "No clusters up"
+		return "No clusters up", "No clusters up", nil
 	}
-	fmt.Fprintf(buf, "%d clusters currently running:\n", numClusters)
+	beginning := fmt.Sprintf("%d clusters currently running:\n", numClusters)
+	fmt.Fprint(buf, beginning)
+	var elements []string
 	for name, cluster := range m.mceClusters.clusters {
 		if user != "" {
 			if userTag, ok := cluster.Annotations[utils.UserTag]; ok {
@@ -2606,7 +2624,9 @@ func (m *jobManager) ListManagedClusters(user string) string {
 		expiryTime, err := time.Parse(time.RFC3339, expiryTimeTag)
 		if err != nil {
 			klog.Errorf("Failed to parse expiryTime: %v", err)
-			fmt.Fprintf(buf, "- %s (Requested by @%s; Remaining Time: error)\n", name, cluster.Annotations[utils.UserTag])
+			element := fmt.Sprintf("- %s (Requested by @%s; Remaining Time: error)\n", name, cluster.Annotations[utils.UserTag])
+			elements = append(elements, element)
+			fmt.Fprint(buf, element)
 			continue
 		}
 		remainingTime := time.Until(expiryTime)
@@ -2644,9 +2664,11 @@ func (m *jobManager) ListManagedClusters(user string) string {
 		case "Google":
 			platform = "gcp"
 		}
-		fmt.Fprintf(buf, "- %s (Requested by <@%s>; Provision Status: %s; Remaining Time: %d minutes; Version: %s; Platform: %s)\n", name, cluster.Annotations[utils.UserTag], provisionStage, int(remainingTime/time.Minute), version, platform)
+		element := fmt.Sprintf("- %s (Requested by <@%s>; Provision Status: %s; Remaining Time: %d minutes; Version: %s; Platform: %s)\n", name, cluster.Annotations[utils.UserTag], provisionStage, int(remainingTime/time.Minute), version, platform)
+		elements = append(elements, element)
+		fmt.Fprint(buf, element)
 	}
-	return buf.String()
+	return buf.String(), beginning, elements
 }
 
 func (m *jobManager) ListMceVersions() string {

@@ -33,7 +33,7 @@ func process(updater *slack.Client, jobManager manager.JobManager) interactions.
 				submission.Blocks.BlockSet = append(submission.Blocks.BlockSet,
 					slack.NewDividerBlock(),
 					slack.NewHeaderBlock(slack.NewTextBlockObject(slack.PlainTextType, "KubeConfig File (to download the kubeconfig as a file, send `auth` in the message tab):", true, false)),
-					slack.NewRichTextBlock("submission", &slack.RichTextPreformatted{
+					slack.NewRichTextBlock("kubeconfig", &slack.RichTextPreformatted{
 						RichTextSection: slack.RichTextSection{
 							Type: slack.RTEPreformatted,
 							Elements: []slack.RichTextSectionElement{
