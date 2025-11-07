@@ -357,22 +357,18 @@ func GenerateBuildHelpMessage() string {
 	helpMessage := "*🔨 Building Images*\n\n"
 
 	helpMessage += "*build*\n"
-	helpMessage += "```\nbuild <repository> <pr_number> <target>\n```\n"
+	helpMessage += "```\nbuild <organization>/<repository>#<pr_number>\n```\n"
 	helpMessage += "Build custom images from pull requests.\n\n"
 
 	helpMessage += "*catalog build*\n"
-	helpMessage += "```\ncatalog build <operator> <version>\n```\n"
+	helpMessage += "```\ncatalog build <organization>/<repository>#<pr_number> <bundle_name>\n```\n"
 	helpMessage += "Build operator catalog images.\n\n"
 
-	helpMessage += "*Build Targets:*\n"
-	helpMessage += "• `installer` - Build installer images\n"
-	helpMessage += "• `release` - Build release payload\n"
-	helpMessage += "• `operator` - Build operator images\n\n"
-
 	helpMessage += "*Examples:*\n"
-	helpMessage += "• `build openshift/installer#123 installer` - Build installer from PR\n"
-	helpMessage += "• `catalog build my-operator v1.0` - Build operator catalog\n"
-	helpMessage += "• `build machine-config-operator#456 release` - Build MCO changes\n"
+	helpMessage += "• `build openshift/installer#123` - Build installer images from PR\n"
+	helpMessage += "• `build openshift/machine-config-operator#456` - Build MCO change\n"
+	helpMessage += "• `build openshift/origin#49563,openshift/kubernetes#731,openshift/machine-api-operator#831` - Build with multiple PRs\n"
+	helpMessage += "• `catalog build openshift/aws-efs-csi-driver-operator#84 aws-efs-csi-driver-operator-bundle` - Build operator catalog\n"
 
 	return helpMessage
 }
