@@ -163,8 +163,8 @@ func GenerateHelpOverviewMessage(allowPrivate bool) string {
 	helpMessage += "• `workflow-upgrade <name> <from> <to> <parameters>` - Custom upgrade workflows\n"
 
 	helpMessage += "\n*Building:*\n"
-	helpMessage += "• `build <pullrequest>` - Create release image from PRs (preserved 1 week)\n"
-	helpMessage += "• `catalog build <pullrequest> <bundle_name>` - Create operator catalog from PR\n"
+	helpMessage += "• `build <version>,<pullrequest>` - Create release image from PRs (preserved 1 week)\n"
+	helpMessage += "• `catalog build <version>,<pullrequest> <bundle_name>` - Create operator catalog from PR\n"
 
 	helpMessage += "\n*Information:*\n"
 	helpMessage += "• `version` - Report the bot version\n"
@@ -272,7 +272,7 @@ func GenerateLaunchHelpMessage() string {
 	helpMessage += "• `launch ci azure,compact,ovn` - CI build + size + networking\n"
 	helpMessage += "• `launch 4.19 aws,arm64,fips,private` - Security-focused cluster\n"
 	helpMessage += "• `launch 4.19.0-0.nightly metal,single-node,techpreview` - Advanced config\n"
-	helpMessage += "• `launch openshift/installer#123 vsphere,multi,techpreview` - PR testing\n"
+	helpMessage += "• `launch 4.19,openshift/installer#123 vsphere,multi,techpreview` - PR testing\n"
 	helpMessage += "• `launch 4.19,openshift/installer#123,openshift/mco#456 aws,multi-zone` - Multi-PR\n"
 
 	return helpMessage
@@ -357,18 +357,18 @@ func GenerateBuildHelpMessage() string {
 	helpMessage := "*🔨 Building Images*\n\n"
 
 	helpMessage += "*build*\n"
-	helpMessage += "```\nbuild <organization>/<repository>#<pr_number>\n```\n"
+	helpMessage += "```\nbuild <version>,<organization>/<repository>#<pr_number>\n```\n"
 	helpMessage += "Build custom images from pull requests.\n\n"
 
 	helpMessage += "*catalog build*\n"
-	helpMessage += "```\ncatalog build <organization>/<repository>#<pr_number> <bundle_name>\n```\n"
+	helpMessage += "```\ncatalog build <version>,<organization>/<repository>#<pr_number> <bundle_name>\n```\n"
 	helpMessage += "Build operator catalog images.\n\n"
 
 	helpMessage += "*Examples:*\n"
-	helpMessage += "• `build openshift/installer#123` - Build installer images from PR\n"
-	helpMessage += "• `build openshift/machine-config-operator#456` - Build MCO change\n"
-	helpMessage += "• `build openshift/origin#49563,openshift/kubernetes#731,openshift/machine-api-operator#831` - Build with multiple PRs\n"
-	helpMessage += "• `catalog build openshift/aws-efs-csi-driver-operator#84 aws-efs-csi-driver-operator-bundle` - Build operator catalog\n"
+	helpMessage += "• `build 4.19,openshift/installer#123` - Build installer images from PR\n"
+	helpMessage += "• `build 4.19,openshift/machine-config-operator#456` - Build MCO change\n"
+	helpMessage += "• `build 4.19,openshift/origin#49563,openshift/kubernetes#731,openshift/machine-api-operator#831` - Build with multiple PRs\n"
+	helpMessage += "• `catalog build 4.19,openshift/aws-efs-csi-driver-operator#84 aws-efs-csi-driver-operator-bundle` - Build operator catalog\n"
 
 	return helpMessage
 }
@@ -378,24 +378,24 @@ func GenerateManageHelpMessage() string {
 	helpMessage := "*⚙️ Cluster Management*\n\n"
 
 	helpMessage += "*list*\n"
-	helpMessage += "```\nlist [user]\n```\n"
+	helpMessage += "```\nlist\n```\n"
 	helpMessage += "Show active clusters (all or for specific user).\n\n"
 
 	helpMessage += "*done*\n"
-	helpMessage += "```\ndone [cluster_name]\n```\n"
-	helpMessage += "Terminate and cleanup clusters.\n\n"
+	helpMessage += "```\ndone\n```\n"
+	helpMessage += "Terminate and cleanup cluster.\n\n"
 
 	helpMessage += "*auth*\n"
-	helpMessage += "```\nauth <cluster_name>\n```\n"
+	helpMessage += "```\nauth\n```\n"
 	helpMessage += "Get cluster credentials and connection info.\n\n"
 
 	helpMessage += "*refresh*\n"
-	helpMessage += "```\nrefresh <cluster_name>\n```\n"
-	helpMessage += "Refresh cluster status and extend lifetime.\n\n"
+	helpMessage += "```\nrefresh\n```\n"
+	helpMessage += "Retry fetching cluster credentials in case of an error.\n\n"
 
 	helpMessage += "*lookup*\n"
-	helpMessage += "```\nlookup <job_id>\n```\n"
-	helpMessage += "Find cluster information by job ID.\n\n"
+	helpMessage += "```\nlookup <version specifier>\n```\n"
+	helpMessage += "Find version corresponding to version specifier.\n\n"
 
 	helpMessage += "*version*\n"
 	helpMessage += "```\nversion\n```\n"
@@ -403,9 +403,10 @@ func GenerateManageHelpMessage() string {
 
 	helpMessage += "*Examples:*\n"
 	helpMessage += "• `list` - Show all your clusters\n"
-	helpMessage += "• `done my-cluster` - Terminate specific cluster\n"
-	helpMessage += "• `auth test-cluster` - Get kubeconfig credentials\n"
-	helpMessage += "• `refresh cluster-123` - Extend cluster lifetime\n"
+	helpMessage += "• `done` - Terminate specific cluster\n"
+	helpMessage += "• `auth` - Get kubeconfig credentials\n"
+	helpMessage += "• `refresh` - Re-fetch cluster credentials\n"
+	helpMessage += "• `lookup nightly` - Find version corresponding to the specified value\n"
 
 	return helpMessage
 }
