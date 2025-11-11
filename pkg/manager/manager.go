@@ -2470,7 +2470,15 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 		m.mceConfig.Mutex.RLock()
 		// this section is nested to allow the defer to be executed before calling the createManagedCluster function
 		defer m.mceConfig.Mutex.RUnlock()
-		userConfig := m.mceConfig.Users[user]
+		var userConfig MceUser
+		userConfig, ok := m.mceConfig.Users[user]
+		if !ok {
+			// defaults configs for non-defined users
+			userConfig = MceUser{
+				MaxClusters:   1,
+				MaxClusterAge: int(MaxMCEDuration),
+			}
+		}
 		// configure defaults
 		if platform == "" {
 			platform = "aws"
