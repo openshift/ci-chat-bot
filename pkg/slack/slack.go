@@ -203,26 +203,26 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Description: "Create a new cluster using Hive and MCE.",
 			Example:     "mce create 4.16.7 6h aws",
 			Handler:     MceCreate,
-		}, true),
+		}, false),
 		parser.NewBotCommand("mce auth <name>", &parser.CommandDefinition{
 			Description: "Print kubeconfig and kubeadmin password for specified MCE cluster.",
 			Example:     "mce auth mycluster",
 			Handler:     MceAuth,
-		}, true),
+		}, false),
 		parser.NewBotCommand("mce delete <cluster_name>", &parser.CommandDefinition{
 			Description: "Delete a previously created MCE cluster.",
 			Example:     "mce delete mycluster",
 			Handler:     MceDelete,
-		}, true),
+		}, false),
 		parser.NewBotCommand("mce list <all>", &parser.CommandDefinition{
 			Description: "List active MCE clusters. Append `all` to list clusters for all users.",
 			Handler:     MceList,
 			Example:     "mce list all",
-		}, true),
+		}, false),
 		parser.NewBotCommand("mce lookup", &parser.CommandDefinition{
 			Description: "List available versions for MCE clusters.",
 			Handler:     MceImageSets,
-		}, true),
+		}, false),
 	}
 }
 
