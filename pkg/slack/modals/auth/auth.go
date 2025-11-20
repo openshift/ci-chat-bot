@@ -32,7 +32,7 @@ func process(updater *slack.Client, jobManager manager.JobManager) interactions.
 			if kubeconfig != "" {
 				submission.Blocks.BlockSet = append(submission.Blocks.BlockSet,
 					slack.NewDividerBlock(),
-					slack.NewHeaderBlock(slack.NewTextBlockObject(slack.PlainTextType, "KubeConfig File (to download the kubeconfig as a file, send `auth` in the message tab):", true, false)),
+					slack.NewHeaderBlock(slack.NewTextBlockObject(slack.PlainTextType, "KubeConfig File (to download the kubeconfig as a file, type `auth` in the Messages tab):", true, false)),
 					slack.NewRichTextBlock("kubeconfig", &slack.RichTextPreformatted{
 						RichTextSection: slack.RichTextSection{
 							Type: slack.RTEPreformatted,

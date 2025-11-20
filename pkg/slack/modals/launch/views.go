@@ -235,7 +235,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	releases, err := FetchReleases(httpclient, architecture)
 	if err != nil {
 		klog.Warningf("failed to fetch the data from release controller: %s", err)
-		return modals.ErrorView("retrive valid releases from the release-controller", err)
+		return modals.ErrorView("retrieve valid releases from the release-controller", err)
 	}
 	var streams []string
 	for stream := range releases {
@@ -442,7 +442,7 @@ func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	releases, err := FetchReleases(httpclient, architecture)
 	if err != nil {
 		klog.Warningf("failed to fetch the data from release controller: %s", err)
-		return modals.ErrorView("retrive valid releases from the release-controller", err)
+		return modals.ErrorView("retrieve valid releases from the release-controller", err)
 	}
 	var allTags []string
 	for stream, tags := range releases {
@@ -523,7 +523,7 @@ func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *htt
 	releases, err := FetchReleases(httpclient, architecture)
 	if err != nil {
 		klog.Warningf("failed to fetch the data from release controller: %s", err)
-		return modals.ErrorView("retrive valid releases from the release-controller", err)
+		return modals.ErrorView("retrieve valid releases from the release-controller", err)
 	}
 
 	majorMinor := make(map[string]bool, 0)
