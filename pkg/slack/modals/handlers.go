@@ -390,7 +390,7 @@ func BuildOptions(options []string, blacklist sets.Set[string]) []*slack.OptionB
 	return slackOptions
 }
 
-var launchTypes = []string{LaunchFromLatestBuild, LaunchFromMajorMinor, LaunchFromStream, LaunchFromReleaseController, LaunchFromCustom}
+var launchTypes = []string{LaunchVersion, LaunchFromLatestBuild, LaunchFromMajorMinor, LaunchFromStream, LaunchFromReleaseController, LaunchFromCustom}
 
 func GetVersion(data CallbackData, jobmanager manager.JobManager) string {
 	var version string
