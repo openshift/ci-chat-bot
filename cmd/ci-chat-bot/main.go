@@ -17,6 +17,7 @@ import (
 	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/adrg/xdg"
+	orgdatacore "github.com/openshift-eng/cyborg-data/go"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
@@ -323,6 +324,61 @@ func run() error {
 	}
 
 	ctx := context.Background()
+
+	// Load GCP service account credentials (used by both org data GCS and credentials manager)
+	gcpServiceAccountJSON := os.Getenv("GCP_SERVICE_ACCOUNT_JSON")
+
+	// Initialize cyborg-data service for organizational data
+	// Note: This requires building with -tags gcs for GCS support
+	orgDataService := orgdatacore.NewService()
+	orgDataBucket := os.Getenv("ORG_DATA_BUCKET")
+	orgDataObjectPath := os.Getenv("ORG_DATA_OBJECT_PATH")
+	if orgDataObjectPath == "" {
+		orgDataObjectPath = "orgdata/comprehensive_index_dump.json" // default path
+	}
+
+	if orgDataBucket != "" {
+		// Load org data from GCS bucket using SDK implementation
+		// Prepare GCS options
+		var gcsOptions []orgdatacore.GCSOption
+		if gcpServiceAccountJSON != "" {
+			gcsOptions = append(gcsOptions, orgdatacore.WithCredentialsJSON(gcpServiceAccountJSON))
+		}
+
+		// Create GCS data source with SDK
+		gcsDataSource, err := orgdatacore.NewGCSDataSourceWithSDK(ctx, orgDataBucket, orgDataObjectPath, gcsOptions...)
+		if err != nil {
+			klog.Warningf("Failed to create GCS data source: %v. Group-based validation will not work.", err)
+		} else {
+			if err := orgDataService.LoadFromDataSource(ctx, gcsDataSource); err != nil {
+				klog.Warningf("Failed to load organizational data from GCS: %v. Group-based validation will not work.", err)
+			} else {
+				klog.Info("Successfully loaded organizational data from GCS")
+			}
+			if err := orgDataService.StartDataSourceWatcher(ctx, gcsDataSource); err != nil {
+				klog.Warningf("Failed to start organizational data watcher: %v", err)
+			}
+		}
+	} else {
+		klog.Warning("ORG_DATA_BUCKET not set. Group-based credential validation will not work.")
+	}
+
+	// Initialize GCP access manager
+	gcpDryRun := os.Getenv("GCP_ACCESS_DRY_RUN") == "true"
+	var gcpAccessManager *manager.GCPAccessManager
+	gcpAccessManager, err = manager.NewGCPAccessManager(gcpServiceAccountJSON, gcpDryRun)
+	if err != nil {
+		klog.Errorf("Failed to initialize GCP access manager: %v", err)
+	} else if gcpAccessManager.IsEnabled() {
+		if gcpDryRun {
+			klog.Info("GCP access manager enabled (DRY-RUN MODE)")
+		} else {
+			klog.Info("GCP access manager enabled")
+		}
+	} else {
+		klog.Info("GCP access manager disabled (service account credentials not configured)")
+	}
+
 	prowjobInformerFactory.Start(ctx.Done())
 
 	jobManager := manager.NewJobManager(
@@ -349,6 +405,8 @@ func run() error {
 		hiveClient,
 		mceNamespaceClient,
 		dpcrCoreClient,
+		gcpAccessManager,
+		orgDataService,
 	)
 
 	klog.Infof("Waiting for caches to sync")
@@ -408,7 +466,7 @@ func manageRosaSubnetList(path string, subnetList *manager.RosaSubnets) {
 		if err != nil {
 			klog.Errorf("Failed to read %s: %v", path, err)
 		}
-		newSubnets := sets.New[string](strings.Split(string(subnetsRaw), ",")...)
+		newSubnets := sets.New(strings.Split(string(subnetsRaw), ",")...)
 		subnetList.Lock.Lock()
 		subnetList.Subnets = newSubnets
 		subnetList.Lock.Unlock()

@@ -155,6 +155,8 @@ func GenerateHelpOverviewMessage(allowPrivate bool) string {
 	helpMessage += "• `done` - Terminate your running cluster\n"
 	helpMessage += "• `auth` - Get credentials for your most recent cluster\n"
 	helpMessage += "• `refresh` - Retry fetching credentials if cluster marked as failed\n"
+	helpMessage += "• `request <resource> \"<justification>\"` - Request access to GCP workspace (7-day access)\n"
+	helpMessage += "• `revoke <resource>` - Remove your GCP workspace access early\n"
 
 	helpMessage += "\n*Testing:*\n"
 	helpMessage += "• `test <name> <image_or_version_or_prs> <options>` - Run test suites from images or PRs\n"
@@ -393,6 +395,14 @@ func GenerateManageHelpMessage() string {
 	helpMessage += "```\nrefresh\n```\n"
 	helpMessage += "Retry fetching cluster credentials in case of an error.\n\n"
 
+	helpMessage += "*request*\n"
+	helpMessage += "```\nrequest <resource> \"<justification>\"\n```\n"
+	helpMessage += "Request access to GCP workspace. Access is granted for 7 days and automatically expires. Users cannot extend their access; they must either wait for expiration or use the 'revoke' command to remove access early before requesting new access. Must be a member of Hybrid Platforms organization.\n\n"
+
+	helpMessage += "*revoke*\n"
+	helpMessage += "```\nrevoke <resource>\n```\n"
+	helpMessage += "Remove your GCP workspace access before it expires. This allows you to immediately revoke access if you no longer need it, rather than waiting for the automatic 7-day expiration.\n\n"
+
 	helpMessage += "*lookup*\n"
 	helpMessage += "```\nlookup <version specifier>\n```\n"
 	helpMessage += "Find version corresponding to version specifier.\n\n"
@@ -406,6 +416,8 @@ func GenerateManageHelpMessage() string {
 	helpMessage += "• `done` - Terminate specific cluster\n"
 	helpMessage += "• `auth` - Get kubeconfig credentials\n"
 	helpMessage += "• `refresh` - Re-fetch cluster credentials\n"
+	helpMessage += "• `request gcp-access \"Need to debug CI infrastructure issues\"` - Request GCP workspace access\n"
+	helpMessage += "• `revoke gcp-access` - Remove your GCP workspace access\n"
 	helpMessage += "• `lookup nightly` - Find version corresponding to the specified value\n"
 
 	return helpMessage

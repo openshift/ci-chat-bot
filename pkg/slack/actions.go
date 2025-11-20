@@ -10,12 +10,12 @@ import (
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
-	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog"
 )
 
-func LaunchCluster(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func LaunchCluster(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	userName := GetUserName(client, event.User)
 	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
 	if err != nil {
@@ -51,7 +51,7 @@ func LaunchCluster(client *slack.Client, jobManager manager.JobManager, event *s
 	return msg
 }
 
-func Lookup(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func Lookup(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
 	if err != nil {
 		return err.Error()
@@ -76,12 +76,12 @@ func Lookup(client *slack.Client, jobManager manager.JobManager, event *slackeve
 	return msg
 }
 
-func List(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func List(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	list, _, _ := jobManager.ListJobs(event.User, manager.ListFilters{})
 	return list
 }
 
-func Done(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func Done(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	msg, err := jobManager.TerminateJobForUser(event.User)
 	if err != nil {
 		return err.Error()
@@ -89,7 +89,7 @@ func Done(client *slack.Client, jobManager manager.JobManager, event *slackevent
 	return msg
 }
 
-func Refresh(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func Refresh(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	msg, err := jobManager.SyncJobForUser(event.User)
 	if err != nil {
 		return err.Error()
@@ -97,7 +97,7 @@ func Refresh(client *slack.Client, jobManager manager.JobManager, event *slackev
 	return msg
 }
 
-func MceAuth(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func MceAuth(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	nameInput, err := ParseImageInput(properties.StringParam("name", ""))
 	if err != nil {
 		return err.Error()
@@ -127,7 +127,7 @@ func MceAuth(client *slack.Client, jobManager manager.JobManager, event *slackev
 	return ""
 }
 
-func Auth(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func Auth(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	cluster, password := jobManager.GetROSACluster(event.User)
 	if cluster != nil {
 		NotifyRosa(client, cluster, password)
@@ -142,7 +142,7 @@ func Auth(client *slack.Client, jobManager manager.JobManager, event *slackevent
 	return " "
 }
 
-func TestUpgrade(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func TestUpgrade(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	userName := GetUserName(client, event.User)
 	from, err := ParseImageInput(properties.StringParam("from", ""))
 	if err != nil {
@@ -186,7 +186,7 @@ func TestUpgrade(client *slack.Client, jobManager manager.JobManager, event *sla
 	return msg
 }
 
-func Test(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func Test(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	userName := GetUserName(client, event.User)
 	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
 	if err != nil {
@@ -233,7 +233,7 @@ func Test(client *slack.Client, jobManager manager.JobManager, event *slackevent
 	return msg
 }
 
-func CatalogBuild(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func CatalogBuild(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	userName := GetUserName(client, event.User)
 	from, err := ParseImageInput(properties.StringParam("pullrequest", ""))
 	if err != nil {
@@ -274,7 +274,7 @@ func CatalogBuild(client *slack.Client, jobManager manager.JobManager, event *sl
 	return msg
 }
 
-func Build(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func Build(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	userName := GetUserName(client, event.User)
 	from, err := ParseImageInput(properties.StringParam("pullrequest", ""))
 	if err != nil {
@@ -306,11 +306,114 @@ func Build(client *slack.Client, jobManager manager.JobManager, event *slackeven
 	return msg
 }
 
-func Version(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func Version(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	return fmt.Sprintf("Running `%s` from https://github.com/openshift/ci-chat-bot", botversion.Get().String())
 }
 
-func WorkflowLaunch(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func Request(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	// Extract command parameters
+	resource := properties.StringParam("resource", "")
+	justification := properties.StringParam("justification", "")
+
+	// Validate parameters
+	if resource == "" || justification == "" {
+		return "Invalid command format. Usage: request <resource> \"<business justification>\"\nExample: request gcp-access \"Need to debug CI infrastructure issues\""
+	}
+
+	klog.Infof("Resource: \"%s\"", resource)
+
+	// For now, only allow "gcp-access" resource
+	if resource != "gcp-access" {
+		return "Currently, access is only available for the 'gcp-access' resource."
+	}
+
+	// Get user's email
+	user, err := client.GetUserInfo(event.User)
+	if err != nil {
+		klog.Errorf("Failed to get user info for %s: %v", event.User, err)
+		return "Failed to retrieve your user information. Please try again or contact an administrator."
+	}
+
+	email := user.Profile.Email
+	if email == "" {
+		return "Could not determine your email address. Please ensure your Slack profile has an email configured."
+	}
+
+	// Validate using organizational data - check if user is in Hybrid Platforms
+	orgDataService := jobManager.GetOrgDataService()
+	if orgDataService == nil {
+		return "Organizational data service is not available. Please contact an administrator."
+	}
+
+	// Verify user is a member of Hybrid Platforms (required for all access)
+	if !isUserInOrg(orgDataService, event.User, email, "Hybrid Platforms") {
+		return "You are not a member of the 'Hybrid Platforms' organization. Access can only be granted to Hybrid Platforms members."
+	}
+
+	// Grant access with business justification (creates service account and returns key)
+	msg, keyJSON, err := jobManager.GrantGCPAccess(email, event.User, justification, resource)
+	if err != nil {
+		klog.Errorf("Failed to grant GCP access for %s: %v", email, err)
+		return fmt.Sprintf("Failed to grant access: %v", err)
+	}
+
+	// Upload service account key file to Slack
+	if err := SendGCPServiceAccountKey(client, event.Channel, string(keyJSON), email); err != nil {
+		klog.Errorf("Failed to upload service account key for %s: %v", email, err)
+		// Don't rollback - user can re-run command to get key
+		return msg + "\n\n⚠️  Failed to upload key file. Please run the command again to retrieve your credentials."
+	}
+
+	return msg
+}
+
+func Revoke(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	// Extract command parameters
+	resource := properties.StringParam("resource", "")
+
+	// Validate parameters
+	if resource == "" {
+		return "Invalid command format. Usage: revoke <resource>\nExample: revoke gcp-access"
+	}
+
+	// For now, only allow "gcp-access" resource
+	if resource != "gcp-access" {
+		return "Currently, access is only available for the 'gcp-access' resource."
+	}
+
+	// Get user's email
+	user, err := client.GetUserInfo(event.User)
+	if err != nil {
+		klog.Errorf("Failed to get user info for %s: %v", event.User, err)
+		return "Failed to retrieve your user information. Please try again or contact an administrator."
+	}
+
+	email := user.Profile.Email
+	if email == "" {
+		return "Could not determine your email address. Please ensure your Slack profile has an email configured."
+	}
+
+	// Validate using organizational data - check if user is in the openshift org
+	orgDataService := jobManager.GetOrgDataService()
+	if orgDataService == nil {
+		return "Organizational data service is not available. Please contact an administrator."
+	}
+
+	if !isUserInOrg(orgDataService, event.User, email, "Hybrid Platforms") {
+		return "GCP workspace access is only available to members of the Hybrid Platforms organization."
+	}
+
+	// Revoke access
+	msg, err := jobManager.RevokeGCPAccess(email, event.User)
+	if err != nil {
+		klog.Errorf("Failed to revoke GCP access for %s: %v", email, err)
+		return fmt.Sprintf("Failed to revoke access: %v", err)
+	}
+
+	return msg
+}
+
+func WorkflowLaunch(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	workflowConfig := jobManager.GetWorkflowConfig()
 	userName := GetUserName(client, event.User)
 	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
@@ -354,7 +457,7 @@ func WorkflowLaunch(client *slack.Client, jobManager manager.JobManager, event *
 	return msg
 }
 
-func WorkflowTest(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func WorkflowTest(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	workflowConfig := jobManager.GetWorkflowConfig()
 	userName := GetUserName(client, event.User)
 	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
@@ -398,7 +501,7 @@ func WorkflowTest(client *slack.Client, jobManager manager.JobManager, event *sl
 	return msg
 }
 
-func WorkflowUpgrade(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func WorkflowUpgrade(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	workflowConfig := jobManager.GetWorkflowConfig()
 	userName := GetUserName(client, event.User)
 	from, err := ParseImageInput(properties.StringParam("from_image_or_version_or_prs", ""))
@@ -450,7 +553,7 @@ func WorkflowUpgrade(client *slack.Client, jobManager manager.JobManager, event 
 	return msg
 }
 
-func RosaCreate(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func RosaCreate(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	from, err := ParseImageInput(properties.StringParam("version", ""))
 	if err != nil {
 		return err.Error()
@@ -481,7 +584,7 @@ func RosaCreate(client *slack.Client, jobManager manager.JobManager, event *slac
 	return msg
 }
 
-func RosaLookup(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func RosaLookup(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	from, err := ParseImageInput(properties.StringParam("version", ""))
 	if err != nil {
 		return err.Error()
@@ -501,7 +604,7 @@ func RosaLookup(client *slack.Client, jobManager manager.JobManager, event *slac
 	return msg
 }
 
-func RosaDescribe(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func RosaDescribe(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	from, err := ParseImageInput(properties.StringParam("cluster", ""))
 	if err != nil {
 		return err.Error()
@@ -520,7 +623,7 @@ func RosaDescribe(client *slack.Client, jobManager manager.JobManager, event *sl
 	return msg
 }
 
-func MceCreate(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func MceCreate(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
 	if err != nil {
 		return err.Error()
@@ -561,7 +664,7 @@ func MceCreate(client *slack.Client, jobManager manager.JobManager, event *slack
 	return msg
 }
 
-func MceDelete(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func MceDelete(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	nameInput, err := ParseImageInput(properties.StringParam("cluster_name", ""))
 	if err != nil {
 		return err.Error()
@@ -591,11 +694,11 @@ func MceDelete(client *slack.Client, jobManager manager.JobManager, event *slack
 	return msg
 }
 
-func MceImageSets(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func MceImageSets(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	return jobManager.ListMceVersions()
 }
 
-func MceList(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func MceList(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	all, err := ParseImageInput(properties.StringParam("all", ""))
 	if err != nil {
 		return err.Error()
@@ -606,4 +709,32 @@ func MceList(client *slack.Client, jobManager manager.JobManager, event *slackev
 	}
 	list, _, _ := jobManager.ListManagedClusters(event.User)
 	return list
+}
+
+// isUserInOrg checks if a user is in the specified organization.
+// It first tries to look up by Slack ID, and if that fails (e.g., in staging environments),
+// it falls back to looking up by email address and checking the employee's UID.
+func isUserInOrg(orgDataService manager.OrgDataService, slackID, email, org string) bool {
+	// First try Slack ID lookup (works in production)
+	if orgDataService.IsSlackUserInOrg(slackID, org) {
+		klog.V(2).Infof("User %s validated by Slack ID for org %s", slackID, org)
+		return true
+	}
+
+	// Fallback to email lookup (useful for staging/testing environments where Slack IDs differ)
+	klog.V(2).Infof("Slack ID %s not found in org data, trying email lookup for %s", slackID, email)
+	employee := orgDataService.GetEmployeeByEmail(email)
+	if employee == nil {
+		klog.V(2).Infof("User with email %s not found in organizational data", email)
+		return false
+	}
+
+	// Check if the employee (by UID) is in the specified organization
+	if orgDataService.IsEmployeeInOrg(employee.UID, org) {
+		klog.V(2).Infof("User %s validated by email (%s -> UID %s) for org %s", slackID, email, employee.UID, org)
+		return true
+	}
+
+	klog.V(2).Infof("User %s (email: %s, UID: %s) is not a member of org %s", slackID, email, employee.UID, org)
+	return false
 }

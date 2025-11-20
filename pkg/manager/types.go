@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	orgdatacore "github.com/openshift-eng/cyborg-data/go"
 	"github.com/openshift/ci-chat-bot/pkg/prow"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	"github.com/openshift/rosa/pkg/rosa"
@@ -259,6 +260,16 @@ type LeaseClient interface {
 	Metrics(rtype string) (lease.Metrics, error)
 }
 
+// OrgDataService provides organizational data queries for group membership validation
+type OrgDataService interface {
+	// IsSlackUserInOrg checks if a Slack user belongs to an organization
+	IsSlackUserInOrg(slackID string, orgName string) bool
+	// GetEmployeeByEmail retrieves an employee by their email address
+	GetEmployeeByEmail(email string) *orgdatacore.Employee
+	// IsEmployeeInOrg checks if an employee (by UID) belongs to an organization
+	IsEmployeeInOrg(uid string, orgName string) bool
+}
+
 type jobManager struct {
 	lock                 sync.RWMutex
 	requests             map[string]*JobRequest
@@ -336,6 +347,12 @@ type jobManager struct {
 	}
 	mceNotifierFn MCECallbackFunc
 	mceConfig     MceConfig
+
+	// GCP access manager
+	gcpAccessManager *GCPAccessManager
+
+	// Organizational data service for group membership validation
+	orgDataService OrgDataService
 }
 
 // JobRequest keeps information about the request a user made to create
@@ -402,6 +419,14 @@ type JobManager interface {
 	ListMceVersions() string
 	GetMceUserConfig() *MceConfig
 	GetUserCluster(user string) *Job
+
+	// GCP Access methods
+	GrantGCPAccess(email, requestedBy, justification, resource string) (string, []byte, error)
+	RevokeGCPAccess(email, requestedBy string) (string, error)
+	GetGCPAccessManager() *GCPAccessManager
+
+	// Organizational data methods
+	GetOrgDataService() OrgDataService
 }
 
 // JobCallbackFunc is invoked when the job changes state in a significant

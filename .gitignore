@@ -6,3 +6,8 @@
 coverage.out
 golangci-lint.out
 report.json
+
+# Environment files with secrets
+.env
+.env.local
+.env.*.local
