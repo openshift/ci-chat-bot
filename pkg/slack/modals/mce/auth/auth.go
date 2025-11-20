@@ -33,7 +33,7 @@ func process(updater *slack.Client, jobManager manager.JobManager, httpclient *h
 					name = clusterName
 				}
 			} else {
-				msg = "You user has multiple running clusters. Please specify the name of the cluster your are requested credentials for."
+				msg = "You have multiple running clusters. Please specify the name of the cluster you are requesting credentials for."
 			}
 			if msg == "" {
 				msg, kubeconfig = localslack.NotifyMce(updater, managed[name], deployments[name], provisions[name], kubeconfigs[name], passwords[name], false, nil)
@@ -43,7 +43,7 @@ func process(updater *slack.Client, jobManager manager.JobManager, httpclient *h
 			if kubeconfig != "" {
 				submission.Blocks.BlockSet = append(submission.Blocks.BlockSet,
 					slack.NewDividerBlock(),
-					slack.NewHeaderBlock(slack.NewTextBlockObject(slack.PlainTextType, "KubeConfig File (to download the kubeconfig as a file, send `mce auth` in the message tab):", true, false)),
+					slack.NewHeaderBlock(slack.NewTextBlockObject(slack.PlainTextType, "KubeConfig File (to download the kubeconfig as a file, type `mce auth` in the Messages tab):", true, false)),
 					slack.NewRichTextBlock("kubeconfig", &slack.RichTextPreformatted{
 						RichTextSection: slack.RichTextSection{
 							Type: slack.RTEPreformatted,

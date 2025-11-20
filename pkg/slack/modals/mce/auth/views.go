@@ -17,7 +17,7 @@ func View() slackClient.ModalViewRequest {
 				Type: slackClient.MBTSection,
 				Text: &slackClient.TextBlockObject{
 					Type: slackClient.MarkdownType,
-					Text: "Click submit to retrieve the credentials for you MCE cluster",
+					Text: "Click submit to retrieve the credentials for your MCE cluster",
 				},
 			},
 		}},
