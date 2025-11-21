@@ -1,4 +1,5 @@
 //go:build gcs
+// +build gcs
 
 package orgdatacore
 
@@ -89,18 +90,18 @@ func (g *GCSDataSourceImpl) Watch(ctx context.Context, callback func() error) er
 
 				attrs, err := object.Attrs(ctx)
 				if err != nil {
-					logError(err, "GCS: Failed to check object metadata", "object", g.String())
+					fmt.Printf("GCS: Failed to check object metadata for %s: %v\n", g.String(), err)
 					continue
 				}
 
 				// Check if object has been modified
 				if attrs.Updated.After(g.lastModTime) {
-					logInfo("GCS: Object updated, reloading organizational data", "object", g.String())
+					fmt.Printf("GCS: Object %s has been updated, reloading organizational data...\n", g.String())
 					g.lastModTime = attrs.Updated
 					if err := callback(); err != nil {
-						logError(err, "GCS: Reload failed", "object", g.String())
+						fmt.Printf("GCS: Reload failed: %v\n", err)
 					} else {
-						logInfo("GCS: Organizational data reloaded successfully", "object", g.String())
+						fmt.Printf("GCS: Organizational data reloaded successfully\n")
 					}
 				}
 			}

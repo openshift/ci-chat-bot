@@ -15,19 +15,63 @@ The `orgdatacore` package is designed to be a reusable component that can be con
 - **Fast Data Access**: Pre-computed indexes enable O(1) lookups for common queries
 - **Thread-Safe**: Concurrent access with read-write mutex protection
 - **Hot Reload**: Support for dynamic data updates without service restart
-- **Secure GCS Storage**: Production data loaded from Google Cloud Storage only
-- **Comprehensive Queries**: Employee, team, organization, pillar, and team group lookups with membership validation
+- **Pluggable Data Sources**: Load from files, GCS, or implement custom sources
+- **Comprehensive Queries**: Employee, team, and organization lookups with membership validation
 - **Cross-Cluster Ready**: Designed for distributed deployments with remote data sources
-- **Rich Metadata**: Full support for Slack channels, Jira projects, GitHub repos, roles, and more
 
 ## Usage
 
-### Google Cloud Storage Setup
+### Basic Setup with Files
 
-GCS is the supported production data source for this package.
+```go
+package main
 
+import (
+    "context"
+    orgdatacore "github.com/openshift-eng/cyborg-data"
+)
 
-For GCS support, build with the `gcs` tag:
+func main() {
+    // Create a new service
+    service := orgdatacore.NewService()
+    
+    // Load data using FileDataSource
+    fileSource := orgdatacore.NewFileDataSource("comprehensive_index_dump.json")
+    err := service.LoadFromDataSource(context.Background(), fileSource)
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+### Using DataSource Interface
+
+```go
+package main
+
+import (
+    "context"
+    orgdatacore "github.com/openshift-eng/cyborg-data"
+)
+
+func main() {
+    service := orgdatacore.NewService()
+    
+    // Load from files using DataSource interface
+    fileSource := orgdatacore.NewFileDataSource("comprehensive_index_dump.json")
+    err := service.LoadFromDataSource(context.Background(), fileSource)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Start watching for file changes
+    service.StartDataSourceWatcher(context.Background(), fileSource)
+}
+```
+
+### Google Cloud Storage Support
+
+For GCS support, first add the GCS SDK dependency and build with the gcs tag:
 
 ```bash
 go get cloud.google.com/go/storage
@@ -39,14 +83,13 @@ package main
 
 import (
     "context"
-    "log"
     "time"
     orgdatacore "github.com/openshift-eng/cyborg-data"
 )
 
 func main() {
     service := orgdatacore.NewService()
-
+    
     // Configure GCS
     config := orgdatacore.GCSConfig{
         Bucket:        "orgdata-sensitive",
@@ -56,18 +99,18 @@ func main() {
         // Optional: provide service account credentials directly
         // CredentialsJSON: `{"type":"service_account",...}`,
     }
-
+    
     // Load from GCS using the SDK implementation
     gcsSource, err := orgdatacore.NewGCSDataSourceWithSDK(context.Background(), config)
     if err != nil {
         log.Fatal(err)
     }
-
+    
     err = service.LoadFromDataSource(context.Background(), gcsSource)
     if err != nil {
         log.Fatal(err)
     }
-
+    
     // Start watching for GCS changes
     service.StartDataSourceWatcher(context.Background(), gcsSource)
 }
@@ -82,11 +125,10 @@ The package expects data in the `comprehensive_index_dump.json` format generated
 ### Query Performance
 All queries use **pre-computed indexes** for O(1) performance:
 
-- **Employee lookups**: Direct map access via UID, Slack ID, or GitHub ID
+- **Employee lookups**: Direct map access via UID or Slack ID
 - **Team membership**: Pre-computed membership index eliminates tree traversal
 - **Organization hierarchy**: Flattened relationship index for instant ancestry queries
 - **Slack mappings**: Dedicated index for Slack ID → UID resolution
-- **GitHub mappings**: Dedicated index for GitHub ID → UID resolution
 
 ### Thread Safety
 The service uses **read-write mutex protection**:
@@ -98,15 +140,14 @@ The service uses **read-write mutex protection**:
 ```go
 // Optimized for fast lookups
 type Data struct {
-    Metadata Metadata // Summary statistics
     Lookups  Lookups  // Direct object access: O(1)
-    Indexes  Indexes  // Pre-computed relationships: O(1)
+    Indexes  Indexes  // Pre-computed relationships: O(1) 
 }
 
 // Example: Employee lookup
 employee := data.Lookups.Employees[uid]  // Direct map access
 
-// Example: Team membership
+// Example: Team membership 
 memberships := data.Indexes.Membership.MembershipIndex[uid]  // Pre-computed list
 ```
 
@@ -120,18 +161,7 @@ employee := service.GetEmployeeByUID("jsmith")
 // Slack integration - lookup by Slack user ID
 employee = service.GetEmployeeBySlackID("U123ABC456")
 
-// GitHub integration - lookup by GitHub username
-employee = service.GetEmployeeByGitHubID("jsmith-dev")
-
-// Get employee's manager
-manager := service.GetManagerForEmployee("jsmith")
-// Returns the manager's Employee record, or nil if no manager
-
-// Returns *Employee with fields:
-//   - UID, FullName, Email, JobTitle
-//   - SlackUID, GitHubID
-//   - RhatGeo, CostCenter
-//   - ManagerUID, IsPeopleManager
+// Returns *Employee with: UID, FullName, Email, JobTitle, SlackUID
 ```
 
 ### Team Operations
@@ -141,7 +171,6 @@ team := service.GetTeamByName("Platform SRE")
 
 // Get all teams for an employee
 teams := service.GetTeamsForUID("jsmith")
-teams = service.GetTeamsForSlackID("U123ABC456")
 
 // Check team membership
 isMember := service.IsEmployeeInTeam("jsmith", "Platform SRE")
@@ -149,12 +178,9 @@ isSlackMember := service.IsSlackUserInTeam("U123ABC456", "Platform SRE")
 
 // Get all team members
 members := service.GetTeamMembers("Platform SRE")
-
-// Get all team names
-allTeams := service.GetAllTeamNames()
 ```
 
-### Organization Queries
+### Organization Queries  
 ```go
 // Get organization details
 org := service.GetOrgByName("Engineering")
@@ -166,37 +192,6 @@ isSlackMember := service.IsSlackUserInOrg("U123ABC456", "Engineering")
 // Get complete organizational context
 orgs := service.GetUserOrganizations("U123ABC456")
 // Returns: teams, orgs, pillars, team_groups user belongs to
-
-// Get all organization names
-allOrgs := service.GetAllOrgNames()
-```
-
-### Pillar Queries
-```go
-// Get pillar details
-pillar := service.GetPillarByName("Platform Engineering")
-
-// Get all pillar names
-allPillars := service.GetAllPillarNames()
-```
-
-### Team Group Queries
-```go
-// Get team group details
-teamGroup := service.GetTeamGroupByName("Backend Teams")
-
-// Get all team group names
-allTeamGroups := service.GetAllTeamGroupNames()
-```
-
-### Enumeration Methods
-```go
-// Get all UIDs, team names, org names, pillar names, team group names
-employeeUIDs := service.GetAllEmployeeUIDs()
-teamNames := service.GetAllTeamNames()
-orgNames := service.GetAllOrgNames()
-pillarNames := service.GetAllPillarNames()
-teamGroupNames := service.GetAllTeamGroupNames()
 ```
 
 ### Performance Characteristics
@@ -204,116 +199,29 @@ teamGroupNames := service.GetAllTeamGroupNames()
 |-----------|------------|------------|
 | `GetEmployeeByUID` | O(1) | `lookups.employees` |
 | `GetEmployeeBySlackID` | O(1) | `indexes.slack_id_mappings` |
-| `GetEmployeeByGitHubID` | O(1) | `indexes.github_id_mappings` |
-| `GetManagerForEmployee` | O(1) | `lookups.employees` (2 lookups) |
-| `GetTeamByName` | O(1) | `lookups.teams` |
-| `GetOrgByName` | O(1) | `lookups.orgs` |
-| `GetPillarByName` | O(1) | `lookups.pillars` |
-| `GetTeamGroupByName` | O(1) | `lookups.team_groups` |
 | `GetTeamsForUID` | O(1) | `indexes.membership.membership_index` |
-| `IsEmployeeInTeam` | O(n) | Pre-computed membership (n = teams) |
+| `IsEmployeeInTeam` | O(1) | Pre-computed membership |
 | `GetUserOrganizations` | O(1) | Flattened hierarchy index |
-| `GetAllEmployeeUIDs` | O(n) | Map key iteration |
 
 **No expensive tree traversals** - all organizational relationships are pre-computed during indexing.
-
-## Employee Structure
-
-The `Employee` type includes comprehensive fields:
-
-```go
-type Employee struct {
-    // Core identity
-    UID      string `json:"uid"`
-    FullName string `json:"full_name"`
-    Email    string `json:"email"`
-    JobTitle string `json:"job_title"`
-
-    // External integrations
-    SlackUID string `json:"slack_uid,omitempty"`
-    GitHubID string `json:"github_id,omitempty"`
-
-    // Organizational data
-    RhatGeo         string `json:"rhat_geo,omitempty"`
-    CostCenter      int    `json:"cost_center,omitempty"`
-    ManagerUID      string `json:"manager_uid,omitempty"`
-    IsPeopleManager bool   `json:"is_people_manager,omitempty"`
-}
-```
-
-## Organizational Entities
-
-All organizational entities (Team, Org, Pillar, TeamGroup) share a common structure:
-
-```go
-type Team struct {
-    UID         string
-    Name        string
-    TabName     string
-    Description string
-    Type        string
-    Group       Group  // Rich metadata
-}
-```
-
-### Group Metadata
-
-The `Group` structure contains rich metadata for teams and organizations:
-
-```go
-type Group struct {
-    Type                  GroupType
-    ResolvedPeopleUIDList []string
-
-    // Slack integration
-    Slack *SlackConfig  // Channels and aliases
-
-    // Team structure
-    Roles []RoleInfo  // People assignments to roles
-
-    // Project tracking
-    Jiras []JiraInfo  // Jira project/component mappings
-    Repos []RepoInfo  // GitHub repositories
-
-    // Communication
-    Emails   []EmailInfo      // Team email addresses
-    Keywords []string         // Search keywords
-
-    // Documentation
-    Resources []ResourceInfo  // Links to wikis, docs, etc.
-
-    // Ownership
-    ComponentRoles []ComponentRoleInfo  // Component ownership
-}
-```
-
-**SlackConfig** includes:
-- `Channels` - Channel configurations with IDs, descriptions, and types
-- `Aliases` - Slack handle aliases with descriptions
-
-**RoleInfo** includes:
-- `People` - List of UIDs assigned to the role
-- `Types` - Role types (manager, qe, team_lead, etc.)
-
-**JiraInfo** includes:
-- `Project`, `Component`, `Description`, `View`, `Types`
-
-**RepoInfo** includes:
-- `Repo`, `Description`, `Tags`, `Path`, `Roles`, `Branch`, `Types`
 
 ## Data Sources
 
 The package supports pluggable data sources through the `DataSource` interface:
 
-### Production Data Source
+### Built-in Data Sources
 
-**GCSDataSource** - Google Cloud Storage
-- Requires GCS SDK: `go get cloud.google.com/go/storage`
-- Build with `-tags gcs` for full functionality
-- Supports hot reload with configurable polling interval
-- Uses Application Default Credentials (ADC) or service account JSON
-- Secure remote data access for cross-cluster deployments in GCP
-- Provides proper access controls, encryption, and audit logging
+1. **FileDataSource** - Local JSON files
+   - No additional dependencies
+   - Supports file watching with polling
+   - Ideal for development and file-based deployments
+
+2. **GCSDataSource** - Google Cloud Storage
+   - Requires GCS SDK: `go get cloud.google.com/go/storage`
+   - Build with `-tags gcs` for full functionality
+   - Supports hot reload with configurable polling interval
+   - Uses Application Default Credentials (ADC) or service account JSON
+   - Ideal for production cross-cluster deployments in GCP
 
 ### Custom Data Sources
 
@@ -328,46 +236,14 @@ type DataSource interface {
 ```
 
 Examples of custom sources you could implement:
-- HTTP/HTTPS endpoints
+- HTTP/HTTPS endpoints  
 - AWS S3 or other S3-compatible storage
 - Git repositories
 - Database queries
 - Redis/Memcached for caching layers
 
-## Logging
-
-The package uses structured logging via the `logr` interface, making it compatible with OpenShift and Kubernetes logging standards.
-
-**Default**: Uses `stdr` (standard library logger wrapper)
-
-**OpenShift Integration**:
-```go
-import "k8s.io/klog/v2/klogr"
-import orgdatacore "github.com/openshift-eng/cyborg-data"
-
-func init() {
-    orgdatacore.SetLogger(klogr.New())
-}
-```
-
-Log events include data source changes, reload operations, and error conditions with structured key-value context.
-
-## Examples
-
-See the `example/` directory for working examples:
-
-- **`example/comprehensive`** - Comprehensive example showing all major features
-- **`example/with-gcs`** - GCS-specific example with hot reload
-
-Build examples with:
-```bash
-cd example/comprehensive && go build -o ./comprehensive .
-cd example/with-gcs && go build -tags gcs -o ./with-gcs .
-```
-
 ## Dependencies
 
-- Go 1.23.0+
-- Build with `-tags gcs` for production use
-- GCS SDK required for production: `cloud.google.com/go/storage`
-- `github.com/go-logr/logr` for structured logging
+- Go 1.19+
+- Standard library only (no external dependencies for file sources)
+- Optional: GCS SDK for Google Cloud Storage support (`cloud.google.com/go/storage`)

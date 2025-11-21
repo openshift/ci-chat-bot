@@ -97,7 +97,7 @@ func (s *Service) GetEmployeeBySlackID(slackID string) *Employee {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if s.data == nil || s.data.Indexes.SlackIDMappings.SlackUIDToUID == nil || s.data.Lookups.Employees == nil {
+	if s.data == nil || s.data.Indexes.SlackIDMappings.SlackUIDToUID == nil {
 		return nil
 	}
 
@@ -106,58 +106,7 @@ func (s *Service) GetEmployeeBySlackID(slackID string) *Employee {
 		return nil
 	}
 
-	if emp, exists := s.data.Lookups.Employees[uid]; exists {
-		return &emp
-	}
-	return nil
-}
-
-// GetEmployeeByGitHubID returns an employee by GitHub ID
-func (s *Service) GetEmployeeByGitHubID(githubID string) *Employee {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.data == nil || s.data.Indexes.GitHubIDMappings.GitHubIDToUID == nil || s.data.Lookups.Employees == nil {
-		return nil
-	}
-
-	uid := s.data.Indexes.GitHubIDMappings.GitHubIDToUID[githubID]
-	if uid == "" {
-		return nil
-	}
-
-	if emp, exists := s.data.Lookups.Employees[uid]; exists {
-		return &emp
-	}
-	return nil
-}
-
-// GetManagerForEmployee returns the manager for a given employee UID
-func (s *Service) GetManagerForEmployee(uid string) *Employee {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.data == nil || s.data.Lookups.Employees == nil {
-		return nil
-	}
-
-	// Get the employee first
-	emp, exists := s.data.Lookups.Employees[uid]
-	if !exists {
-		return nil
-	}
-
-	// Check if employee has a manager
-	if emp.ManagerUID == "" {
-		return nil
-	}
-
-	// Look up the manager
-	if manager, exists := s.data.Lookups.Employees[emp.ManagerUID]; exists {
-		return &manager
-	}
-
-	return nil
+	return s.GetEmployeeByUID(uid)
 }
 
 // GetTeamByName returns a team by name
@@ -192,38 +141,6 @@ func (s *Service) GetOrgByName(orgName string) *Org {
 		return nil
 	}
 	return &org
-}
-
-// GetPillarByName returns a pillar by name
-func (s *Service) GetPillarByName(pillarName string) *Pillar {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.data == nil || s.data.Lookups.Pillars == nil {
-		return nil
-	}
-
-	pillar, exists := s.data.Lookups.Pillars[pillarName]
-	if !exists {
-		return nil
-	}
-	return &pillar
-}
-
-// GetTeamGroupByName returns a team group by name
-func (s *Service) GetTeamGroupByName(teamGroupName string) *TeamGroup {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.data == nil || s.data.Lookups.TeamGroups == nil {
-		return nil
-	}
-
-	teamGroup, exists := s.data.Lookups.TeamGroups[teamGroupName]
-	if !exists {
-		return nil
-	}
-	return &teamGroup
 }
 
 // GetTeamsForUID returns all teams a UID is a member of
@@ -272,8 +189,8 @@ func (s *Service) GetTeamMembers(teamName string) []Employee {
 	// Get employee objects for each UID
 	var members []Employee
 	for _, uid := range team.Group.ResolvedPeopleUIDList {
-		if emp, exists := s.data.Lookups.Employees[uid]; exists {
-			members = append(members, emp)
+		if emp := s.GetEmployeeByUID(uid); emp != nil {
+			members = append(members, *emp)
 		}
 	}
 
@@ -365,7 +282,7 @@ func (s *Service) GetUserOrganizations(slackUserID string) []OrgInfo {
 
 	for _, membership := range memberships {
 		switch membership.Type {
-		case MembershipTypeOrg:
+		case "org":
 			// Direct organization membership
 			if !seenItems[membership.Name] {
 				orgs = append(orgs, OrgInfo{
@@ -453,84 +370,4 @@ func (s *Service) getUIDFromSlackID(slackID string) string {
 		return ""
 	}
 	return s.data.Indexes.SlackIDMappings.SlackUIDToUID[slackID]
-}
-
-// GetAllEmployeeUIDs returns all employee UIDs in the system
-func (s *Service) GetAllEmployeeUIDs() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.data == nil || s.data.Lookups.Employees == nil {
-		return []string{}
-	}
-
-	uids := make([]string, 0, len(s.data.Lookups.Employees))
-	for uid := range s.data.Lookups.Employees {
-		uids = append(uids, uid)
-	}
-	return uids
-}
-
-// GetAllTeamNames returns all team names in the system
-func (s *Service) GetAllTeamNames() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.data == nil || s.data.Lookups.Teams == nil {
-		return []string{}
-	}
-
-	names := make([]string, 0, len(s.data.Lookups.Teams))
-	for name := range s.data.Lookups.Teams {
-		names = append(names, name)
-	}
-	return names
-}
-
-// GetAllOrgNames returns all organization names in the system
-func (s *Service) GetAllOrgNames() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.data == nil || s.data.Lookups.Orgs == nil {
-		return []string{}
-	}
-
-	names := make([]string, 0, len(s.data.Lookups.Orgs))
-	for name := range s.data.Lookups.Orgs {
-		names = append(names, name)
-	}
-	return names
-}
-
-// GetAllPillarNames returns all pillar names in the system
-func (s *Service) GetAllPillarNames() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.data == nil || s.data.Lookups.Pillars == nil {
-		return []string{}
-	}
-
-	names := make([]string, 0, len(s.data.Lookups.Pillars))
-	for name := range s.data.Lookups.Pillars {
-		names = append(names, name)
-	}
-	return names
-}
-
-// GetAllTeamGroupNames returns all team group names in the system
-func (s *Service) GetAllTeamGroupNames() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.data == nil || s.data.Lookups.TeamGroups == nil {
-		return []string{}
-	}
-
-	names := make([]string, 0, len(s.data.Lookups.TeamGroups))
-	for name := range s.data.Lookups.TeamGroups {
-		names = append(names, name)
-	}
-	return names
 }
