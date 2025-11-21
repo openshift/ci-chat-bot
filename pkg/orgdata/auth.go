@@ -169,6 +169,12 @@ func (a *AuthorizationService) CheckAuthorization(slackUserID, command string) (
 		return true, ""
 	}
 
+	// If no org data service available, fall back to permit all mode
+	if a.orgDataService == nil {
+		klog.V(2).Info("No organizational data available, running in permit all mode")
+		return true, ""
+	}
+
 	// Find matching rule for the command
 	var matchingRule *AuthRule
 	for _, rule := range a.config.Rules {
@@ -248,11 +254,17 @@ func (a *AuthorizationService) GetUserOrganizations(slackUserID string) []string
 
 // GetUserOrganizationsWithType returns all organizations a Slack user belongs to with their types
 func (a *AuthorizationService) GetUserOrganizationsWithType(slackUserID string) []orgdatacore.OrgInfo {
+	if a.orgDataService == nil {
+		return []orgdatacore.OrgInfo{}
+	}
 	return a.orgDataService.GetUserOrganizations(slackUserID)
 }
 
 // GetUserTeams returns all teams a Slack user belongs to
 func (a *AuthorizationService) GetUserTeams(slackUserID string) []string {
+	if a.orgDataService == nil {
+		return []string{}
+	}
 	return a.orgDataService.GetTeamsForSlackID(slackUserID)
 }
 
@@ -302,6 +314,11 @@ func (a *AuthorizationService) GetUserCommands(slackUserID string) map[string][]
 
 	if a.config == nil {
 		// No config means all commands are unrestricted
+		return result
+	}
+
+	if a.orgDataService == nil {
+		// No org data means we can't evaluate org/team based rules, return empty
 		return result
 	}
 

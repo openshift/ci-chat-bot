@@ -14,6 +14,3 @@ func testGCS() {
 	config := orgdatacore.GCSConfig{}
 	_, _ = orgdatacore.NewGCSDataSourceWithSDK(context.Background(), config)
 }
-
-
-

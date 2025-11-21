@@ -1,3 +1,6 @@
+//go:build gcs
+// +build gcs
+
 package orgdata
 
 import (

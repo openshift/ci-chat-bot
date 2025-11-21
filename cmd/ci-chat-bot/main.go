@@ -414,17 +414,20 @@ func run() error {
 				klog.Warningf("GCS setup failed (%v), falling back to file-based data: %v", err, opt.orgDataPaths)
 				fileSource := orgdatacore.NewFileDataSource(opt.orgDataPaths...)
 				if err := orgDataService.LoadFromDataSource(ctx, fileSource); err != nil {
-					klog.Fatalf("Failed to load organizational data from files: %v", err)
+					klog.Warningf("Failed to load organizational data from files: %v. Running without authorization data (permit all mode)", err)
+					orgDataService = nil // Clear the service since we couldn't load any data
+				} else {
+					klog.Info("Successfully loaded organizational data from files")
+					// Start file watcher for hot reload
+					go func() {
+						if err := orgDataService.StartDataSourceWatcher(ctx, fileSource); err != nil {
+							klog.Warningf("Failed to start file watcher: %v", err)
+						}
+					}()
 				}
-				klog.Info("Successfully loaded organizational data from files")
-				// Start file watcher for hot reload
-				go func() {
-					if err := orgDataService.StartDataSourceWatcher(ctx, fileSource); err != nil {
-						klog.Warningf("Failed to start file watcher: %v", err)
-					}
-				}()
 			} else {
-				klog.Fatalf("GCS setup failed and no file paths provided as fallback: %v", err)
+				klog.Warningf("GCS setup failed and no file paths provided as fallback: %v. Running without authorization data (permit all mode)", err)
+				orgDataService = nil // Clear the service since we couldn't load any data
 			}
 		}
 
