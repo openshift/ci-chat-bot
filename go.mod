@@ -9,6 +9,7 @@ replace (
 	github.com/docker/docker => github.com/openshift/moby-moby v1.4.2-0.20190308215630-da810a85109d
 	//github.com/google/cel-go => github.com/google/cel-go v0.17.8
 	github.com/moby/buildkit => github.com/dmcgowan/buildkit v0.0.0-20170731200553-da2b9dc7dab9
+	github.com/openshift-eng/cyborg-data => /home/ehoxha/source/cyborg-data
 	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20240528061634-b054aa794d87
 	github.com/openshift/hive => github.com/openshift/hive v0.0.0-20240904155057-b6cdaa9cb317
 	github.com/openshift/hive/apis => github.com/openshift/hive/apis v0.0.0-20240904155057-b6cdaa9cb317

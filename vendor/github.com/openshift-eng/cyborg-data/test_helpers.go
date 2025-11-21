@@ -92,9 +92,10 @@ func CreateTestData() *Data {
 					UID:  "org1",
 					Name: "test-division",
 					Type: "organization",
-					Group: struct {
-						ResolvedPeopleUIDList []string `json:"resolved_people_uid_list"`
-					}{
+					Group: Group{
+						Type: GroupType{
+							Name: "organization",
+						},
 						ResolvedPeopleUIDList: []string{"testuser1", "testuser2"},
 					},
 				},
@@ -136,6 +137,12 @@ func CreateTestData() *Data {
 					"U222222": "testuser2",
 				},
 			},
+			GitHubIDMappings: GitHubIDMappings{
+				GitHubIDToUID: map[string]string{
+					"ghuser1": "testuser1",
+					"ghuser2": "testuser2",
+				},
+			},
 		},
 	}
 }
@@ -169,6 +176,9 @@ func CreateEmptyTestData() string {
 			},
 			SlackIDMappings: SlackIDMappings{
 				SlackUIDToUID: map[string]string{},
+			},
+			GitHubIDMappings: GitHubIDMappings{
+				GitHubIDToUID: map[string]string{},
 			},
 		},
 	}

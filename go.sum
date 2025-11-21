@@ -2543,8 +2543,6 @@ github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJw
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
 github.com/opencontainers/runtime-spec v1.2.1 h1:S4k4ryNgEpxW1dzyqffOmhI1BHYcjzU8lpJfSlR0xww=
 github.com/opencontainers/runtime-spec v1.2.1/go.mod h1:jwyrGlmzljRJv/Fgzds9SsS/C5hL+LL3ko9hs6T5lQ0=
-github.com/openshift-eng/cyborg-data v0.0.0-20250909122327-e42cc43525f5 h1:7LTirjH+aIQKFzV5Gfmwuo2zxs4KXa9Xy8ITY6jbMYU=
-github.com/openshift-eng/cyborg-data v0.0.0-20250909122327-e42cc43525f5/go.mod h1:CpblegM+2/rIaFnIgUB0NN0p6Wmsv0UqYK4EVhTE1uQ=
 github.com/openshift-online/ocm-common v0.0.29 h1:EyKoLvQXKOa3UpoWHT3cMyNHBbhSZURC8Ws/cxTaT1U=
 github.com/openshift-online/ocm-common v0.0.29/go.mod h1:VEkuZp9aqbXtetZ5ycND6QpvhykvTuBF3oPsVM1X3vI=
 github.com/openshift-online/ocm-sdk-go v0.1.465 h1:RZr92sdcAKyLVcL19/RYOn6KVtspDUH1wc3UuO4LgiE=

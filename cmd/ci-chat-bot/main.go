@@ -409,26 +409,8 @@ func run() error {
 
 		// Setup GCS data source (implementation varies based on build tags)
 		if err := orgdata.SetupGCSDataSource(ctx, gcsConfig, orgDataService); err != nil {
-			// GCS setup failed - check if we have file paths as fallback
-			if len(opt.orgDataPaths) > 0 {
-				klog.Warningf("GCS setup failed (%v), falling back to file-based data: %v", err, opt.orgDataPaths)
-				fileSource := orgdatacore.NewFileDataSource(opt.orgDataPaths...)
-				if err := orgDataService.LoadFromDataSource(ctx, fileSource); err != nil {
-					klog.Warningf("Failed to load organizational data from files: %v. Running without authorization data (permit all mode)", err)
-					orgDataService = nil // Clear the service since we couldn't load any data
-				} else {
-					klog.Info("Successfully loaded organizational data from files")
-					// Start file watcher for hot reload
-					go func() {
-						if err := orgDataService.StartDataSourceWatcher(ctx, fileSource); err != nil {
-							klog.Warningf("Failed to start file watcher: %v", err)
-						}
-					}()
-				}
-			} else {
-				klog.Warningf("GCS setup failed and no file paths provided as fallback: %v. Running without authorization data (permit all mode)", err)
-				orgDataService = nil // Clear the service since we couldn't load any data
-			}
+			klog.Warningf("GCS setup failed: %v. Running without authorization data (permit all mode)", err)
+			orgDataService = nil // Clear the service since we couldn't load any data
 		}
 
 		// Initialize authorization service if config is provided
@@ -453,47 +435,9 @@ func run() error {
 			// Create authorization service without config - will allow all commands
 			authService = orgdata.NewAuthorizationService(orgDataService, "")
 		}
-	} else if len(opt.orgDataPaths) > 0 {
-		klog.Infof("Initializing indexed organizational data service with %d data files", len(opt.orgDataPaths))
-		orgDataService = orgdatacore.NewService()
-
-		fileSource := orgdatacore.NewFileDataSource(opt.orgDataPaths...)
-		if err := orgDataService.LoadFromDataSource(ctx, fileSource); err != nil {
-			klog.Warningf("Failed to load indexed organizational data: %v", err)
-		} else {
-			klog.Info("Successfully loaded indexed organizational data")
-			// Start file watcher for hot reload
-			go func() {
-				if err := orgDataService.StartDataSourceWatcher(ctx, fileSource); err != nil {
-					klog.Warningf("Failed to start file watcher: %v", err)
-				}
-			}()
-
-			// Initialize authorization service if config is provided
-			if opt.authorizationConfigPath != "" {
-				klog.Infof("Initializing authorization service with config: %s", opt.authorizationConfigPath)
-				authService = orgdata.NewAuthorizationService(orgDataService, opt.authorizationConfigPath)
-				if err := authService.LoadConfig(ctx); err != nil {
-					klog.Warningf("Failed to load authorization config: %v", err)
-					// Keep the authService even if config fails to load - it will allow all commands
-				} else {
-					klog.Infof("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
-				}
-
-				// Start config watcher regardless of initial load success - it will detect file creation
-				go func() {
-					if err := authService.StartConfigWatcher(ctx); err != nil {
-						klog.Infof("Authorization config watcher stopped: %v", err)
-					}
-				}()
-			} else {
-				klog.Info("No authorization config path provided, creating authorization service without config")
-				// Create authorization service without config - will allow all commands
-				authService = orgdata.NewAuthorizationService(orgDataService, "")
-			}
-		}
 	} else {
-		klog.Info("No organizational data source configured, running without authorization")
+		klog.Warning("GCS not enabled. File-based data sources have been deprecated for security reasons")
+		klog.Info("Running without authorization data (permit all mode). To enable authorization, set --gcs-enabled=true and configure GCS parameters")
 	}
 
 	klog.V(2).Infof("Debug: authService is nil: %v", authService == nil)

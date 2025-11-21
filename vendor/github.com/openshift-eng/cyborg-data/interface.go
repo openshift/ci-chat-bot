@@ -25,8 +25,12 @@ type ServiceInterface interface {
 
 	GetEmployeeByUID(uid string) *Employee
 	GetEmployeeBySlackID(slackID string) *Employee
+	GetEmployeeByGitHubID(githubID string) *Employee
+	GetManagerForEmployee(uid string) *Employee
 	GetTeamByName(teamName string) *Team
 	GetOrgByName(orgName string) *Org
+	GetPillarByName(pillarName string) *Pillar
+	GetTeamGroupByName(teamGroupName string) *TeamGroup
 
 	// Membership queries
 
@@ -47,6 +51,14 @@ type ServiceInterface interface {
 	GetVersion() DataVersion
 	LoadFromDataSource(ctx context.Context, source DataSource) error
 	StartDataSourceWatcher(ctx context.Context, source DataSource) error
+
+	// Enumeration methods
+
+	GetAllEmployeeUIDs() []string
+	GetAllTeamNames() []string
+	GetAllOrgNames() []string
+	GetAllPillarNames() []string
+	GetAllTeamGroupNames() []string
 }
 
 // OrgInfo represents organization information for a user
