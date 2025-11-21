@@ -13,11 +13,12 @@ import (
 
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/go-logr/logr"
-	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
+	"k8s.io/klog/v2"
 
 	"github.com/adrg/xdg"
+	orgdatacore "github.com/openshift-eng/cyborg-data"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/orgdata"
 	"github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	botversion "github.com/openshift/ci-chat-bot/pkg/version"
@@ -50,7 +51,6 @@ import (
 	"github.com/openshift/ci-tools/pkg/lease"
 
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/klog"
 	prowclientset "sigs.k8s.io/prow/pkg/client/clientset/versioned"
 	prowinformers "sigs.k8s.io/prow/pkg/client/informers/externalversions"
 	configflagutil "sigs.k8s.io/prow/pkg/flagutil/config"
@@ -90,6 +90,18 @@ type options struct {
 	overrideRosaSecretName   string
 
 	jiraOptions flagutil.JiraOptions
+
+	// Orgdata configuration
+	orgDataPaths            []string
+	authorizationConfigPath string
+
+	// GCS configuration for orgdata
+	gcsEnabled         bool
+	gcsBucket          string
+	gcsObjectPath      string
+	gcsProjectID       string
+	gcsCredentialsJSON string
+	gcsCheckInterval   time.Duration
 }
 
 func (o *options) Validate() error {
@@ -98,6 +110,24 @@ func (o *options) Validate() error {
 			return fmt.Errorf("error accessing --release-cluster-kubeconfig: %w", err)
 		}
 	}
+
+	// Validate GCS configuration
+	if o.gcsEnabled {
+		if o.gcsBucket == "" {
+			return fmt.Errorf("--gcs-bucket is required when --gcs-enabled is true")
+		}
+	}
+
+	// Warn if file-based orgdata is attempted (not supported)
+	if len(o.orgDataPaths) > 0 {
+		klog.Warning("--orgdata-paths is not supported. Use --gcs-enabled instead or run without authorization (permit all mode).")
+	}
+
+	// Info message when no authorization configured
+	if !o.gcsEnabled {
+		klog.Info("No organizational data source configured. Authorization will be disabled (permit all mode).")
+	}
+
 	for _, group := range []flagutil.OptionGroup{&o.GitHubOptions, &o.KubernetesOptions, &o.InstrumentationOptions} {
 		if err := group.Validate(false); err != nil {
 			return err
@@ -127,9 +157,6 @@ func run() error {
 		rosaClusterAdminUsername: "cluster-admin",
 	}
 
-	// Initialize a standard logger for k8s controller-runtime
-	ctrlruntimelog.SetLogger(logr.New(ctrlruntimelog.NullLogSink{}))
-
 	pflag.StringVar(&opt.ConfigResolver, "config-resolver", opt.ConfigResolver, "A URL pointing to a config resolver for retrieving ci-operator config. You may pass a location on disk with file://<abs_path_to_ci_operator_config>")
 	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
 	pflag.StringVar(&opt.ReleaseClusterKubeconfig, "release-cluster-kubeconfig", "", "Kubeconfig to use for cluster housing the release imagestreams. Defaults to normal kubeconfig if unset.")
@@ -146,6 +173,16 @@ func run() error {
 	pflag.StringVar(&opt.rosaOIDCConfigId, "rosa-oidcConfigId-path", "", "Path to the OIDC configuration ID")
 	pflag.StringVar(&opt.rosaBillingAccount, "rosa-billingAccount-path", "", "Path to the Billing Account ID.")
 	pflag.BoolVar(&opt.disableRosa, "disable-rosa", false, "Do not load the rosa client")
+	pflag.StringSliceVar(&opt.orgDataPaths, "orgdata-paths", []string{}, "Paths to organizational data JSON files (comma-separated). Used for authorization.")
+	pflag.StringVar(&opt.authorizationConfigPath, "authorization-config", "", "Path to authorization configuration file. If not provided, all users have access to all commands.")
+
+	// GCS flags for orgdata
+	pflag.BoolVar(&opt.gcsEnabled, "gcs-enabled", false, "Enable loading organizational data from Google Cloud Storage instead of local files.")
+	pflag.StringVar(&opt.gcsBucket, "gcs-bucket", "", "GCS bucket name containing organizational data. Required when --gcs-enabled is true.")
+	pflag.StringVar(&opt.gcsObjectPath, "gcs-object-path", "orgdata/comprehensive_index_dump.json", "Path to organizational data JSON file within the GCS bucket.")
+	pflag.StringVar(&opt.gcsProjectID, "gcs-project-id", "", "GCS project ID. If not provided, will use default from environment.")
+	pflag.StringVar(&opt.gcsCredentialsJSON, "gcs-credentials-json", "", "GCS service account credentials JSON. If not provided, will use Application Default Credentials.")
+	pflag.DurationVar(&opt.gcsCheckInterval, "gcs-check-interval", 5*time.Minute, "How often to check GCS for updated organizational data.")
 
 	opt.prowconfig.AddFlags(emptyFlags)
 	opt.GitHubOptions.AddFlags(emptyFlags)
@@ -358,14 +395,65 @@ func run() error {
 		return fmt.Errorf("unable to load initial configuration: %w", err)
 	}
 
-	bot := slack.NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows)
+	// Initialize orgdata and authorization services
+	var orgDataService orgdatacore.ServiceInterface
+	var authService *orgdata.AuthorizationService
+
+	if opt.gcsEnabled {
+		klog.Info("Initializing indexed organizational data service with GCS backend")
+		orgDataService = orgdatacore.NewService()
+
+		// Configure GCS
+		gcsConfig := orgdatacore.GCSConfig{
+			Bucket:          opt.gcsBucket,
+			ObjectPath:      opt.gcsObjectPath,
+			ProjectID:       opt.gcsProjectID,
+			CredentialsJSON: opt.gcsCredentialsJSON,
+			CheckInterval:   opt.gcsCheckInterval,
+		}
+
+		// Setup GCS data source (implementation varies based on build tags)
+		if err := orgdata.SetupGCSDataSource(ctx, gcsConfig, orgDataService); err != nil {
+			klog.Warningf("GCS setup failed: %v. Running without authorization data (permit all mode)", err)
+			orgDataService = nil // Clear the service since we couldn't load any data
+		}
+
+		// Initialize authorization service if config is provided
+		if opt.authorizationConfigPath != "" {
+			klog.Infof("Initializing authorization service with config: %s", opt.authorizationConfigPath)
+			authService = orgdata.NewAuthorizationService(orgDataService, opt.authorizationConfigPath)
+			if err := authService.LoadConfig(ctx); err != nil {
+				klog.Warningf("Failed to load authorization config: %v", err)
+				// Keep the authService even if config fails to load - it will allow all commands
+			} else {
+				klog.Infof("Authorization service successfully initialized with config: %s", opt.authorizationConfigPath)
+			}
+
+			// Start config watcher regardless of initial load success - it will detect file creation
+			go func() {
+				if err := authService.StartConfigWatcher(ctx); err != nil {
+					klog.Infof("Authorization config watcher stopped: %v", err)
+				}
+			}()
+		} else {
+			klog.Info("No authorization config path provided, creating authorization service without config")
+			// Create authorization service without config - will allow all commands
+			authService = orgdata.NewAuthorizationService(orgDataService, "")
+		}
+	} else {
+		klog.Info("Running without authorization data (permit all mode). To enable authorization, set --gcs-enabled=true and configure GCS parameters")
+	}
+
+	klog.V(2).Infof("Debug: authService is nil: %v", authService == nil)
+
+	bot := slack.NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows, authService)
 	jiraclient, err := opt.jiraOptions.Client()
 	httpClient := &http.Client{Timeout: 60 * time.Second}
 	if err != nil {
 		klog.Errorf("failed to load the Jira Client: %s", err)
-		Start(bot, nil, jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics)
+		Start(bot, nil, jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics, authService)
 	} else {
-		Start(bot, jiraclient.JiraClient(), jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics)
+		Start(bot, jiraclient.JiraClient(), jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics, authService)
 	}
 
 	return err

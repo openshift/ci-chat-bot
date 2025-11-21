@@ -1,0 +1,169 @@
+# Authorization configuration for ci-chat-bot
+# This file defines which organizations/teams/users can execute specific commands
+#
+# Rule Structure:
+#   - command: Command name or pattern (e.g., "launch", "rosa_create", "*")
+#   - allowed_orgs: List of organizations that can execute this command
+#   - allowed_teams: List of teams that can execute this command
+#   - allowed_uids: List of specific Employee.UID values that can execute this command
+#                    (The system matches Slack users to Employee.UID via org data)
+#   - allow_all: If true, allows all users regardless of other restrictions
+#   - deny_message: Custom message when access is denied (optional)
+#
+# Authorization Priority (checked in order):
+#   1. allow_all: true (highest priority - allows everyone)
+#   2. allowed_uids (specific users)
+#   3. allowed_teams (team membership)
+#   4. allowed_orgs (organization membership)
+#
+# Protected Commands (require authorization):
+#   - Cluster creation: launch, rosa_create, mce_create, workflow_launch
+#   - Cluster deletion: done, mce_delete
+#   - Testing: test, test_upgrade, workflow_test, workflow_upgrade
+#   - Builds: build, catalog_build
+#
+# Unprotected Commands (always available):
+#   - Read-only: list, auth, lookup, version, whoami, rosa_lookup, rosa_describe
+#   - MCE read-only: mce_auth, mce_list, mce_lookup
+#   - Refresh: refresh (retries credential fetch)
+
+rules:
+  # ========================================================================
+  # CLUSTER CREATION COMMANDS
+  # ========================================================================
+
+  # Standard cluster launches - restricted to Hybrid Platforms
+  - command: "launch"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Cluster launches are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # ROSA cluster creation - restricted to Hybrid Platforms
+  - command: "rosa_create"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "ROSA cluster creation is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # MCE cluster creation - restricted to Hybrid Platforms
+  - command: "mce_create"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "MCE cluster creation is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # Workflow-based cluster launches - restricted to Hybrid Platforms
+  - command: "workflow_launch"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Workflow launches are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # ========================================================================
+  # CLUSTER DELETION COMMANDS
+  # ========================================================================
+
+  # Terminate/delete clusters - restricted to Hybrid Platforms
+  - command: "done"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Cluster termination is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # MCE cluster deletion - restricted to Hybrid Platforms
+  - command: "mce_delete"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "MCE cluster deletion is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # ========================================================================
+  # TEST COMMANDS
+  # ========================================================================
+
+  # Run test suites - restricted to Hybrid Platforms
+  - command: "test"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Test execution is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # Run upgrade tests - restricted to Hybrid Platforms
+  - command: "test_upgrade"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Upgrade test execution is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # Workflow-based tests - restricted to Hybrid Platforms
+  - command: "workflow_test"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Workflow test execution is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # Workflow-based upgrade tests - restricted to Hybrid Platforms
+  - command: "workflow_upgrade"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Workflow upgrade execution is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # ========================================================================
+  # BUILD COMMANDS
+  # ========================================================================
+
+  # Create release image builds - restricted to Hybrid Platforms
+  - command: "build"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Release image builds are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # Create catalog builds - restricted to Hybrid Platforms
+  - command: "catalog_build"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Catalog builds are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # ========================================================================
+  # ADDITIONAL EXAMPLES
+  # ========================================================================
+  # Uncomment and modify these examples as needed for your organization
+
+  # Example 1: Restrict to specific users by Employee.UID (highest specificity)
+  # Note: The system checks if the Slack user corresponds to one of these
+  # Employee.UID values from the organizational data
+  # - command: "admin_command"
+  #   allowed_uids:
+  #     - "jdoe123"      # Employee.UID from org data
+  #     - "asmith456"    # Employee.UID from org data
+  #   deny_message: "Admin commands are restricted to specific administrators."
+
+  # Example 2: Restrict to specific teams
+  # - command: "staging_deploy"
+  #   allowed_teams:
+  #     - "CI/CD Team"
+  #     - "QE Team"
+  #   deny_message: "Staging deployments require CI/CD or QE team membership."
+
+  # Example 3: Allow multiple organizations
+  # - command: "special_feature"
+  #   allowed_orgs:
+  #     - "Platform+ Engineering"
+  #     - "OpenShift"
+  #     - "Developer Experience"
+  #   deny_message: "This feature is restricted to Platform+, OpenShift, or DevEx organizations."
+
+  # Example 4: Mixed authorization levels (UID OR team OR org)
+  # Any of these will grant access (checked in priority order)
+  # - command: "advanced_feature"
+  #   allowed_uids:
+  #     - "lead_engineer_uid"    # Specific lead engineer
+  #   allowed_teams:
+  #     - "Architecture Team"    # OR architecture team members
+  #   allowed_orgs:
+  #     - "Platform+ Engineering"  # OR anyone in Platform+ Engineering
+  #   deny_message: "Advanced features require lead engineer approval, architecture team membership, or Platform+ Engineering membership."
+
+  # Example 5: Wildcard rule to set defaults for all other commands
+  # This catches any commands not explicitly listed above
+  # - command: "*"
+  #   allowed_orgs:
+  #     - "Hybrid Platforms"
+  #   deny_message: "This command is restricted to Hybrid Platforms Org members."
+
+  # Example 6: Allow all users for a specific command
+  # (Read-only commands like list, version, whoami don't need this - they're already unprotected)
+  # - command: "status"
+  #   allow_all: true

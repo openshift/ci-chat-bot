@@ -1,0 +1,17 @@
+//go:build !gcs
+// +build !gcs
+
+package orgdata
+
+import (
+	"context"
+	"fmt"
+
+	orgdatacore "github.com/openshift-eng/cyborg-data"
+)
+
+// SetupGCSDataSource returns an error when GCS support is not enabled
+// This stub ensures the code compiles without the gcs build tag
+func SetupGCSDataSource(ctx context.Context, gcsConfig orgdatacore.GCSConfig, orgDataService orgdatacore.ServiceInterface) error {
+	return fmt.Errorf("GCS support not enabled: build with '-tags gcs' to enable GCS functionality for gs://%s/%s", gcsConfig.Bucket, gcsConfig.ObjectPath)
+}

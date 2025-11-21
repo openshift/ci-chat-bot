@@ -14,14 +14,19 @@ import (
 
 	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/orgdata"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/slackevents"
 	"k8s.io/klog"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 )
+
+// AuthorizationService is a type alias for orgdata.AuthorizationService
+type AuthorizationService = orgdata.AuthorizationService
 
 type Bot struct {
 	BotToken         string
@@ -29,6 +34,7 @@ type Bot struct {
 	GracePeriod      time.Duration
 	Port             int
 	userID           string
+	authService      *AuthorizationService
 }
 
 func (b *Bot) JobResponder(s *slack.Client) func(manager.Job) {
@@ -104,13 +110,14 @@ func (b *Bot) MceResponder(s *slack.Client) func(*clusterv1.ManagedCluster, *hiv
 	}
 }
 
-func NewBot(botToken, botSigningSecret string, graceperiod time.Duration, port int, workflowConfig *manager.WorkflowConfig) *Bot {
+func NewBot(botToken, botSigningSecret string, graceperiod time.Duration, port int, workflowConfig *manager.WorkflowConfig, authService *AuthorizationService) *Bot {
 	return &Bot{
 		BotToken:         botToken,
 		BotSigningSecret: botSigningSecret,
 		GracePeriod:      graceperiod,
 		Port:             port,
 		userID:           "unknown",
+		authService:      authService,
 	}
 }
 
@@ -122,12 +129,12 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 				strings.Join(CodeSlice(manager.SupportedArchitectures), ", "),
 				strings.Join(CodeSlice(manager.SupportedParameters), ", ")),
 			Example: "launch 4.19,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
-			Handler: LaunchCluster,
+			Handler: AuthorizedCommandHandler("launch", b.authService, LaunchCluster),
 		}, false),
 		parser.NewBotCommand("rosa create <version> <duration>", &parser.CommandDefinition{
 			Description: "Launch an cluster in ROSA. Only GA Openshift versions are supported at the moment.",
 			Example:     "rosa create 4.19 3h",
-			Handler:     RosaCreate,
+			Handler:     AuthorizedCommandHandler("rosa_create", b.authService, RosaCreate),
 		}, false),
 		parser.NewBotCommand("rosa lookup <version>", &parser.CommandDefinition{
 			Description: "Find openshift version(s) with provided prefix that is supported in ROSA.",
@@ -145,7 +152,7 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		}, false),
 		parser.NewBotCommand("done", &parser.CommandDefinition{
 			Description: "Terminate the running cluster",
-			Handler:     Done,
+			Handler:     AuthorizedCommandHandler("done", b.authService, Done),
 		}, false),
 		parser.NewBotCommand("refresh", &parser.CommandDefinition{
 			Description: "If the cluster is currently marked as failed, retry fetching its credentials in case of an error.",
@@ -158,36 +165,42 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		parser.NewBotCommand("test upgrade <from> <to> <options>", &parser.CommandDefinition{
 			Description: fmt.Sprintf("Run the upgrade tests between two release images. The arguments may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org. You may change the upgrade test by passing `test=NAME` in options with one of %s", strings.Join(CodeSlice(manager.SupportedUpgradeTests), ", ")),
 			Example:     "test upgrade 4.17 4.19 aws",
-			Handler:     TestUpgrade,
+			Handler:     AuthorizedCommandHandler("test_upgrade", b.authService, TestUpgrade),
 		}, false),
 		parser.NewBotCommand("test <name> <image_or_version_or_prs> <options>", &parser.CommandDefinition{
 			Description: fmt.Sprintf("Run the requested test suite from an image or release or built PRs. Supported test suites are %s. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org. ", strings.Join(CodeSlice(manager.SupportedTests), ", ")),
 			Example:     "test e2e 4.19 vsphere",
-			Handler:     Test,
+			Handler:     AuthorizedCommandHandler("test", b.authService, Test),
 		}, false),
 		parser.NewBotCommand("build <pullrequest>", &parser.CommandDefinition{
 			Description: "Create a new release image from one or more pull requests. The successful build location will be sent to you when it completes and then preserved for 12 hours.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
 			Example:     "build openshift/operator-framework-olm#68,operator-framework/operator-marketplace#396",
-			Handler:     Build,
+			Handler:     AuthorizedCommandHandler("build", b.authService, Build),
 		}, false),
 		parser.NewBotCommand("workflow-launch <name> <image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
 			Description: "Launch a cluster using the requested workflow from an image or release or built PRs. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org.",
 			Example:     "workflow-launch openshift-e2e-gcp-windows-node 4.19 gcp",
-			Handler:     WorkflowLaunch,
+			Handler:     AuthorizedCommandHandler("workflow_launch", b.authService, WorkflowLaunch),
 		}, false),
 		parser.NewBotCommand("workflow-test <name> <image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
 			Description: "Start the test using the requested workflow from an image or release or built PRs. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org.",
 			Example:     "workflow-test openshift-e2e-gcp 4.19",
-			Handler:     WorkflowTest,
+			Handler:     AuthorizedCommandHandler("workflow_test", b.authService, WorkflowTest),
 		}, false),
 		parser.NewBotCommand("workflow-upgrade <name> <from_image_or_version_or_prs> <to_image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
 			Description: "Run a custom upgrade using the requested workflow from an image or release or built PRs to a specified version/image/pr from https://amd64.ocp.releases.ci.openshift.org. ",
 			Example:     "workflow-upgrade openshift-upgrade-azure-ovn 4.17 4.19 azure",
-			Handler:     WorkflowUpgrade,
+			Handler:     AuthorizedCommandHandler("workflow_upgrade", b.authService, WorkflowUpgrade),
 		}, false),
 		parser.NewBotCommand("version", &parser.CommandDefinition{
 			Description: "Report the version of the bot",
 			Handler:     Version,
+		}, false),
+		parser.NewBotCommand("whoami", &parser.CommandDefinition{
+			Description: "Show your organizational information and team memberships",
+			Handler: func(client *slack.Client, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+				return GetUserInfo(client, b.authService, event, properties)
+			},
 		}, false),
 		parser.NewBotCommand("lookup <image_or_version_or_prs> <architecture>", &parser.CommandDefinition{
 			Description: "Get info about a version.",
@@ -197,13 +210,13 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		parser.NewBotCommand("catalog build <pullrequest> <bundle_name>", &parser.CommandDefinition{
 			Description: "Create an operator, bundle, and catalog from a pull request. The successful build location will be sent to you when it completes and then preserved for 12 hours.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
 			Example:     "catalog build openshift/aws-efs-csi-driver-operator#75 aws-efs-csi-driver-operator-bundle",
-			Handler:     CatalogBuild,
+			Handler:     AuthorizedCommandHandler("catalog_build", b.authService, CatalogBuild),
 		}, false),
 		parser.NewBotCommand("mce create <image_or_version_or_prs> <duration> <platform>", &parser.CommandDefinition{
 			Description: "Create a new cluster using Hive and MCE.",
 			Example:     "mce create 4.16.7 6h aws",
-			Handler:     MceCreate,
-		}, false),
+			Handler:     AuthorizedCommandHandler("mce_create", b.authService, MceCreate),
+		}, true),
 		parser.NewBotCommand("mce auth <name>", &parser.CommandDefinition{
 			Description: "Print kubeconfig and kubeadmin password for specified MCE cluster.",
 			Example:     "mce auth mycluster",
@@ -212,7 +225,7 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		parser.NewBotCommand("mce delete <cluster_name>", &parser.CommandDefinition{
 			Description: "Delete a previously created MCE cluster.",
 			Example:     "mce delete mycluster",
-			Handler:     MceDelete,
+			Handler:     AuthorizedCommandHandler("mce_delete", b.authService, MceDelete),
 		}, false),
 		parser.NewBotCommand("mce list <all>", &parser.CommandDefinition{
 			Description: "List active MCE clusters. Append `all` to list clusters for all users.",

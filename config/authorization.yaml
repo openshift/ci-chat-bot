@@ -1,0 +1,103 @@
+# Authorization configuration for ci-chat-bot
+# This file defines which organizations can execute specific commands
+#
+# Rule Structure:
+#   - command: Command name or pattern (e.g., "launch", "rosa_create", "*")
+#   - allowed_orgs: List of organizations that can execute this command
+#   - allowed_teams: List of teams that can execute this command  
+#   - allowed_uids: List of specific Employee.UID values that can execute this command
+#                    (The system matches Slack users to Employee.UID via org data)
+#   - allow_all: If true, allows all users regardless of other restrictions
+#   - deny_message: Custom message when access is denied (optional)
+#
+# Authorization Priority (checked in order):
+#   1. allow_all: true (highest priority - allows everyone)
+#   2. allowed_uids (specific users)
+#   3. allowed_teams (team membership)
+#   4. allowed_orgs (organization membership)
+
+rules:
+  # Cluster launch commands - restricted to Hybrid Platforms
+  - command: "launch"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Cluster launches are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # ROSA cluster commands - restricted to Hybrid Platforms  
+  - command: "rosa_create"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Cluster launches are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # MCE cluster commands - restricted to Hybrid Platforms
+  - command: "mce_create"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Cluster launches are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # Workflow launch commands - restricted to Hybrid Platforms
+  - command: "workflow_launch"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Cluster launches are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # General commands available to all users
+  - command: "version"
+    allow_all: true
+
+  - command: "whoami"
+    allow_all: true
+
+  # Example: Restrict a command to specific Employee.UIDs 
+  # Uncomment to enable specific user authorization:
+  # - command: "admin_debug"
+  #   allowed_uids:
+  #     - "admin001"     # Employee.UID from org data
+  #     - "lead_dev_123" # Employee.UID from org data
+  #   deny_message: "Debug commands are restricted to designated administrators."
+
+  # Examples for different authorization levels:
+  # Uncomment and modify as needed:
+  
+  # Option 1: Allow all users (unrestricted access)
+  # - command: "help"
+  #   allow_all: true
+  
+  # Option 2: Allow specific users by Employee.UID (highest specificity)
+  # Note: The system checks if the Slack user who issued the command
+  # corresponds to one of these Employee.UID values in the org data
+  # - command: "admin_reset"
+  #   allowed_uids:
+  #     - "jdoe123"      # Employee.UID from org data
+  #     - "asmith456"    # Employee.UID from org data  
+  #   deny_message: "Admin reset command is restricted to specific administrators."
+  
+  # Option 3: Allow specific teams
+  # - command: "deploy_staging"
+  #   allowed_teams:
+  #     - "CI/CD Team"
+  #     - "QE Team"
+  #   deny_message: "Staging deployments require CI/CD or QE team membership."
+  
+  # Option 4: Allow multiple organizations
+  # - command: "view_metrics"
+  #   allowed_orgs:
+  #     - "Platform+ Engineering"
+  #     - "OpenShift"
+  #     - "Developer Experience"
+  
+  # Option 5: Mixed approach with multiple authorization levels
+  # - command: "emergency_access"
+  #   allowed_uids:
+  #     - "oncall_admin_uid"  # Specific Employee.UID for on-call admin
+  #     - "backup_admin_uid"  # Specific Employee.UID for backup admin
+  #   allowed_teams:
+  #     - "SRE Team"          # OR SRE team members
+  #   allowed_orgs:
+  #     - "Platform+ Engineering"  # OR Platform Engineering members
+  #   deny_message: "Emergency access requires specific admin privileges, SRE team membership, or Platform Engineering membership."
+  
+  # Option 6: Command available to all with custom message for context
+  # - command: "status"
+  #   allow_all: true
+  #   deny_message: "This message won't be shown since allow_all is true."
