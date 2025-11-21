@@ -167,10 +167,10 @@ If authorization is too restrictive:
 2. Review the authorization rules in that file
 3. Set `AUTH_CONFIG=""` to disable authorization for testing
 
-### Migration from File-based to GCS
-1. **Upload your existing data**:
+### Setting up GCS for Authorization
+1. **Upload organizational data**:
    ```bash
    gcloud storage cp comprehensive_index_dump.json gs://resolved-org/orgdata/
    ```
 2. **Test GCS access**: `./hack/run-with-gcs.sh`
-3. **Update your workflow**: Set `USE_GCS_ORGDATA=true` in your environment
+3. **For regular use**: Set `USE_GCS_ORGDATA=true` in your environment

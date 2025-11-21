@@ -82,16 +82,7 @@ type AuthConfigSource interface {
 
 ### 1. Configuration Options
 
-#### Option A: Local Files (Development)
-
-```bash
-./ci-chat-bot \
-  --orgdata-paths="/path/to/comprehensive_index_dump.json" \
-  --authorization-config="/path/to/authorization.yaml" \
-  [other flags...]
-```
-
-#### Option B: Google Cloud Storage (Production)
+#### Running with Google Cloud Storage (Production)
 
 ```bash
 # Build (GCS support included by default)
@@ -108,14 +99,14 @@ make build
   [other flags...]
 ```
 
-#### Option C: Using Development Scripts
+#### Using Development Scripts
 
 ```bash
-# Quick start with GCS (recommended)
+# With GCS (production-like)
+export USE_GCS_ORGDATA=true
 ./hack/run-with-gcs.sh
 
-# Local file development
-export ORGDATA_PATHS="/path/to/comprehensive_index_dump.json"
+# Without authorization (permit all mode - development only)
 ./hack/run.sh
 
 # See all options
@@ -371,11 +362,11 @@ The `AuthorizedCommandHandler` wrapper:
 ### Common Issues
 
 **"Authorization service not configured"**
-- **Local files**: Check `--orgdata-paths` and `--authorization-config` flags
 - **GCS**: Verify `--gcs-enabled=true` and GCS configuration flags
 - **Build**: GCS support is included in all builds by default
 - **Authentication**: Run `gcloud auth login` or set service account credentials
 - **Logs**: Check for data loading errors, GCS authentication failures
+- **Config**: Check `--authorization-config` flag points to valid YAML file
 
 **User not found in org data**
 - Verify user's Slack UID is in the organizational data
@@ -387,29 +378,33 @@ The `AuthorizedCommandHandler` wrapper:
 - Check authorization config syntax
 - Verify team/org names match exactly (case-sensitive)
 
-## Data Sources
+## Data Source
 
-The system can load organizational data from multiple sources:
+The system loads organizational data from Google Cloud Storage:
 
-### Local Files
-```bash
---orgdata-paths="/path/to/comprehensive_index_dump.json"
-```
-- **Best for**: Development, testing
-- **Hot Reload**: File watching (automatic)
-- **Dependencies**: None
-
-### Google Cloud Storage  
+### Google Cloud Storage
 ```bash
 --gcs-enabled=true \
 --gcs-bucket="resolved-org" \
 --gcs-object-path="orgdata/comprehensive_index_dump.json" \
---gcs-project-id="openshift-crt"
+--gcs-project-id="openshift-crt" \
+--gcs-check-interval="5m"
 ```
 - **Best for**: Production, cross-cluster deployments
 - **Hot Reload**: Configurable polling (default: 5 minutes)
 - **Dependencies**: GCS support included by default
 - **Authentication**: Application Default Credentials or service account JSON
+
+### Development Mode (No Authorization)
+
+For local development without GCS:
+```bash
+./hack/run.sh  # Runs in permit-all mode
+```
+- **Best for**: Local development, testing
+- **Hot Reload**: Not applicable
+- **Dependencies**: None
+- **Security**: All users have access to all commands
 
 ### Development Scripts
 ```bash

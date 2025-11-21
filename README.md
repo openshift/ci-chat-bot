@@ -66,7 +66,7 @@ export GCS_OBJECT_PATH="orgdata/comprehensive_index_dump.json"
 ## Build Options
 
 ```bash
-# Build (includes both file-based and GCS data sources)
+# Build (includes GCS support)
 make build
 
 # See all available targets

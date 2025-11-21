@@ -27,51 +27,62 @@ work_dir=$(readlink -f $(dirname $0)/..)
 # Determine orgdata configuration
 orgdata_flags=""
 
-# Check if GCS is enabled
-if [[ "${USE_GCS_ORGDATA:-false}" == "true" ]]; then
-  echo "Using GCS backend..."
+# Check if GCS is enabled via environment variable
+if [[ "${USE_GCS_ORGDATA:-}" == "true" ]]; then
+  echo "Using GCS backend for organizational data..."
 
   # GCS configuration with defaults
   GCS_BUCKET="${GCS_BUCKET:-resolved-org}"
   GCS_OBJECT_PATH="${GCS_OBJECT_PATH:-orgdata/comprehensive_index_dump.json}"
   GCS_PROJECT_ID="${GCS_PROJECT_ID:-openshift-crt}"
   GCS_CHECK_INTERVAL="${GCS_CHECK_INTERVAL:-5m}"
-  
+
   echo "GCS Config: gs://${GCS_BUCKET}/${GCS_OBJECT_PATH}"
-  
+
   orgdata_flags="--gcs-enabled=true \
   --gcs-bucket=${GCS_BUCKET} \
   --gcs-object-path=${GCS_OBJECT_PATH} \
   --gcs-project-id=${GCS_PROJECT_ID} \
   --gcs-check-interval=${GCS_CHECK_INTERVAL}"
-  
+
   # Add GCS credentials if provided
   if [[ -n "${GCS_CREDENTIALS_JSON:-}" ]]; then
     orgdata_flags="${orgdata_flags} --gcs-credentials-json=${GCS_CREDENTIALS_JSON}"
   fi
 else
-  echo "Using local file-based orgdata..."
-  # Default orgdata path (can be overridden with ORGDATA_PATHS env var)
-  # Users should set ORGDATA_PATHS to point to their comprehensive_index_dump.json file
-  default_orgdata="${work_dir}/test-data/comprehensive_index_dump.json"
-  ORGDATA_PATHS="${ORGDATA_PATHS:-${default_orgdata}}"
-  
-  if [[ ! -f "$ORGDATA_PATHS" ]]; then
-    echo "⚠️  Warning: Orgdata file not found at: $ORGDATA_PATHS"
-    echo "   Set ORGDATA_PATHS environment variable to your comprehensive_index_dump.json file"
-    echo "   Example: export ORGDATA_PATHS=\"/path/to/comprehensive_index_dump.json\""
-  fi
-  orgdata_flags="--orgdata-paths=${ORGDATA_PATHS}"
-  echo "Orgdata file: ${ORGDATA_PATHS}"
+  echo "⚠️  No organizational data source configured - running in PERMIT ALL mode"
+  echo ""
+  echo "   All users will have access to all commands (no authorization enforcement)"
+  echo ""
+  echo "   To enable authorization with GCS:"
+  echo "   export USE_GCS_ORGDATA=true"
+  echo "   export GCS_BUCKET=your-bucket"
+  echo "   export GCS_OBJECT_PATH=orgdata/comprehensive_index_dump.json"
+  echo ""
+  echo "   Note: Production deployments should use GCS with proper authentication."
+  echo ""
+  # No flags - will run without orgdata (permit all mode)
 fi
 
-# Authorization config (relative to project root)
-AUTH_CONFIG="${AUTH_CONFIG:-${work_dir}/test-authorization.yaml}"
+# Authorization config (optional - if not set, permit all mode)
+AUTH_CONFIG="${AUTH_CONFIG:-}"
+if [[ -n "$AUTH_CONFIG" && -f "$AUTH_CONFIG" ]]; then
+  echo "Using authorization config: ${AUTH_CONFIG}"
+  auth_flags="--authorization-config=${AUTH_CONFIG}"
+elif [[ -f "${work_dir}/test-authorization.yaml" ]]; then
+  echo "Using default authorization config: ${work_dir}/test-authorization.yaml"
+  auth_flags="--authorization-config=${work_dir}/test-authorization.yaml"
+else
+  echo "No authorization config found - running in PERMIT ALL mode"
+  auth_flags=""
+fi
 
+echo ""
 echo "Building ci-chat-bot..."
 make
 
-echo "Starting ci-chat-bot with $(echo $orgdata_flags | cut -d' ' -f1) backend..."
+echo ""
+echo "Starting ci-chat-bot..."
 ./ci-chat-bot \
   --force-pr-owner=system:serviceaccount:ci:ci-chat-bot \
   --job-config ${work_dir}/../release/ci-operator/jobs/openshift/release/ \
@@ -88,4 +99,4 @@ echo "Starting ci-chat-bot with $(echo $orgdata_flags | cut -d' ' -f1) backend..
   --disable-rosa \
   --v=2 \
   $orgdata_flags \
-  --authorization-config="${AUTH_CONFIG}"
+  $auth_flags

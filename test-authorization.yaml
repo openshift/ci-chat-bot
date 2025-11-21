@@ -34,8 +34,8 @@ rules:
 
   # Standard cluster launches - restricted to Hybrid Platforms
   - command: "launch"
-    allowed_uids:
-      - abezhani
+    allowed_orgs:
+      - "Hybrid Platforms"
     deny_message: "Cluster launches are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
 
   # ROSA cluster creation - restricted to Hybrid Platforms

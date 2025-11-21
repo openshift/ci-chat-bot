@@ -116,11 +116,16 @@ func (o *options) Validate() error {
 		if o.gcsBucket == "" {
 			return fmt.Errorf("--gcs-bucket is required when --gcs-enabled is true")
 		}
-		if len(o.orgDataPaths) > 0 {
-			return fmt.Errorf("cannot use both --orgdata-paths and --gcs-enabled at the same time")
-		}
-	} else if len(o.orgDataPaths) == 0 {
-		klog.Warning("Neither --orgdata-paths nor --gcs-enabled specified. Authorization will be disabled.")
+	}
+
+	// Warn if file-based orgdata is attempted (not supported)
+	if len(o.orgDataPaths) > 0 {
+		klog.Warning("--orgdata-paths is not supported. Use --gcs-enabled instead or run without authorization (permit all mode).")
+	}
+
+	// Info message when no authorization configured
+	if !o.gcsEnabled {
+		klog.Info("No organizational data source configured. Authorization will be disabled (permit all mode).")
 	}
 
 	for _, group := range []flagutil.OptionGroup{&o.GitHubOptions, &o.KubernetesOptions, &o.InstrumentationOptions} {
@@ -436,7 +441,6 @@ func run() error {
 			authService = orgdata.NewAuthorizationService(orgDataService, "")
 		}
 	} else {
-		klog.Warning("GCS not enabled. File-based data sources have been deprecated for security reasons")
 		klog.Info("Running without authorization data (permit all mode). To enable authorization, set --gcs-enabled=true and configure GCS parameters")
 	}
 

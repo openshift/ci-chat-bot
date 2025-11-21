@@ -52,11 +52,16 @@ chmod +x inspect-json.sh
 
 ## 🤖 Full Bot Testing
 
-Run the complete ci-chat-bot with authorization:
+**Note:** For production, use GCS instead of local files. This test example is for development/testing only.
+
+Run the complete ci-chat-bot with authorization using GCS:
 
 ```bash
+# Production approach (recommended)
 go run ./cmd/ci-chat-bot \
-  --orgdata-paths="./test-data/orgdata.json" \
+  --gcs-enabled=true \
+  --gcs-bucket="your-test-bucket" \
+  --gcs-object-path="test-data/orgdata.json" \
   --authorization-config="./test-authorization.yaml" \
   --slack-token="your-slack-bot-token" \
   --slack-signing-secret="your-signing-secret" \
