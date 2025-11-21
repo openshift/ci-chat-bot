@@ -1,10 +1,10 @@
 # Authorization configuration for ci-chat-bot
-# This file defines which organizations can execute specific commands
+# This file defines which organizations/teams/users can execute specific commands
 #
 # Rule Structure:
 #   - command: Command name or pattern (e.g., "launch", "rosa_create", "*")
 #   - allowed_orgs: List of organizations that can execute this command
-#   - allowed_teams: List of teams that can execute this command  
+#   - allowed_teams: List of teams that can execute this command
 #   - allowed_uids: List of specific Employee.UID values that can execute this command
 #                    (The system matches Slack users to Employee.UID via org data)
 #   - allow_all: If true, allows all users regardless of other restrictions
@@ -15,89 +15,155 @@
 #   2. allowed_uids (specific users)
 #   3. allowed_teams (team membership)
 #   4. allowed_orgs (organization membership)
+#
+# Protected Commands (require authorization):
+#   - Cluster creation: launch, rosa_create, mce_create, workflow_launch
+#   - Cluster deletion: done, mce_delete
+#   - Testing: test, test_upgrade, workflow_test, workflow_upgrade
+#   - Builds: build, catalog_build
+#
+# Unprotected Commands (always available):
+#   - Read-only: list, auth, lookup, version, whoami, rosa_lookup, rosa_describe
+#   - MCE read-only: mce_auth, mce_list, mce_lookup
+#   - Refresh: refresh (retries credential fetch)
 
 rules:
-  # Cluster launch commands - restricted to Hybrid Platforms
+  # ========================================================================
+  # CLUSTER CREATION COMMANDS
+  # ========================================================================
+
+  # Standard cluster launches - restricted to Hybrid Platforms
   - command: "launch"
-    allowed_orgs:
-      - "Hybrid Platforms"
+    allowed_uids:
+      - abezhani
     deny_message: "Cluster launches are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
 
-  # ROSA cluster commands - restricted to Hybrid Platforms  
+  # ROSA cluster creation - restricted to Hybrid Platforms
   - command: "rosa_create"
     allowed_orgs:
       - "Hybrid Platforms"
-    deny_message: "Cluster launches are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+    deny_message: "ROSA cluster creation is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
 
-  # MCE cluster commands - restricted to Hybrid Platforms
+  # MCE cluster creation - restricted to Hybrid Platforms
   - command: "mce_create"
     allowed_orgs:
       - "Hybrid Platforms"
-    deny_message: "Cluster launches are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+    deny_message: "MCE cluster creation is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
 
-  # Workflow launch commands - restricted to Hybrid Platforms
+  # Workflow-based cluster launches - restricted to Hybrid Platforms
   - command: "workflow_launch"
     allowed_orgs:
       - "Hybrid Platforms"
-    deny_message: "Cluster launches are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+    deny_message: "Workflow launches are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
 
-  # General commands available to all users
-  - command: "version"
-    allow_all: true
+  # ========================================================================
+  # CLUSTER DELETION COMMANDS
+  # ========================================================================
 
-  - command: "whoami"
-    allow_all: true
+  # Terminate/delete clusters - restricted to Hybrid Platforms
+  - command: "done"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Cluster termination is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
 
-  # Example: Restrict a command to specific Employee.UIDs 
-  # Uncomment to enable specific user authorization:
-  # - command: "admin_debug"
-  #   allowed_uids:
-  #     - "admin001"     # Employee.UID from org data
-  #     - "lead_dev_123" # Employee.UID from org data
-  #   deny_message: "Debug commands are restricted to designated administrators."
+  # MCE cluster deletion - restricted to Hybrid Platforms
+  - command: "mce_delete"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "MCE cluster deletion is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
 
-  # Examples for different authorization levels:
-  # Uncomment and modify as needed:
-  
-  # Option 1: Allow all users (unrestricted access)
-  # - command: "help"
-  #   allow_all: true
-  
-  # Option 2: Allow specific users by Employee.UID (highest specificity)
-  # Note: The system checks if the Slack user who issued the command
-  # corresponds to one of these Employee.UID values in the org data
-  # - command: "admin_reset"
+  # ========================================================================
+  # TEST COMMANDS
+  # ========================================================================
+
+  # Run test suites - restricted to Hybrid Platforms
+  - command: "test"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Test execution is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # Run upgrade tests - restricted to Hybrid Platforms
+  - command: "test_upgrade"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Upgrade test execution is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # Workflow-based tests - restricted to Hybrid Platforms
+  - command: "workflow_test"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Workflow test execution is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # Workflow-based upgrade tests - restricted to Hybrid Platforms
+  - command: "workflow_upgrade"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Workflow upgrade execution is currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # ========================================================================
+  # BUILD COMMANDS
+  # ========================================================================
+
+  # Create release image builds - restricted to Hybrid Platforms
+  - command: "build"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Release image builds are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # Create catalog builds - restricted to Hybrid Platforms
+  - command: "catalog_build"
+    allowed_orgs:
+      - "Hybrid Platforms"
+    deny_message: "Catalog builds are currently restricted to Hybrid Platforms Org members. If you need access, please contact #forum-ocp-crt"
+
+  # ========================================================================
+  # ADDITIONAL EXAMPLES
+  # ========================================================================
+  # Uncomment and modify these examples as needed for your organization
+
+  # Example 1: Restrict to specific users by Employee.UID (highest specificity)
+  # Note: The system checks if the Slack user corresponds to one of these
+  # Employee.UID values from the organizational data
+  # - command: "admin_command"
   #   allowed_uids:
   #     - "jdoe123"      # Employee.UID from org data
-  #     - "asmith456"    # Employee.UID from org data  
-  #   deny_message: "Admin reset command is restricted to specific administrators."
-  
-  # Option 3: Allow specific teams
-  # - command: "deploy_staging"
+  #     - "asmith456"    # Employee.UID from org data
+  #   deny_message: "Admin commands are restricted to specific administrators."
+
+  # Example 2: Restrict to specific teams
+  # - command: "staging_deploy"
   #   allowed_teams:
   #     - "CI/CD Team"
   #     - "QE Team"
   #   deny_message: "Staging deployments require CI/CD or QE team membership."
-  
-  # Option 4: Allow multiple organizations
-  # - command: "view_metrics"
+
+  # Example 3: Allow multiple organizations
+  # - command: "special_feature"
   #   allowed_orgs:
   #     - "Platform+ Engineering"
   #     - "OpenShift"
   #     - "Developer Experience"
-  
-  # Option 5: Mixed approach with multiple authorization levels
-  # - command: "emergency_access"
+  #   deny_message: "This feature is restricted to Platform+, OpenShift, or DevEx organizations."
+
+  # Example 4: Mixed authorization levels (UID OR team OR org)
+  # Any of these will grant access (checked in priority order)
+  # - command: "advanced_feature"
   #   allowed_uids:
-  #     - "oncall_admin_uid"  # Specific Employee.UID for on-call admin
-  #     - "backup_admin_uid"  # Specific Employee.UID for backup admin
+  #     - "lead_engineer_uid"    # Specific lead engineer
   #   allowed_teams:
-  #     - "SRE Team"          # OR SRE team members
+  #     - "Architecture Team"    # OR architecture team members
   #   allowed_orgs:
-  #     - "Platform+ Engineering"  # OR Platform Engineering members
-  #   deny_message: "Emergency access requires specific admin privileges, SRE team membership, or Platform Engineering membership."
-  
-  # Option 6: Command available to all with custom message for context
+  #     - "Platform+ Engineering"  # OR anyone in Platform+ Engineering
+  #   deny_message: "Advanced features require lead engineer approval, architecture team membership, or Platform+ Engineering membership."
+
+  # Example 5: Wildcard rule to set defaults for all other commands
+  # This catches any commands not explicitly listed above
+  # - command: "*"
+  #   allowed_orgs:
+  #     - "Hybrid Platforms"
+  #   deny_message: "This command is restricted to Hybrid Platforms Org members."
+
+  # Example 6: Allow all users for a specific command
+  # (Read-only commands like list, version, whoami don't need this - they're already unprotected)
   # - command: "status"
   #   allow_all: true
-  #   deny_message: "This message won't be shown since allow_all is true."

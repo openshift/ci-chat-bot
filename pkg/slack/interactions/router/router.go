@@ -2,9 +2,11 @@ package router
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/orgdata"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/auth"
@@ -24,9 +26,10 @@ import (
 
 // ForModals returns a Handler that appropriately routes
 // interaction callbacks for the modals we know about
-func ForModals(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
+func ForModals(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client, authService *orgdata.AuthorizationService) interactions.Handler {
 	router := &modalRouter{
 		slackClient:         client,
+		authService:         authService,
 		viewsByID:           map[modals.Identifier]slack.ModalViewRequest{},
 		handlersByIDAndType: map[modals.Identifier]map[slack.InteractionType]interactions.Handler{},
 	}
@@ -66,6 +69,7 @@ func ForModals(client *slack.Client, jobmanager manager.JobManager, httpclient *
 
 type modalRouter struct {
 	slackClient slackClient
+	authService *orgdata.AuthorizationService
 
 	// viewsById maps callback IDs to modal flows, for triggering
 	// modals as a response to short-cut interaction events
@@ -129,6 +133,13 @@ func (r *modalRouter) viewForApplicationStep(callback *slack.InteractionCallback
 // to open the a modal view for them
 func (r *modalRouter) viewForButton(callback *slack.InteractionCallback, logger *logrus.Entry) error {
 	id := modals.Identifier(callback.ActionCallback.BlockActions[0].Value)
+
+	// Check authorization for protected commands
+	if authorized, denyMessage := r.checkModalAuthorization(string(id), callback.User.ID); !authorized {
+		logger.Infof("User %s denied access to modal %s", callback.User.ID, id)
+		return r.showUnauthorizedModal(callback.TriggerID, string(id), denyMessage, logger)
+	}
+
 	return r.openModal(id, callback.TriggerID, logger)
 }
 
@@ -186,4 +197,63 @@ type CallbackDataAndIdentifier struct {
 	MultipleSelection map[string][]string
 	Context           map[string]string
 	Identifier        string
+}
+
+// commandNameForModal maps modal identifiers to their corresponding command names
+// for authorization checking. This ensures modals use the same authorization rules
+// as their text-based command equivalents.
+var commandNameForModal = map[string]string{
+	"launch":     "launch",
+	"done":       "done",
+	"mce_create": "mce_create",
+	"mce_delete": "mce_delete",
+	// Read-only commands that don't require authorization
+	// "list", "auth", "refresh", "mce_auth", "mce_list", "mce_lookup"
+}
+
+// checkModalAuthorization checks if a user is authorized to use a modal
+func (r *modalRouter) checkModalAuthorization(modalID string, userID string) (bool, string) {
+	// If no authorization service, allow all access
+	if r.authService == nil {
+		return true, ""
+	}
+
+	// Get the command name for this modal
+	commandName, requiresAuth := commandNameForModal[modalID]
+	if !requiresAuth {
+		// Modal doesn't require authorization (read-only command)
+		return true, ""
+	}
+
+	// Check authorization using the command name
+	return r.authService.CheckAuthorization(userID, commandName)
+}
+
+// showUnauthorizedModal displays an error modal when a user is not authorized
+func (r *modalRouter) showUnauthorizedModal(triggerID string, modalID string, denyMessage string, logger *logrus.Entry) error {
+	if denyMessage == "" {
+		denyMessage = fmt.Sprintf("You are not authorized to use the `%s` command. Please contact your administrator for access.", modalID)
+	}
+
+	unauthorizedView := slack.ModalViewRequest{
+		Type:  slack.VTModal,
+		Title: &slack.TextBlockObject{Type: slack.PlainTextType, Text: "Access Denied"},
+		Close: &slack.TextBlockObject{Type: slack.PlainTextType, Text: "OK"},
+		Blocks: slack.Blocks{BlockSet: []slack.Block{
+			&slack.SectionBlock{
+				Type: slack.MBTSection,
+				Text: &slack.TextBlockObject{
+					Type: slack.MarkdownType,
+					Text: fmt.Sprintf("🚫 *Authorization Required*\n\n%s", denyMessage),
+				},
+			},
+		}},
+	}
+
+	response, err := r.slackClient.OpenView(triggerID, unauthorizedView)
+	if err != nil {
+		logger.WithError(err).WithField("messages", response.ResponseMetadata.Messages).Warn("Failed to open unauthorized modal.")
+	}
+	logger.WithField("response", response).Trace("Showed unauthorized modal.")
+	return err
 }
