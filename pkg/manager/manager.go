@@ -2118,17 +2118,17 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	if req.Architecture == "amd64" && m.lClient != nil {
 		switch req.Platform {
 		case "aws":
-			metrics1, err := m.lClient.Metrics("aws-quota-slice")
-			if err != nil {
-				return "", fmt.Errorf("failed to get metrics for `aws` leases: %v", err)
-			}
-			metrics2, err := m.lClient.Metrics("aws-2-quota-slice")
-			if err != nil {
-				return "", fmt.Errorf("failed to get metrics for `aws-2` leases: %v", err)
-			}
-			if metrics2.Free > metrics1.Free {
-				job.UseSecondaryAccount = true
-			}
+			//metrics1, err := m.lClient.Metrics("aws-quota-slice")
+			//if err != nil {
+			//	return "", fmt.Errorf("failed to get metrics for `aws` leases: %v", err)
+			//}
+			//metrics2, err := m.lClient.Metrics("aws-2-quota-slice")
+			//if err != nil {
+			//	return "", fmt.Errorf("failed to get metrics for `aws-2` leases: %v", err)
+			//}
+			//if metrics2.Free > metrics1.Free {
+			//	job.UseSecondaryAccount = true
+			//}
 		case "azure":
 			metrics1, err := m.lClient.Metrics("azure4-quota-slice")
 			if err != nil {
