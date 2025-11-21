@@ -174,7 +174,7 @@ func run() error {
 	// GCS flags for orgdata
 	pflag.BoolVar(&opt.gcsEnabled, "gcs-enabled", false, "Enable loading organizational data from Google Cloud Storage instead of local files.")
 	pflag.StringVar(&opt.gcsBucket, "gcs-bucket", "", "GCS bucket name containing organizational data. Required when --gcs-enabled is true.")
-	pflag.StringVar(&opt.gcsObjectPath, "gcs-object-path", "orgdata/comprehensive_index.json", "Path to organizational data JSON file within the GCS bucket.")
+	pflag.StringVar(&opt.gcsObjectPath, "gcs-object-path", "orgdata/comprehensive_index_dump.json", "Path to organizational data JSON file within the GCS bucket.")
 	pflag.StringVar(&opt.gcsProjectID, "gcs-project-id", "", "GCS project ID. If not provided, will use default from environment.")
 	pflag.StringVar(&opt.gcsCredentialsJSON, "gcs-credentials-json", "", "GCS service account credentials JSON. If not provided, will use Application Default Credentials.")
 	pflag.DurationVar(&opt.gcsCheckInterval, "gcs-check-interval", 5*time.Minute, "How often to check GCS for updated organizational data.")

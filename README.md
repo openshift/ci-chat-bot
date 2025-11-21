@@ -31,7 +31,7 @@ To see the available commands, type `help`.
 ### Option 1: Local Development
 ```bash
 # Set your organizational data file
-export ORGDATA_PATHS="/path/to/comprehensive_index.json"
+export ORGDATA_PATHS="/path/to/comprehensive_index_dump.json"
 
 # Start the bot
 ./hack/run.sh
@@ -48,7 +48,7 @@ make build
 # Or configure manually
 export USE_GCS_ORGDATA=true
 export GCS_BUCKET="your-bucket"
-export GCS_OBJECT_PATH="orgdata/comprehensive_index.json"
+export GCS_OBJECT_PATH="orgdata/comprehensive_index_dump.json"
 ./hack/run.sh
 ```
 

@@ -18,7 +18,7 @@ export BOT_SIGNING_SECRET="your-slack-signing-secret"
 ```bash
 export USE_GCS_ORGDATA=true
 export GCS_BUCKET="resolved-org"                    # Default: resolved-org
-export GCS_OBJECT_PATH="orgdata/comprehensive_index.json"  # Default path
+export GCS_OBJECT_PATH="orgdata/comprehensive_index_dump.json"  # Default path
 export GCS_PROJECT_ID="openshift-crt"           # Default project
 export GCS_CHECK_INTERVAL="5m"                      # Default: 5 minutes
 export GCS_CREDENTIALS_JSON='{"type":"service_account",...}'  # Optional: explicit creds
@@ -26,8 +26,8 @@ export GCS_CREDENTIALS_JSON='{"type":"service_account",...}'  # Optional: explic
 
 **Option 2: Use Local Files (Development)**
 ```bash
-export ORGDATA_PATHS="/path/to/your/comprehensive_index.json"
-# Default: test-data/comprehensive_index.json (relative to ci-chat-bot)
+export ORGDATA_PATHS="/path/to/your/comprehensive_index_dump.json"
+# Default: test-data/comprehensive_index_dump.json (relative to ci-chat-bot)
 # You can generate this file using the Python orglib indexing system
 ```
 
@@ -73,7 +73,7 @@ workspace/
 │   │   └── run-with-gcs.sh  # GCS convenience script
 │   └── test-authorization.yaml  # Default auth config
 ├── test-data/           # Test data and examples
-│   ├── comprehensive_index.json  # Sample orgdata file
+│   ├── comprehensive_index_dump.json  # Sample orgdata file
 │   └── orgdata.json                   # Legacy test data
 └── release/              # OpenShift release repository (required)
     ├── ci-operator/
@@ -99,7 +99,7 @@ export BOT_TOKEN="xoxb-your-token"
 export BOT_SIGNING_SECRET="your-secret"
 
 # Point to your local orgdata file
-export ORGDATA_PATHS="/your/path/to/comprehensive_index.json"
+export ORGDATA_PATHS="/your/path/to/comprehensive_index_dump.json"
 
 # Run with local file backend
 ./hack/run.sh
@@ -141,11 +141,11 @@ export AUTH_CONFIG="/path/to/my-auth-config.yaml"
 ### File Not Found Errors
 If you see errors about missing files:
 1. Check that `ORGDATA_PATHS` points to a valid file
-2. Generate or obtain a `comprehensive_index.json` file from your orgdata system
+2. Generate or obtain a `comprehensive_index_dump.json` file from your orgdata system
 3. Verify the `../release` directory exists (OpenShift release repo)
 
 To generate organizational data:
-- Use the Python `orglib` indexing system to create `comprehensive_index.json`
+- Use the Python `orglib` indexing system to create `comprehensive_index_dump.json`
 - Or obtain the file from your organization's data pipeline
 - See the cyborg/org_tools project for data generation examples
 
@@ -170,7 +170,7 @@ If authorization is too restrictive:
 ### Migration from File-based to GCS
 1. **Upload your existing data**:
    ```bash
-   gcloud storage cp comprehensive_index.json gs://resolved-org/orgdata/
+   gcloud storage cp comprehensive_index_dump.json gs://resolved-org/orgdata/
    ```
 2. **Test GCS access**: `./hack/run-with-gcs.sh`
 3. **Update your workflow**: Set `USE_GCS_ORGDATA=true` in your environment

@@ -86,7 +86,7 @@ type AuthConfigSource interface {
 
 ```bash
 ./ci-chat-bot \
-  --orgdata-paths="/path/to/comprehensive_index.json" \
+  --orgdata-paths="/path/to/comprehensive_index_dump.json" \
   --authorization-config="/path/to/authorization.yaml" \
   [other flags...]
 ```
@@ -101,7 +101,7 @@ make build
 ./ci-chat-bot \
   --gcs-enabled=true \
   --gcs-bucket="resolved-org" \
-  --gcs-object-path="orgdata/comprehensive_index.json" \
+  --gcs-object-path="orgdata/comprehensive_index_dump.json" \
   --gcs-project-id="openshift-crt" \
   --gcs-check-interval="5m" \
   --authorization-config="/path/to/authorization.yaml" \
@@ -115,7 +115,7 @@ make build
 ./hack/run-with-gcs.sh
 
 # Local file development
-export ORGDATA_PATHS="/path/to/comprehensive_index.json"
+export ORGDATA_PATHS="/path/to/comprehensive_index_dump.json"
 ./hack/run.sh
 
 # See all options
@@ -293,7 +293,7 @@ This shows:
 1. **Local Files**: Edit JSON file, automatic reload via file watching
 2. **GCS**: Upload new file to bucket, automatic reload via polling
    ```bash
-   gcloud storage cp comprehensive_index.json gs://resolved-org/orgdata/
+   gcloud storage cp comprehensive_index_dump.json gs://resolved-org/orgdata/
    ```
 3. **Check interval**: Configurable via `--gcs-check-interval` (default: 5 minutes)
 
@@ -327,12 +327,12 @@ Slack-specific wrapper around the core package:
 service := orgdata.NewIndexedOrgDataService()
 
 // Option 1: Load from local files  
-err := service.LoadFromFiles([]string{"comprehensive_index.json"})
+err := service.LoadFromFiles([]string{"comprehensive_index_dump.json"})
 
 // Option 2: Load from GCS
 gcsConfig := orgdata.GCSConfig{
     Bucket:        "resolved-org",
-    ObjectPath:    "orgdata/comprehensive_index.json", 
+    ObjectPath:    "orgdata/comprehensive_index_dump.json", 
     ProjectID:     "openshift-crt",
     CheckInterval: 5 * time.Minute,
 }
@@ -393,7 +393,7 @@ The system can load organizational data from multiple sources:
 
 ### Local Files
 ```bash
---orgdata-paths="/path/to/comprehensive_index.json"
+--orgdata-paths="/path/to/comprehensive_index_dump.json"
 ```
 - **Best for**: Development, testing
 - **Hot Reload**: File watching (automatic)
@@ -403,7 +403,7 @@ The system can load organizational data from multiple sources:
 ```bash
 --gcs-enabled=true \
 --gcs-bucket="resolved-org" \
---gcs-object-path="orgdata/comprehensive_index.json" \
+--gcs-object-path="orgdata/comprehensive_index_dump.json" \
 --gcs-project-id="openshift-crt"
 ```
 - **Best for**: Production, cross-cluster deployments
@@ -433,7 +433,7 @@ The authorization system has been refactored to use a modern, indexed data struc
 
 - **Before**: Used hierarchical JSON with runtime traversal
 - **After**: Uses pre-computed indexes for instant lookups
-- **Data Source**: Python `orglib` indexing system generates `comprehensive_index.json`
+- **Data Source**: Python `orglib` indexing system generates `comprehensive_index_dump.json`
 - **Architecture**: Clean separation between core data service and Slack-specific logic
 
 ### Benefits
