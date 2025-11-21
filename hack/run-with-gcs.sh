@@ -11,7 +11,7 @@ export USE_GCS_ORGDATA=true
 
 # GCS Configuration (with your existing values)
 export GCS_BUCKET="resolved-org"
-export GCS_OBJECT_PATH="orgdata/comprehensive_index_dump.json"
+export GCS_OBJECT_PATH="orgdata/comprehensive_index.json"
 export GCS_PROJECT_ID="openshift-crt"
 export GCS_CHECK_INTERVAL="5m"
 
@@ -19,7 +19,7 @@ export GCS_CHECK_INTERVAL="5m"
 # export AUTH_CONFIG="/path/to/your/auth-config.yaml"
 
 # Optional: Set custom orgdata paths (for local file fallback)
-# export ORGDATA_PATHS="/path/to/your/comprehensive_index_dump.json"
+# export ORGDATA_PATHS="/path/to/your/comprehensive_index.json"
 
 # Optional: Use service account credentials instead of ADC
 # export GCS_CREDENTIALS_JSON='{"type":"service_account",...}'

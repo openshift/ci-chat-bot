@@ -35,7 +35,7 @@ if [[ "${USE_GCS_ORGDATA:-false}" == "true" ]]; then
   
   # GCS configuration with defaults
   GCS_BUCKET="${GCS_BUCKET:-resolved-org}"
-  GCS_OBJECT_PATH="${GCS_OBJECT_PATH:-orgdata/comprehensive_index_dump.json}"
+  GCS_OBJECT_PATH="${GCS_OBJECT_PATH:-orgdata/comprehensive_index.json}"
   GCS_PROJECT_ID="${GCS_PROJECT_ID:-openshift-crt}"
   GCS_CHECK_INTERVAL="${GCS_CHECK_INTERVAL:-5m}"
   
@@ -54,14 +54,14 @@ if [[ "${USE_GCS_ORGDATA:-false}" == "true" ]]; then
 else
   echo "Using local file-based orgdata..."
   # Default orgdata path (can be overridden with ORGDATA_PATHS env var)
-  # Users should set ORGDATA_PATHS to point to their comprehensive_index_dump.json file
-  default_orgdata="${work_dir}/test-data/comprehensive_index_dump.json"
+  # Users should set ORGDATA_PATHS to point to their comprehensive_index.json file
+  default_orgdata="${work_dir}/test-data/comprehensive_index.json"
   ORGDATA_PATHS="${ORGDATA_PATHS:-${default_orgdata}}"
   
   if [[ ! -f "$ORGDATA_PATHS" ]]; then
     echo "⚠️  Warning: Orgdata file not found at: $ORGDATA_PATHS"
-    echo "   Set ORGDATA_PATHS environment variable to your comprehensive_index_dump.json file"
-    echo "   Example: export ORGDATA_PATHS=\"/path/to/comprehensive_index_dump.json\""
+    echo "   Set ORGDATA_PATHS environment variable to your comprehensive_index.json file"
+    echo "   Example: export ORGDATA_PATHS=\"/path/to/comprehensive_index.json\""
   fi
   orgdata_flags="--orgdata-paths=${ORGDATA_PATHS}"
   echo "Orgdata file: ${ORGDATA_PATHS}"
