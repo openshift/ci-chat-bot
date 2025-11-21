@@ -73,7 +73,7 @@ type AuthConfigSource interface {
 
 - **`github.com/openshift-eng/cyborg-data`**: External reusable core package for organizational data access
   - Supports multiple data sources (files, GCS)
-  - Build with `-tags gcs` for cloud storage support
+  - GCS support included by default
   - Hot reload with configurable check intervals
 - **`pkg/orgdata/`**: Slack-specific wrapper around core package  
 - **`pkg/slack/`**: Slack command handlers with authorization middleware
@@ -94,8 +94,8 @@ type AuthConfigSource interface {
 #### Option B: Google Cloud Storage (Production)
 
 ```bash
-# Build with GCS support
-make BUILD_FLAGS="-tags gcs" build
+# Build (GCS support included by default)
+make build
 
 # Run with GCS backend
 ./ci-chat-bot \
@@ -329,7 +329,7 @@ service := orgdata.NewIndexedOrgDataService()
 // Option 1: Load from local files  
 err := service.LoadFromFiles([]string{"comprehensive_index.json"})
 
-// Option 2: Load from GCS (requires -tags gcs)
+// Option 2: Load from GCS
 gcsConfig := orgdata.GCSConfig{
     Bucket:        "resolved-org",
     ObjectPath:    "orgdata/comprehensive_index.json", 
@@ -371,9 +371,9 @@ The `AuthorizedCommandHandler` wrapper:
 ### Common Issues
 
 **"Authorization service not configured"**
-- **Local files**: Check `--orgdata-paths` and `--authorization-config` flags  
+- **Local files**: Check `--orgdata-paths` and `--authorization-config` flags
 - **GCS**: Verify `--gcs-enabled=true` and GCS configuration flags
-- **Build**: Ensure binary built with `-tags gcs` for GCS support
+- **Build**: GCS support is included in all builds by default
 - **Authentication**: Run `gcloud auth login` or set service account credentials
 - **Logs**: Check for data loading errors, GCS authentication failures
 
@@ -408,7 +408,7 @@ The system can load organizational data from multiple sources:
 ```
 - **Best for**: Production, cross-cluster deployments
 - **Hot Reload**: Configurable polling (default: 5 minutes)
-- **Dependencies**: Requires `-tags gcs` build flag
+- **Dependencies**: GCS support included by default
 - **Authentication**: Application Default Credentials or service account JSON
 
 ### Development Scripts

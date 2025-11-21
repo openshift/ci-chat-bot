@@ -20,10 +20,10 @@ To see the available commands, type `help`.
 - **Hot reload**: Both file watching and GCS polling for live updates
 - **Pluggable architecture**: Easy to extend with new data sources
 
-### 🚀 **Production Ready**  
+### 🚀 **Production Ready**
 - **Fast performance**: O(1) organizational lookups with pre-computed indexes
 - **Thread-safe**: Concurrent access with read-write mutex protection
-- **Build flexibility**: Optional GCS support with build tags (`-tags gcs`)
+- **GCS support**: Cloud storage support included by default
 - **Secure authentication**: Application Default Credentials for GCS
 
 ## Quick Start
@@ -39,8 +39,8 @@ export ORGDATA_PATHS="/path/to/comprehensive_index.json"
 
 ### Option 2: Google Cloud Storage
 ```bash
-# Build with GCS support
-make BUILD_FLAGS="-tags gcs" build
+# Build (GCS support included by default)
+make build
 
 # Quick start with GCS
 ./hack/run-with-gcs.sh
@@ -66,11 +66,8 @@ export GCS_OBJECT_PATH="orgdata/comprehensive_index.json"
 ## Build Options
 
 ```bash
-# Standard build (file-based data sources only)
+# Build (includes both file-based and GCS data sources)
 make build
-
-# Build with GCS support
-make BUILD_FLAGS="-tags gcs" build
 
 # See all available targets
 make help-ci-chat-bot

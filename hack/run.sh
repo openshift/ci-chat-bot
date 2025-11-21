@@ -24,15 +24,13 @@ oc --context app.ci -n ci get secrets ci-chat-bot-slack-app --template='{{index 
 
 work_dir=$(readlink -f $(dirname $0)/..)
 
-# Determine build flags based on configuration
-build_flags=""
+# Determine orgdata configuration
 orgdata_flags=""
 
 # Check if GCS is enabled
 if [[ "${USE_GCS_ORGDATA:-false}" == "true" ]]; then
-  echo "Building with GCS support..."
-  build_flags="-tags gcs"
-  
+  echo "Using GCS backend..."
+
   # GCS configuration with defaults
   GCS_BUCKET="${GCS_BUCKET:-resolved-org}"
   GCS_OBJECT_PATH="${GCS_OBJECT_PATH:-orgdata/comprehensive_index.json}"
@@ -71,7 +69,7 @@ fi
 AUTH_CONFIG="${AUTH_CONFIG:-${work_dir}/test-authorization.yaml}"
 
 echo "Building ci-chat-bot..."
-make GO_BUILD_FLAGS="$build_flags"
+make
 
 echo "Starting ci-chat-bot with $(echo $orgdata_flags | cut -d' ' -f1) backend..."
 ./ci-chat-bot \
