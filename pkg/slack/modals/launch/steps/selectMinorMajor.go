@@ -12,7 +12,7 @@ import (
 )
 
 func RegisterSelectMinorMajor(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(launch.IdentifierSelectMinorMajor, launch.SelectMinorMajor(nil, httpclient, modals.CallbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+	return modals.ForView(launch.IdentifierSelectMinorMajor, launch.SelectMinorMajor(nil, httpclient, modals.CallbackData{}, "")).WithFollowUps(map[slack.InteractionType]interactions.Handler{
 		slack.InteractionTypeViewSubmission: processNextSelectMinorMajor(client, jobmanager, httpclient),
 	})
 }
@@ -20,7 +20,7 @@ func RegisterSelectMinorMajor(client *slack.Client, jobmanager manager.JobManage
 func processNextSelectMinorMajor(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
 	return interactions.HandlerFunc(string(launch.IdentifierSelectMinorMajor), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		submissionData := modals.MergeCallbackData(callback)
-		go modals.OverwriteView(updater, launch.SelectVersionView(callback, jobmanager, httpclient, submissionData), callback, logger)
+		go modals.OverwriteView(updater, launch.SelectVersionView(callback, jobmanager, httpclient, submissionData, string(launch.IdentifierSelectMinorMajor)), callback, logger)
 		return modals.SubmitPrepare(launch.ModalTitle, string(launch.IdentifierSelectMinorMajor), logger)
 	})
 }

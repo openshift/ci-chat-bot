@@ -13,7 +13,7 @@ import (
 )
 
 func RegisterLaunchModeStep(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(launch.IdentifierRegisterLaunchMode, launch.ThirdStepView(nil, jobmanager, httpclient, modals.CallbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+	return modals.ForView(launch.IdentifierRegisterLaunchMode, launch.SelectModeView(nil, jobmanager, modals.CallbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
 		slack.InteractionTypeViewSubmission: processNextLaunchModeStep(client, jobmanager, httpclient),
 	})
 }
@@ -34,7 +34,7 @@ func processNextLaunchModeStep(updater modals.ViewUpdater, jobmanager manager.Jo
 			if mode.Has(modals.LaunchModeVersion) {
 				modals.OverwriteView(updater, launch.FilterVersionView(callback, jobmanager, submissionData, httpclient, mode, false), callback, logger)
 			} else {
-				modals.OverwriteView(updater, launch.PRInputView(callback, submissionData), callback, logger)
+				modals.OverwriteView(updater, launch.PRInputView(callback, submissionData, string(launch.IdentifierRegisterLaunchMode)), callback, logger)
 			}
 
 		}()

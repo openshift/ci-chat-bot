@@ -19,4 +19,8 @@ const (
 	LaunchModePRKey             = "One or multiple PRs"
 	LaunchModeVersionKey        = "A Version"
 	LaunchModeContext           = "Launch Mode"
+
+	// Back button constants
+	BackButtonActionID = "back_button_action"
+	BackButtonBlockID  = "back_button_block"
 )

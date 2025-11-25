@@ -16,7 +16,7 @@ import (
 )
 
 func RegisterPRInput(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(create.IdentifierPRInputView, create.PRInputView(nil, modals.CallbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+	return modals.ForView(create.IdentifierPRInputView, create.PRInputView(nil, modals.CallbackData{}, "")).WithFollowUps(map[slack.InteractionType]interactions.Handler{
 		slack.InteractionTypeViewSubmission: processNextPRInput(client, jobmanager, httpclient),
 	})
 }
@@ -29,7 +29,7 @@ func processNextPRInput(updater modals.ViewUpdater, jobmanager manager.JobManage
 		if errorsResponse != nil {
 			return errorsResponse, nil
 		}
-		go modals.OverwriteView(updater, create.ThirdStepView(callback, jobmanager, httpclient, submissionData), callback, logger)
+		go modals.OverwriteView(updater, create.ThirdStepView(callback, jobmanager, httpclient, submissionData, string(create.IdentifierPRInputView)), callback, logger)
 		return modals.SubmitPrepare(create.ModalTitle, string(create.IdentifierPRInputView), logger)
 	})
 }

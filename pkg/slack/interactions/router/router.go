@@ -39,6 +39,7 @@ func ForModals(client *slack.Client, jobmanager manager.JobManager, httpclient *
 		steps.RegisterFilterVersion(client, jobmanager, httpclient),
 		steps.RegisterPRInput(client, jobmanager, httpclient),
 		steps.RegisterSelectMinorMajor(client, jobmanager, httpclient),
+		steps.RegisterBackButton(client, jobmanager, httpclient),
 		list.Register(client, jobmanager),
 		auth.Register(client, jobmanager),
 		done.Register(client, jobmanager),
@@ -100,8 +101,20 @@ func (r *modalRouter) Handle(callback *slack.InteractionCallback, logger *logrus
 }
 
 // isMessageButtonPress determines if an interaction callback is for a button press in a message
+// (as opposed to a button press in a modal view)
 func isMessageButtonPress(callback *slack.InteractionCallback) bool {
-	return len(callback.ActionCallback.BlockActions) > 0 && callback.ActionCallback.BlockActions[0].Type == "button"
+	if len(callback.ActionCallback.BlockActions) == 0 {
+		return false
+	}
+	action := callback.ActionCallback.BlockActions[0]
+	if action.Type != "button" {
+		return false
+	}
+	// If this is a back button from a modal, route it to delegate instead
+	if action.ActionID == modals.BackButtonActionID {
+		return false
+	}
+	return true
 }
 
 type slackClient interface {
@@ -163,6 +176,16 @@ func (r *modalRouter) delegate(callback *slack.InteractionCallback, logger *logr
 	}
 	handler, exists := handlersForId[callback.Type]
 	if !exists {
+		// For BlockActions, also check if there's a handler registered by ActionID
+		// This allows buttons inside modals (like Back button) to have their own handlers
+		if callback.Type == slack.InteractionTypeBlockActions && len(callback.ActionCallback.BlockActions) > 0 {
+			actionID := callback.ActionCallback.BlockActions[0].ActionID
+			if actionHandlers, found := r.handlersByIDAndType[modals.Identifier(actionID)]; found {
+				if actionHandler, hasHandler := actionHandlers[callback.Type]; hasHandler {
+					return actionHandler.Handle(callback, logger)
+				}
+			}
+		}
 		logger.Debugf("Received a callback ID (%s) and type (%s) for which no handlers were registered.", callback.Type, id)
 		return nil, nil
 	}
