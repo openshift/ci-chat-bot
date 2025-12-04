@@ -35,11 +35,31 @@ func FetchReleases(client *http.Client, architecture string) (map[string][]strin
 }
 
 func FirstStepView() slackClient.ModalViewRequest {
+	return FirstStepViewWithData(modals.CallbackData{})
+}
+
+func FirstStepViewWithData(data modals.CallbackData) slackClient.ModalViewRequest {
 	platformOptions := modals.BuildOptions(manager.SupportedPlatforms, nil)
 	architectureOptions := modals.BuildOptions(manager.SupportedArchitectures, nil)
+
+	// Get initial selections from callback data
+	var platformInitial, architectureInitial *slackClient.OptionBlockObject
+	if platform, ok := data.Input[modals.LaunchPlatform]; ok && platform != "" {
+		platformInitial = &slackClient.OptionBlockObject{
+			Value: platform,
+			Text:  &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: platform},
+		}
+	}
+	if arch, ok := data.Input[modals.LaunchArchitecture]; ok && arch != "" {
+		architectureInitial = &slackClient.OptionBlockObject{
+			Value: arch,
+			Text:  &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: arch},
+		}
+	}
+
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
-		PrivateMetadata: modals.CallbackDataToMetadata(modals.CallbackData{}, string(IdentifierInitialView)),
+		PrivateMetadata: modals.CallbackDataToMetadata(data, string(IdentifierInitialView)),
 		Title:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch a Cluster"},
 		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
 		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Next"},
@@ -59,9 +79,10 @@ func FirstStepView() slackClient.ModalViewRequest {
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: fmt.Sprintf("Platform (Default - %s)", DefaultPlatform)},
 				Element: &slackClient.SelectBlockElement{
-					Type:        slackClient.OptTypeStatic,
-					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: DefaultPlatform},
-					Options:     platformOptions,
+					Type:          slackClient.OptTypeStatic,
+					Placeholder:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: DefaultPlatform},
+					Options:       platformOptions,
+					InitialOption: platformInitial,
 				},
 			},
 			&slackClient.InputBlock{
@@ -70,16 +91,17 @@ func FirstStepView() slackClient.ModalViewRequest {
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: fmt.Sprintf("Architecture (Default - %s)", DefaultArchitecture)},
 				Element: &slackClient.SelectBlockElement{
-					Type:        slackClient.OptTypeStatic,
-					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: DefaultArchitecture},
-					Options:     architectureOptions,
+					Type:          slackClient.OptTypeStatic,
+					Placeholder:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: DefaultArchitecture},
+					Options:       architectureOptions,
+					InitialOption: architectureInitial,
 				},
 			},
 		}},
 	}
 }
 
-func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, httpclient *http.Client, data modals.CallbackData) slackClient.ModalViewRequest {
+func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, httpclient *http.Client, data modals.CallbackData, previousStep string) slackClient.ModalViewRequest {
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
@@ -103,6 +125,8 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 	}
 	options := modals.BuildOptions(manager.SupportedParameters, blacklist)
 	context := fmt.Sprintf("Architecture: %s;Platform: %s;Version: %s;PR: %s", architecture, platform, version, prs)
+	// Set the previous step for back navigation
+	data = modals.SetPreviousStep(data, previousStep)
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: modals.CallbackDataToMetadata(data, string(Identifier3rdStep)),
@@ -110,6 +134,7 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
 		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Submit"},
 		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
+			modals.BackButtonBlock(),
 			&slackClient.InputBlock{
 				Type:     slackClient.MBTInput,
 				BlockID:  modals.LaunchParameters,
@@ -172,6 +197,20 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 	}
 	metadata := fmt.Sprintf("Architecture: %s; Platform: %s", architecture, platform)
 	options := modals.BuildOptions([]string{modals.LaunchModePRKey, modals.LaunchModeVersionKey}, nil)
+
+	// Build initial options from saved selections
+	var initialOptions []*slackClient.OptionBlockObject
+	if modes, ok := data.MultipleSelection[modals.LaunchMode]; ok {
+		for _, mode := range modes {
+			initialOptions = append(initialOptions, &slackClient.OptionBlockObject{
+				Value: mode,
+				Text:  &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: mode},
+			})
+		}
+	}
+
+	// Set the previous step for back navigation
+	data = modals.SetPreviousStep(data, string(IdentifierInitialView))
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: modals.CallbackDataToMetadata(data, string(IdentifierRegisterLaunchMode)),
@@ -179,6 +218,7 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
 		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Next"},
 		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
+			modals.BackButtonBlock(),
 			&slackClient.HeaderBlock{
 				Type: slackClient.MBTHeader,
 				Text: &slackClient.TextBlockObject{
@@ -193,8 +233,9 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 				BlockID: modals.LaunchMode,
 				Label:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch the Cluster using:"},
 				Element: &slackClient.CheckboxGroupsBlockElement{
-					Type:    slackClient.METCheckboxGroups,
-					Options: options,
+					Type:           slackClient.METCheckboxGroups,
+					Options:        options,
+					InitialOptions: initialOptions,
 				},
 			},
 			&slackClient.DividerBlock{
@@ -255,6 +296,28 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	sort.Strings(streams)
 	streamsOptions := modals.BuildOptions(streams, nil)
 	metadata := fmt.Sprintf("Architecture: %s;Platform: %s;%s: %s", architecture, platform, modals.LaunchModeContext, strings.Join(sets.List(mode), ","))
+
+	// Preserve previous selections
+	var streamInitial, latestBuildInitial *slackClient.OptionBlockObject
+	if stream, ok := data.Input[modals.LaunchFromStream]; ok && stream != "" {
+		streamInitial = &slackClient.OptionBlockObject{
+			Value: stream,
+			Text:  &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: stream},
+		}
+	}
+	if build, ok := data.Input[modals.LaunchFromLatestBuild]; ok && build != "" {
+		// Find the display text for the build option
+		for _, opt := range latestBuildOptions {
+			if opt.Value == build {
+				latestBuildInitial = opt
+				break
+			}
+		}
+	}
+	customValue := data.Input[modals.LaunchFromCustom]
+
+	// Set the previous step for back navigation
+	data = modals.SetPreviousStep(data, string(IdentifierRegisterLaunchMode))
 	view := slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: modals.CallbackDataToMetadata(data, string(IdentifierFilterVersionView)),
@@ -262,6 +325,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
 		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Next"},
 		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
+			modals.BackButtonBlock(),
 			&slackClient.HeaderBlock{
 				Type: slackClient.MBTHeader,
 				Text: &slackClient.TextBlockObject{
@@ -284,9 +348,10 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Specify the Stream:"},
 				Element: &slackClient.SelectBlockElement{
-					Type:        slackClient.OptTypeStatic,
-					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an entry..."},
-					Options:     streamsOptions,
+					Type:          slackClient.OptTypeStatic,
+					Placeholder:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an entry..."},
+					Options:       streamsOptions,
+					InitialOption: streamInitial,
 				},
 			},
 			&slackClient.DividerBlock{
@@ -306,9 +371,10 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "The latest build (nightly) or CI build:"},
 				Element: &slackClient.SelectBlockElement{
-					Type:        slackClient.OptTypeStatic,
-					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an entry..."},
-					Options:     latestBuildOptions,
+					Type:          slackClient.OptTypeStatic,
+					Placeholder:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an entry..."},
+					Options:       latestBuildOptions,
+					InitialOption: latestBuildInitial,
 				},
 			},
 			&slackClient.DividerBlock{
@@ -328,8 +394,9 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 				Optional: true,
 				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Enter a Custom Pull Spec:"},
 				Element: &slackClient.PlainTextInputBlockElement{
-					Type:        slackClient.METPlainTextInput,
-					Placeholder: &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Enter a custom pull spec..."},
+					Type:         slackClient.METPlainTextInput,
+					Placeholder:  &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Enter a custom pull spec..."},
+					InitialValue: customValue,
 				},
 			},
 			&slackClient.DividerBlock{
@@ -356,7 +423,7 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	return view
 }
 
-func PRInputView(callback *slackClient.InteractionCallback, data modals.CallbackData) slackClient.ModalViewRequest {
+func PRInputView(callback *slackClient.InteractionCallback, data modals.CallbackData, previousStep string) slackClient.ModalViewRequest {
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
@@ -380,6 +447,8 @@ func PRInputView(callback *slackClient.InteractionCallback, data modals.Callback
 		}
 		metadata = fmt.Sprintf("%s;Version: %s", metadata, version)
 	}
+	// Set the previous step for back navigation
+	data = modals.SetPreviousStep(data, previousStep)
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: modals.CallbackDataToMetadata(data, string(IdentifierPRInputView)),
@@ -387,6 +456,7 @@ func PRInputView(callback *slackClient.InteractionCallback, data modals.Callback
 		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
 		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Next"},
 		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
+			modals.BackButtonBlock(),
 			&slackClient.HeaderBlock{
 				Type: slackClient.MBTHeader,
 				Text: &slackClient.TextBlockObject{
@@ -425,7 +495,7 @@ func PRInputView(callback *slackClient.InteractionCallback, data modals.Callback
 	}
 }
 
-func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, httpclient *http.Client, data modals.CallbackData) slackClient.ModalViewRequest {
+func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, httpclient *http.Client, data modals.CallbackData, previousStep string) slackClient.ModalViewRequest {
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
@@ -456,10 +526,12 @@ func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager man
 		}
 	}
 	if len(allTags) > 99 {
-		return SelectMinorMajor(callback, httpclient, data)
+		return SelectMinorMajor(callback, httpclient, data, previousStep)
 	}
 	//sort.Strings(allTags)
 	allTagsOptions := modals.BuildOptions(allTags, nil)
+	// Set the previous step for back navigation
+	data = modals.SetPreviousStep(data, previousStep)
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: modals.CallbackDataToMetadata(data, string(IdentifierSelectVersion)),
@@ -467,6 +539,7 @@ func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager man
 		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
 		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Next"},
 		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
+			modals.BackButtonBlock(),
 			&slackClient.HeaderBlock{
 				Type: slackClient.MBTHeader,
 				Text: &slackClient.TextBlockObject{
@@ -510,7 +583,7 @@ func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager man
 	}
 }
 
-func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *http.Client, data modals.CallbackData) slackClient.ModalViewRequest {
+func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *http.Client, data modals.CallbackData, previousStep string) slackClient.ModalViewRequest {
 	if callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
@@ -558,6 +631,8 @@ func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *htt
 	}
 	slices.Reverse(majorMinorReleases)
 	majorMinorOptions := modals.BuildOptions(majorMinorReleases, nil)
+	// Set the previous step for back navigation
+	data = modals.SetPreviousStep(data, previousStep)
 	return slackClient.ModalViewRequest{
 		Type:            slackClient.VTModal,
 		PrivateMetadata: modals.CallbackDataToMetadata(data, string(IdentifierSelectMinorMajor)),
@@ -565,6 +640,7 @@ func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *htt
 		Close:           &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Cancel"},
 		Submit:          &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Next"},
 		Blocks: slackClient.Blocks{BlockSet: []slackClient.Block{
+			modals.BackButtonBlock(),
 			&slackClient.HeaderBlock{
 				Type: slackClient.MBTHeader,
 				Text: &slackClient.TextBlockObject{

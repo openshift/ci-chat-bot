@@ -14,7 +14,7 @@ import (
 )
 
 func RegisterLaunchOptionsStep(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(launch.Identifier3rdStep, launch.SubmissionView("")).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+	return modals.ForView(launch.Identifier3rdStep, launch.ThirdStepView(nil, jobmanager, httpclient, modals.CallbackData{}, "")).WithFollowUps(map[slack.InteractionType]interactions.Handler{
 		slack.InteractionTypeViewSubmission: processLaunchOptionsStep(client, jobmanager, httpclient),
 	})
 }

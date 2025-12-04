@@ -15,7 +15,7 @@ import (
 )
 
 func RegisterFilterVersion(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(create.IdentifierFilterVersionView, create.FilterVersionView(nil, nil, modals.CallbackData{}, nil, nil, false)).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+	return modals.ForView(create.IdentifierFilterVersionView, create.FilterVersionView(nil, jobmanager, modals.CallbackData{}, httpclient, nil, false)).WithFollowUps(map[slack.InteractionType]interactions.Handler{
 		slack.InteractionTypeViewSubmission: processNextFilterVersion(client, jobmanager, httpclient),
 	})
 }
@@ -42,11 +42,11 @@ func processNextFilterVersion(updater modals.ViewUpdater, jobmanager manager.Job
 			if (nightlyOrCi == "") && customBuild == "" && !createWithPr && stream == "" {
 				modals.OverwriteView(updater, create.FilterVersionView(callback, jobmanager, submissionData, httpclient, sets.New(mode...), true), callback, logger)
 			} else if (nightlyOrCi != "" || customBuild != "") && createWithPr {
-				modals.OverwriteView(updater, create.PRInputView(callback, submissionData), callback, logger)
+				modals.OverwriteView(updater, create.PRInputView(callback, submissionData, string(create.IdentifierFilterVersionView)), callback, logger)
 			} else if (nightlyOrCi != "" || customBuild != "") && !createWithPr {
-				modals.OverwriteView(updater, create.ThirdStepView(callback, jobmanager, httpclient, submissionData), callback, logger)
+				modals.OverwriteView(updater, create.ThirdStepView(callback, jobmanager, httpclient, submissionData, string(create.IdentifierFilterVersionView)), callback, logger)
 			} else {
-				modals.OverwriteView(updater, create.SelectVersionView(callback, jobmanager, httpclient, submissionData), callback, logger)
+				modals.OverwriteView(updater, create.SelectVersionView(callback, jobmanager, httpclient, submissionData, string(create.IdentifierFilterVersionView)), callback, logger)
 			}
 
 		}()

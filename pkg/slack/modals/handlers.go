@@ -439,8 +439,36 @@ func CallbackDataToMetadata(data CallbackData, identifier string) string {
 type CallbackData struct {
 	Input             map[string]string
 	MultipleSelection map[string][]string
+	PreviousStep      string // Tracks the previous step identifier for back navigation
 }
+
 type CallbackDataAndIdentifier struct {
 	CallbackData
 	Identifier string
+}
+
+// SetPreviousStep returns a new CallbackData with the PreviousStep set to the current identifier
+func SetPreviousStep(data CallbackData, currentStep string) CallbackData {
+	data.PreviousStep = currentStep
+	return data
+}
+
+// BackButtonBlock creates an actions block with a back button on the left
+func BackButtonBlock() *slack.ActionBlock {
+	return &slack.ActionBlock{
+		Type:    slack.MBTAction,
+		BlockID: BackButtonBlockID,
+		Elements: &slack.BlockElements{
+			ElementSet: []slack.BlockElement{
+				&slack.ButtonBlockElement{
+					Type:     slack.METButton,
+					ActionID: BackButtonActionID,
+					Text: &slack.TextBlockObject{
+						Type: slack.PlainTextType,
+						Text: "←",
+					},
+				},
+			},
+		},
+	}
 }

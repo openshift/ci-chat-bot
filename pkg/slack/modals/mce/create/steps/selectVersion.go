@@ -14,7 +14,7 @@ import (
 )
 
 func RegisterSelectVersion(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
-	return modals.ForView(create.IdentifierSelectVersion, create.SelectVersionView(nil, jobmanager, httpclient, modals.CallbackData{})).WithFollowUps(map[slack.InteractionType]interactions.Handler{
+	return modals.ForView(create.IdentifierSelectVersion, create.SelectVersionView(nil, jobmanager, httpclient, modals.CallbackData{}, "")).WithFollowUps(map[slack.InteractionType]interactions.Handler{
 		slack.InteractionTypeViewSubmission: processNextSelectVersion(client, jobmanager, httpclient),
 	})
 }
@@ -32,9 +32,9 @@ func processNextSelectVersion(updater modals.ViewUpdater, jobmanager manager.Job
 		}
 		go func() {
 			if createWithPR {
-				modals.OverwriteView(updater, create.PRInputView(callback, submissionData), callback, logger)
+				modals.OverwriteView(updater, create.PRInputView(callback, submissionData, string(create.IdentifierSelectVersion)), callback, logger)
 			} else {
-				modals.OverwriteView(updater, create.ThirdStepView(callback, jobmanager, httpclient, submissionData), callback, logger)
+				modals.OverwriteView(updater, create.ThirdStepView(callback, jobmanager, httpclient, submissionData, string(create.IdentifierSelectVersion)), callback, logger)
 			}
 		}()
 		return modals.SubmitPrepare(create.ModalTitle, string(create.IdentifierSelectVersion), logger)
