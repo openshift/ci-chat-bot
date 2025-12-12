@@ -59,7 +59,7 @@ var SupportedUpgradeTests = []string{"e2e-upgrade", "e2e-upgrade-all", "e2e-upgr
 var SupportedPlatforms = []string{"aws", "gcp", "azure", "vsphere", "metal", "ovirt", "openstack", "hypershift-hosted", "nutanix", "alibaba", "hypershift-hosted-powervs", "azure-stackhub"}
 
 // SupportedParameters are the allowed parameter keys that can be passed to jobs
-var SupportedParameters = []string{"ovn", "ovn-hybrid", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv4", "ipv6", "dualstack", "dualstack-primaryv6", "preserve-bootstrap", "test", "rt", "single-node", "techpreview", "upi", "nfv", "kuryr", "sdn", "no-spot", "no-capabilities", "virtualization-support", "multi-zone", "multi-zone-techpreview", "bundle", "private"}
+var SupportedParameters = []string{"ovn", "ovn-hybrid", "proxy", "compact", "fips", "mirror", "shared-vpc", "large", "xlarge", "ipv4", "ipv6", "dualstack", "dualstack-primaryv6", "preserve-bootstrap", "test", "rt", "single-node", "techpreview", "upi", "nfv", "kuryr", "sdn", "no-spot", "no-capabilities", "virtualization-support", "multi-zone", "multi-zone-techpreview", "bundle", "private", "static"}
 
 // MultistageParameters is the mapping of SupportedParameters that can be configured via multistage parameters to the correct environment variable format
 var MultistageParameters = map[string]EnvVar{
