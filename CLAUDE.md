@@ -254,12 +254,15 @@ workflow-launch openshift-e2e-gcp 4.19 "BASELINE_CAPABILITY_SET=None","ADDITIONA
 2. Add handler in appropriate event/interaction handler
 3. Update help text in bot's supported commands
 
-### Testing
+### Testing and Verification
 - Unit tests: `*_test.go` files (using Ginkgo/Gomega)
 - Test command: `make test` (includes race detection via `-race` flag)
 - Manual test command: `go test ./...` or `go test -race ./...` for race detection
 - Race detection is enabled by default in the Makefile to catch concurrency issues
 - Integration tests in `pkg/manager/manager_test.go` and `pkg/manager/prow_test.go`
+- **Before committing**: Run `make verify lint test all` to verify code is ready for commit
+  - This runs verification checks, linting, tests, and builds all targets
+  - Ensures code meets project quality standards
 
 **Important**: The project includes concurrent operations (e.g., GCP access management with mutexes), so tests should always run with the race detector enabled to ensure thread safety.
 

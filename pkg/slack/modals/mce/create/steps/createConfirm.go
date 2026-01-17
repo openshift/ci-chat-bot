@@ -11,7 +11,6 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/mce/create"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
-	"k8s.io/klog"
 )
 
 func RegisterCreateConfirmStep(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) *modals.FlowWithViewAndFollowUps {
@@ -22,7 +21,6 @@ func RegisterCreateConfirmStep(client *slack.Client, jobmanager manager.JobManag
 
 func processLaunchOptionsStep(updater *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
 	return interactions.HandlerFunc(string(create.Identifier3rdStep), func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
-		klog.Infof("Private Metadata: %s", callback.View.PrivateMetadata)
 		var createInputs []string
 		data := modals.MergeCallbackData(callback)
 		platform := data.Input[modals.LaunchPlatform]

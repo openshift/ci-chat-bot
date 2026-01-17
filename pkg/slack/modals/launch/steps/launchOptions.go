@@ -65,9 +65,9 @@ func processLaunchOptionsStep(updater *slack.Client, jobmanager manager.JobManag
 		go func() {
 			msg, err := jobmanager.LaunchJobForUser(job)
 			if err != nil {
-				modals.OverwriteView(updater, launch.SubmissionView(err.Error()), callback, logger)
+				modals.OverwriteView(updater, modals.SubmissionView(launch.ModalTitle, err.Error()), callback, logger)
 			} else {
-				modals.OverwriteView(updater, launch.SubmissionView(msg), callback, logger)
+				modals.OverwriteView(updater, modals.SubmissionView(launch.ModalTitle, msg), callback, logger)
 			}
 		}()
 		return modals.SubmitPrepare(launch.ModalTitle, string(launch.Identifier3rdStep), logger)

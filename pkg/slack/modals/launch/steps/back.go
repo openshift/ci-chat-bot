@@ -7,11 +7,11 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/common"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/launch"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/mce/create"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
-	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // RegisterBackButton registers the back button handler for both launch and MCE modal flows
@@ -41,64 +41,47 @@ func handleBackButton(updater modals.ViewUpdater, jobmanager manager.JobManager,
 		// Determine if this is an MCE modal based on the previous step identifier
 		isMCE := strings.HasPrefix(previousStep, "mce_")
 
-		var previousView slack.ModalViewRequest
+		var views common.BackNavigationViews
+		var identifiers common.BackNavigationIdentifiers
 		if isMCE {
-			previousView = handleMCEBackNavigation(callback, jobmanager, httpclient, data, previousStep, logger)
+			views = common.BackNavigationViews{
+				FirstStepViewWithData: create.FirstStepViewWithData,
+				SelectModeView:        create.SelectModeView,
+				FilterVersionView:     create.FilterVersionView,
+				SelectMinorMajor:      create.SelectMinorMajor,
+				SelectVersionView:     create.SelectVersionView,
+				PRInputView:           create.PRInputView,
+			}
+			identifiers = common.BackNavigationIdentifiers{
+				InitialView:       string(create.IdentifierInitialView),
+				SelectModeView:    string(create.IdentifierSelectModeView),
+				FilterVersionView: string(create.IdentifierFilterVersionView),
+				SelectMinorMajor:  string(create.IdentifierSelectMinorMajor),
+				SelectVersion:     string(create.IdentifierSelectVersion),
+				PRInputView:       string(create.IdentifierPRInputView),
+				ThirdStep:         string(create.Identifier3rdStep),
+			}
 		} else {
-			previousView = handleLaunchBackNavigation(callback, jobmanager, httpclient, data, previousStep, logger)
+			views = common.BackNavigationViews{
+				FirstStepViewWithData: launch.FirstStepViewWithData,
+				SelectModeView:        launch.SelectModeView,
+				FilterVersionView:     launch.FilterVersionView,
+				SelectMinorMajor:      launch.SelectMinorMajor,
+				SelectVersionView:     launch.SelectVersionView,
+				PRInputView:           launch.PRInputView,
+			}
+			identifiers = common.BackNavigationIdentifiers{
+				InitialView:       string(launch.IdentifierInitialView),
+				SelectModeView:    string(launch.IdentifierRegisterLaunchMode),
+				FilterVersionView: string(launch.IdentifierFilterVersionView),
+				SelectMinorMajor:  string(launch.IdentifierSelectMinorMajor),
+				SelectVersion:     string(launch.IdentifierSelectVersion),
+				PRInputView:       string(launch.IdentifierPRInputView),
+				ThirdStep:         string(launch.Identifier3rdStep),
+			}
 		}
 
-		modals.OverwriteView(updater, previousView, callback, logger)
+		common.NavigateBack(updater, jobmanager, httpclient, callback, logger, data, previousStep, views, identifiers)
 		return nil, nil
 	})
-}
-
-func handleLaunchBackNavigation(callback *slack.InteractionCallback, jobmanager manager.JobManager, httpclient *http.Client, data modals.CallbackData, previousStep string, logger *logrus.Entry) slack.ModalViewRequest {
-	switch previousStep {
-	case string(launch.IdentifierInitialView):
-		return launch.FirstStepViewWithData(data)
-	case string(launch.IdentifierRegisterLaunchMode):
-		return launch.SelectModeView(callback, jobmanager, data)
-	case string(launch.IdentifierFilterVersionView):
-		mode := sets.New(data.MultipleSelection[modals.LaunchMode]...)
-		return launch.FilterVersionView(callback, jobmanager, data, httpclient, mode, false)
-	case string(launch.IdentifierSelectMinorMajor):
-		return launch.SelectMinorMajor(callback, httpclient, data, string(launch.IdentifierFilterVersionView))
-	case string(launch.IdentifierSelectVersion):
-		return launch.SelectVersionView(callback, jobmanager, httpclient, data, string(launch.IdentifierFilterVersionView))
-	case string(launch.IdentifierPRInputView):
-		prPreviousStep := string(launch.IdentifierRegisterLaunchMode)
-		if data.Input[modals.LaunchVersion] != "" || data.Input[modals.LaunchFromLatestBuild] != "" || data.Input[modals.LaunchFromCustom] != "" {
-			prPreviousStep = string(launch.IdentifierFilterVersionView)
-		}
-		return launch.PRInputView(callback, data, prPreviousStep)
-	default:
-		logger.Warnf("Unknown launch previous step: %s, defaulting to first step", previousStep)
-		return launch.FirstStepViewWithData(data)
-	}
-}
-
-func handleMCEBackNavigation(callback *slack.InteractionCallback, jobmanager manager.JobManager, httpclient *http.Client, data modals.CallbackData, previousStep string, logger *logrus.Entry) slack.ModalViewRequest {
-	switch previousStep {
-	case string(create.IdentifierInitialView):
-		return create.FirstStepViewWithData(data)
-	case string(create.IdentifierSelectModeView):
-		return create.SelectModeView(callback, jobmanager, data)
-	case string(create.IdentifierFilterVersionView):
-		mode := sets.New(data.MultipleSelection[modals.LaunchMode]...)
-		return create.FilterVersionView(callback, jobmanager, data, httpclient, mode, false)
-	case string(create.IdentifierSelectMinorMajor):
-		return create.SelectMinorMajor(callback, httpclient, data, string(create.IdentifierFilterVersionView))
-	case string(create.IdentifierSelectVersion):
-		return create.SelectVersionView(callback, jobmanager, httpclient, data, string(create.IdentifierFilterVersionView))
-	case string(create.IdentifierPRInputView):
-		prPreviousStep := string(create.IdentifierSelectModeView)
-		if data.Input[modals.LaunchVersion] != "" || data.Input[modals.LaunchFromLatestBuild] != "" || data.Input[modals.LaunchFromCustom] != "" {
-			prPreviousStep = string(create.IdentifierFilterVersionView)
-		}
-		return create.PRInputView(callback, data, prPreviousStep)
-	default:
-		logger.Warnf("Unknown MCE previous step: %s, defaulting to first step", previousStep)
-		return create.FirstStepViewWithData(data)
-	}
 }

@@ -4,6 +4,7 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
+	"github.com/openshift/ci-chat-bot/pkg/slack/modals/common"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
 )
@@ -38,18 +39,7 @@ func process(updater *slack.Client, jobmanager manager.JobManager) interactions.
 				}
 			}
 			_, beginning, elements := jobmanager.ListJobs(callback.User.ID, filters)
-
-			submission := slack.ModalViewRequest{
-				Type:  slack.VTModal,
-				Title: &slack.TextBlockObject{Type: slack.PlainTextType, Text: title},
-				Close: &slack.TextBlockObject{Type: slack.PlainTextType, Text: "Close"},
-				Blocks: slack.Blocks{BlockSet: []slack.Block{
-					slack.NewRichTextBlock("beginning", slack.NewRichTextSection(slack.NewRichTextSectionTextElement(beginning, &slack.RichTextSectionTextStyle{}))),
-				}},
-			}
-			for _, element := range elements {
-				submission.Blocks.BlockSet = append(submission.Blocks.BlockSet, slack.NewSectionBlock(slack.NewTextBlockObject(slack.MarkdownType, element, false, false), nil, nil))
-			}
+			submission := common.BuildListResultModal(title, beginning, elements)
 			modals.OverwriteView(updater, submission, callback, logger)
 		}()
 		return modals.SubmitPrepare(title, identifier, logger)
