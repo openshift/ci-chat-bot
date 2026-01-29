@@ -37,3 +37,9 @@ sonar-reports:
 	go test ./... -coverprofile=coverage.out -covermode=count -json > report.json
 	golangci-lint run ./... --verbose --no-config --out-format checkstyle --issues-exit-code 0 > golangci-lint.out
 .PHONY: sonar-reports
+
+# Override the vulncheck target from build-machinery-go to use our wrapper
+# that supports ignoring vulnerabilities with no available fix
+vulncheck:
+	./hack/govulncheck-wrapper.sh
+.PHONY: vulncheck
