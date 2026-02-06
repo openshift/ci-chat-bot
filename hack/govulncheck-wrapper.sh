@@ -94,7 +94,7 @@ fi
 
 # Run govulncheck with JSON output
 [[ $VERBOSE -eq 1 ]] && log_info "Running govulncheck..."
-VULN_JSON=$(govulncheck -json ./... 2>&1 || true)
+VULN_JSON=$(govulncheck -tags gcs -json ./... 2>&1 || true)
 
 # Extract findings from the JSON stream (newline-delimited JSON objects)
 # Each finding has: osv (ID), fixed_version (optional), trace[0].module
