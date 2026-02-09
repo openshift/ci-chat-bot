@@ -29,8 +29,8 @@ func processLaunchOptionsStep(updater *slack.Client, jobmanager manager.JobManag
 		launchInputs = append(launchInputs, version)
 		prs, ok := data.Input[modals.LaunchFromPR]
 		if ok && prs != "none" {
-			prSlice := strings.Split(prs, ",")
-			for _, pr := range prSlice {
+			prSlice := strings.SplitSeq(prs, ",")
+			for pr := range prSlice {
 				launchInputs = append(launchInputs, strings.TrimSpace(pr))
 			}
 		}

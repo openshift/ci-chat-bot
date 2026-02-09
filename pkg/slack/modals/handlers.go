@@ -301,7 +301,7 @@ func BulletListFunc() template.FuncMap {
 	return template.FuncMap{
 		"toBulletList": func(input string) string {
 			var output []string
-			for _, line := range strings.Split(input, "\n") {
+			for line := range strings.SplitSeq(input, "\n") {
 				if trimmed := strings.TrimSpace(line); trimmed != "" {
 					output = append(output, fmt.Sprintf("* %s", trimmed))
 				}

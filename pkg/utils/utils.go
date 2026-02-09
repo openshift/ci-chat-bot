@@ -71,7 +71,7 @@ func ParamsFromAnnotation(value string) (map[string]string, error) {
 	if len(value) == 0 {
 		return values, nil
 	}
-	for _, part := range strings.Split(value, ",") {
+	for part := range strings.SplitSeq(value, ",") {
 		if len(part) == 0 {
 			return nil, fmt.Errorf("parameter may not be empty")
 		}

@@ -5,6 +5,14 @@ set -euo pipefail
 if [[ -z $BOT_TOKEN ]]; then echo "BOT_TOKEN var must be set"; exit 1; fi
 if [[ -z $BOT_SIGNING_SECRET ]]; then echo "BOT_SIGNING_SECRET var must be set"; exit 1; fi
 
+# Optional: Enable GCP access dry-run mode for testing
+# Set GCP_ACCESS_DRY_RUN=true to test without modifying IAM policies
+export GCP_ACCESS_DRY_RUN=${GCP_ACCESS_DRY_RUN:-false}
+
+if [[ $GCP_ACCESS_DRY_RUN == "true" ]]; then
+  echo "⚠️  GCP Access DRY-RUN mode enabled - IAM changes will be skipped"
+fi
+
 tmp_dir=$(mktemp -d)
 tmp_kube=$tmp_dir/kubeconfigs
 mkdir -p $tmp_kube
@@ -37,5 +45,5 @@ make
   --kubeconfig-suffix=.config \
   --rosa-oidcConfigId-path=$tmp_oidc_config_id \
   --rosa-billingAccount-path=$tmp_billing_account_id \
-  --disable-rosa
+  --disable-rosa \
   --v=2

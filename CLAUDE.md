@@ -256,8 +256,33 @@ workflow-launch openshift-e2e-gcp 4.19 "BASELINE_CAPABILITY_SET=None","ADDITIONA
 
 ### Testing
 - Unit tests: `*_test.go` files (using Ginkgo/Gomega)
-- Test command: `go test ./...`
+- Test command: `make test` (includes race detection via `-race` flag)
+- Manual test command: `go test ./...` or `go test -race ./...` for race detection
+- Race detection is enabled by default in the Makefile to catch concurrency issues
 - Integration tests in `pkg/manager/manager_test.go` and `pkg/manager/prow_test.go`
+
+**Important**: The project includes concurrent operations (e.g., GCP access management with mutexes), so tests should always run with the race detector enabled to ensure thread safety.
+
+### Pre-commit Verification
+Before committing changes, run the following commands to ensure code quality:
+
+```bash
+make verify  # Run verification checks (govet, gofmt, etc.)
+make lint    # Run golangci-lint for code quality checks
+make test    # Run all tests with race detection
+make all     # Build all binaries
+```
+
+Or run all checks at once:
+```bash
+make verify lint test all
+```
+
+This ensures that:
+- Code passes static analysis and formatting checks
+- All tests pass with race detection enabled
+- The project builds successfully
+- No regressions are introduced
 
 ## Configuration
 
@@ -317,3 +342,37 @@ workflow-launch openshift-e2e-gcp 4.19 "BASELINE_CAPABILITY_SET=None","ADDITIONA
 - Cluster lifetimes are limited and automatically cleaned up
 - Metal/bare-metal clusters require special proxy configuration
 - The bot integrates deeply with Red Hat's Prow CI infrastructure
+
+### Testing and Verification Guidelines for Claude
+
+**When to run verification commands:**
+
+After making any code changes (especially to `.go` files), you should proactively run:
+```bash
+make verify lint test all
+```
+
+This is REQUIRED for:
+- Adding or modifying Go code in `pkg/`, `cmd/`, or any package
+- Changing test files (`*_test.go`)
+- Modifying the Makefile or build configuration
+- Adding new dependencies or updating `go.mod`
+
+This is OPTIONAL but RECOMMENDED for:
+- Documentation-only changes (`.md` files)
+- Configuration file changes (`.yaml`, `.json`)
+
+**How to handle failures:**
+- If `make verify` fails: Fix formatting/vet issues before proceeding
+- If `make lint` fails: Address linting issues or document why they can be ignored
+- If `make test` fails: Fix the failing tests or update them if behavior changed intentionally
+- If `make all` fails: Fix build errors before suggesting the changes are complete
+
+**Race detection note:**
+The `-race` flag is enabled by default in `GO_TEST_FLAGS`. Any failures related to race conditions MUST be fixed, as this indicates actual concurrency bugs in production code (especially in GCP access management, Slack handlers, and other concurrent operations).
+
+**Always inform the user:**
+After running verification commands, inform the user of the results:
+- ✅ "All verification checks passed: verify, lint, test, and build successful"
+- ⚠️ "Verification passed with warnings: [describe warnings]"
+- ❌ "Verification failed: [describe failures and fixes needed]"

@@ -223,17 +223,27 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Description: "List available versions for MCE clusters.",
 			Handler:     MceImageSets,
 		}, false),
+		parser.NewBotCommand("request <resource?> <justification?>", &parser.CommandDefinition{
+			Description: "Request access to workspace. Access is granted for 7 days. Must be member of Hybrid Platforms organization.",
+			Example:     "request gcp-access \"Need to debug CI infrastructure issues\"",
+			Handler:     Request,
+		}, false),
+		parser.NewBotCommand("revoke <resource?>", &parser.CommandDefinition{
+			Description: "Revoke your workspace access before expiration.",
+			Example:     "revoke gcp-access",
+			Handler:     Revoke,
+		}, false),
 	}
 }
 
-func GetUserName(client *slack.Client, userID string) string {
+func GetUserName(client parser.SlackClient, userID string) string {
 	user, err := client.GetUserInfo(userID)
 	if err != nil {
 		klog.Warningf("Failed to get the User Info for UserID: %s, %v", userID, err)
 		return ""
 	}
-	if strings.HasSuffix(user.Profile.Email, "@redhat.com") {
-		return strings.TrimSuffix(user.Profile.Email, "@redhat.com")
+	if before, ok := strings.CutSuffix(user.Profile.Email, "@redhat.com"); ok {
+		return before
 	}
 	klog.Warningf("Failed to get the User details for UserID: %s", userID)
 	return ""
@@ -316,15 +326,16 @@ func BuildJobParams(params string) (map[string]string, error) {
 			// We detected nested parameters so process them.
 			multiParams := strings.Join(split[1:], "=")
 			multiSplit := strings.Split(multiParams, ";")
-			value := multiSplit[0]
+			var value strings.Builder
+			value.WriteString(multiSplit[0])
 			for _, param := range multiSplit[1:] {
 				variable := strings.Split(param, "=")
 				if len(variable) != 2 {
 					return nil, fmt.Errorf("unable to interpret parameter in `%s`. Each nested parameter must be in the form of KEY=VALUE", param)
 				}
-				value += fmt.Sprintf("\n%s=%s", variable[0], variable[1])
+				value.WriteString(fmt.Sprintf("\n%s=%s", variable[0], variable[1]))
 			}
-			jobParams[split[0]] = value
+			jobParams[split[0]] = value.String()
 		} else if len(split) == 2 {
 			jobParams[split[0]] = parseParameterValue(split[1])
 		} else {
@@ -347,7 +358,7 @@ func parseParameterValue(value string) string {
 	return value
 }
 
-func NotifyJob(client *slack.Client, job *manager.Job, postMessage bool) (string, string) {
+func NotifyJob(client parser.SlackClient, job *manager.Job, postMessage bool) (string, string) {
 	var msg, kubeconfig string
 	switch job.Mode {
 	case manager.JobTypeLaunch, manager.JobTypeWorkflowLaunch:
@@ -506,7 +517,7 @@ func NotifyJob(client *slack.Client, job *manager.Job, postMessage bool) (string
 	return msg, kubeconfig
 }
 
-func SendKubeConfig(client *slack.Client, channel, contents, comment, identifier string) string {
+func SendKubeConfig(client parser.SlackClient, channel, contents, comment, identifier string) string {
 	params := slack.UploadFileV2Parameters{
 		Content:        contents,
 		FileSize:       len(contents),
@@ -521,6 +532,24 @@ func SendKubeConfig(client *slack.Client, channel, contents, comment, identifier
 	}
 	klog.Infof("successfully uploaded file to %s", channel)
 	return summary.ID
+}
+
+func SendGCPServiceAccountKey(client parser.SlackClient, channel, keyJSON, email string) error {
+	sanitized := strings.ReplaceAll(strings.ReplaceAll(email, "@", "-"), ".", "-")
+	params := slack.UploadFileV2Parameters{
+		Content:        keyJSON,
+		FileSize:       len(keyJSON),
+		Channel:        channel,
+		Filename:       fmt.Sprintf("gcp-access-%s.json", sanitized),
+		InitialComment: "⚠️  Service Account Key - Keep secure and do not share!",
+	}
+	_, err := client.UploadFileV2(params)
+	if err != nil {
+		klog.Errorf("error: unable to upload GCP service account key: %v", err)
+		return err
+	}
+	klog.Infof("successfully uploaded GCP key to %s", channel)
+	return nil
 }
 
 func CodeSlice(items []string) []string {
@@ -691,7 +720,7 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 	return platform, architecture, params, nil
 }
 
-func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterDeployment *hivev1.ClusterDeployment, clusterProvision *hivev1.ClusterProvision, kubeconfig, password string, postMessage bool, errMsg error) (string, string) {
+func NotifyMce(client parser.SlackClient, cluster *clusterv1.ManagedCluster, clusterDeployment *hivev1.ClusterDeployment, clusterProvision *hivev1.ClusterProvision, kubeconfig, password string, postMessage bool, errMsg error) (string, string) {
 	channel := cluster.Annotations[utils.ChannelTag]
 	if errMsg != nil {
 		msg := fmt.Sprintf("Creation of your cluster has failed with the following message: ```%s```\nExisting cluster resources will be deleted.", errMsg.Error())
@@ -787,7 +816,7 @@ func NotifyMce(client *slack.Client, cluster *clusterv1.ManagedCluster, clusterD
 	return fmt.Sprintf("Cluster %s is not yet available", cluster.GetName()), ""
 }
 
-func NotifyRosa(client *slack.Client, cluster *clustermgmtv1.Cluster, password string) {
+func NotifyRosa(client parser.SlackClient, cluster *clustermgmtv1.Cluster, password string) {
 	channel := cluster.AWS().Tags()[utils.ChannelTag]
 	switch {
 	case cluster.State() == clustermgmtv1.ClusterStateError:

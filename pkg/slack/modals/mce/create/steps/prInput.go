@@ -43,8 +43,8 @@ func validatePRInputView(submissionData modals.CallbackData, jobmanager manager.
 	var wg sync.WaitGroup
 	errCh := make(chan error)
 
-	prSlice := strings.Split(prs, ",")
-	for _, pr := range prSlice {
+	prSlice := strings.SplitSeq(prs, ",")
+	for pr := range prSlice {
 		wg.Add(1)
 		go func(pr string) {
 			defer wg.Done()

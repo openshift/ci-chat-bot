@@ -1584,8 +1584,8 @@ func replaceTargetArgument(spec *corev1.PodSpec, from, to string) error {
 		}
 		var updated []string
 		for _, arg := range container.Args {
-			if strings.HasPrefix(arg, "--target=") {
-				arg = strings.TrimPrefix(arg, "--target=")
+			if after, ok := strings.CutPrefix(arg, "--target="); ok {
+				arg = after
 				if arg == from && len(to) > 0 {
 					updated = append(updated, fmt.Sprintf("--target=%s", to))
 				}
@@ -1608,8 +1608,8 @@ func findTargetName(spec *corev1.PodSpec) (string, error) {
 			continue
 		}
 		for _, arg := range container.Args {
-			if strings.HasPrefix(arg, "--target=") {
-				value := strings.TrimPrefix(arg, "--target=")
+			if after, ok := strings.CutPrefix(arg, "--target="); ok {
+				value := after
 				if len(value) > 0 {
 					value := (&resolvedEnvironment{env: container.Env}).Resolve(value)
 					if len(value) == 0 {

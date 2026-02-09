@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
-	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 )
 
@@ -15,10 +14,13 @@ const (
 	parameterPattern     = "<\\S+>"
 	lazyParameterPattern = "<\\S+\\?>"
 	spacePattern         = "\\s+"
-	inputPattern         = "(.+)"
-	lazyInputPattern     = "(.+?)"
-	preCommandPattern    = "(^)"
-	postCommandPattern   = "$"
+	// inputPattern matches either a quoted string (with quotes) or everything to the end
+	inputPattern = "(.+)"
+	// lazyInputPattern matches either a quoted string (with quotes) or a non-space sequence
+	// Supports both double quotes and single quotes, preserving the quotes in the capture
+	lazyInputPattern   = "(\"[^\"]*\"|'[^']*'|\\S+)"
+	preCommandPattern  = "(^)"
+	postCommandPattern = "$"
 )
 
 const (
@@ -31,7 +33,7 @@ var (
 	regexCharacters = []string{"\\", "(", ")", "{", "}", "[", "]", "?", ".", "+", "|", "^", "$"}
 )
 
-func (c *botCommand) Execute(client *slack.Client, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string {
+func (c *botCommand) Execute(client SlackClient, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string {
 	if c.definition == nil || c.definition.Handler == nil {
 		return "Failed to execute the command!"
 	}
@@ -136,14 +138,15 @@ func compile(tokens []*Token) *regexp.Regexp {
 		return nil
 	}
 
-	pattern := preCommandPattern + getInputPattern(tokens[0])
+	var pattern strings.Builder
+	pattern.WriteString(preCommandPattern + getInputPattern(tokens[0]))
 	for index := 1; index < len(tokens); index++ {
 		currentToken := tokens[index]
-		pattern += spacePattern + getInputPattern(currentToken)
+		pattern.WriteString(spacePattern + getInputPattern(currentToken))
 	}
-	pattern += postCommandPattern
+	pattern.WriteString(postCommandPattern)
 
-	return regexp.MustCompile(ignoreCase + pattern)
+	return regexp.MustCompile(ignoreCase + pattern.String())
 }
 
 func getInputPattern(token *Token) string {
@@ -205,10 +208,18 @@ func NewProperties(m map[string]string) *Properties {
 }
 
 // StringParam attempts to look up a string value by key. If not found, return the default string value
+// Automatically strips surrounding quotes from quoted strings
 func (p *Properties) StringParam(key string, defaultValue string) string {
 	value, ok := p.PropertyMap[key]
 	if !ok {
 		return defaultValue
+	}
+	// Strip surrounding quotes if present (both double and single quotes)
+	if len(value) >= 2 {
+		if (value[0] == '"' && value[len(value)-1] == '"') ||
+			(value[0] == '\'' && value[len(value)-1] == '\'') {
+			return value[1 : len(value)-1]
+		}
 	}
 	return value
 }

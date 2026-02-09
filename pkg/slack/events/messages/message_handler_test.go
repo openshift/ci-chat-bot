@@ -6,7 +6,6 @@ import (
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
-	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 )
 
@@ -43,7 +42,7 @@ var mockBotCommands = []parser.BotCommand{
 	}, true), // private command
 }
 
-func mockHandler(client *slack.Client, manager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+func mockHandler(client parser.SlackClient, manager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	return "mock response"
 }
 
