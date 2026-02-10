@@ -297,14 +297,14 @@ func TestBuildJobParams(t *testing.T) {
 			errorString: "",
 		},
 		{
-			name:        "SimpleParameter",
-			params:      "\"KEY1=VALUE1\"",
+			name:        "SimpleUnquotedParameter",
+			params:      "KEY1=VALUE1",
 			expected:    map[string]string{"KEY1": "VALUE1"},
 			errorString: "",
 		},
 		{
-			name:        "IncorrectlyQuotedParameter",
-			params:      "“KEY1=VALUE1”",
+			name:        "SimpleQuotedParameter",
+			params:      "\"KEY1=VALUE1\"",
 			expected:    map[string]string{"KEY1": "VALUE1"},
 			errorString: "",
 		},
