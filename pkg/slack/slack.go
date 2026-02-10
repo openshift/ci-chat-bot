@@ -396,8 +396,8 @@ func NotifyJob(client parser.SlackClient, job *manager.Job, postMessage bool) (s
 				"Your cluster is ready, it will be shut down automatically in ~%d minutes.",
 				time.Until(job.ExpiresAt)/time.Minute,
 			)
-			if len(job.PasswordSnippet) > 0 {
-				msg += "\n" + job.PasswordSnippet
+			if len(job.CredentialsSnippet) > 0 {
+				msg += "\n" + job.CredentialsSnippet
 			}
 			kubeconfig = job.Credentials
 			if postMessage {
@@ -502,8 +502,8 @@ func NotifyJob(client parser.SlackClient, job *manager.Job, postMessage bool) (s
 		if len(job.URL) > 0 {
 			msg += fmt.Sprintf(" See %s for details.", job.URL)
 		}
-		if len(job.PasswordSnippet) > 0 {
-			msg += "\n" + job.PasswordSnippet
+		if len(job.CredentialsSnippet) > 0 {
+			msg += "\n" + job.CredentialsSnippet
 		}
 		kubeconfig = job.Credentials
 		if postMessage {
