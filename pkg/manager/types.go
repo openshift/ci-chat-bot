@@ -468,9 +468,9 @@ type Job struct {
 
 	Inputs []JobInput
 
-	Credentials     string
-	PasswordSnippet string
-	Failure         string
+	Credentials        string
+	CredentialsSnippet string
+	Failure            string
 
 	RequestedBy      string
 	RequesterUserID  string

@@ -291,7 +291,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	}
 	defer m.finishJob(job.Name)
 
-	if job.IsComplete() && len(job.PasswordSnippet) > 0 {
+	if job.IsComplete() && len(job.CredentialsSnippet) > 0 {
 		return "", nil
 	}
 	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(job.Name))
@@ -1097,7 +1097,7 @@ func (m *jobManager) setupAccessRBAC(job *Job, namespace string) {
 }
 
 func (m *jobManager) waitForJob(job *Job) error {
-	if job.IsComplete() && len(job.PasswordSnippet) > 0 {
+	if job.IsComplete() && len(job.CredentialsSnippet) > 0 {
 		return nil
 	}
 	namespace := fmt.Sprintf("ci-ln-%s", namespaceSafeHash(job.Name))
@@ -1345,7 +1345,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 	var kubeadminPassword string
 	var operatorDeploymentInfo string
 	if consoleURL, ok := secretDir.Data["console.url"]; ok {
-		job.PasswordSnippet = string(consoleURL)
+		job.CredentialsSnippet = string(consoleURL)
 	} else {
 		return fmt.Errorf("unable to retrieve console.url from step secret %s/%s", namespace, targetName)
 	}
@@ -1356,12 +1356,12 @@ func (m *jobManager) waitForJob(job *Job) error {
 		operatorDeploymentInfo = string(deployment)
 	}
 	if len(kubeadminPassword) > 0 {
-		job.PasswordSnippet += fmt.Sprintf("\nLog in to the console with user `kubeadmin` and password `%s`", kubeadminPassword)
+		job.CredentialsSnippet += fmt.Sprintf("\nLog in to the console with user `kubeadmin` and password `%s`", kubeadminPassword)
 		if len(operatorDeploymentInfo) > 0 {
-			job.PasswordSnippet += fmt.Sprintf("\nThis following is the deployment information for you operator:\n%s", operatorDeploymentInfo)
+			job.CredentialsSnippet += fmt.Sprintf("\nThis following is the deployment information for you operator:\n%s", operatorDeploymentInfo)
 		}
 	} else {
-		job.PasswordSnippet = "\nError: Unable to retrieve kubeadmin password, you must use the kubeconfig file to access the cluster"
+		job.CredentialsSnippet = "\nError: Unable to retrieve kubeadmin password, you must use the kubeconfig file to access the cluster"
 	}
 
 	created := len(pj.Annotations["ci-chat-bot.openshift.io/expires"]) == 0
