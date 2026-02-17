@@ -69,15 +69,19 @@ func BuildFilterVersionView(config FilterVersionViewConfig) slackClient.ModalVie
 	}
 
 	latestBuildOptions := []*slackClient.OptionBlockObject{}
-	_, nightly, _, err := config.JobManager.ResolveImageOrVersion("nightly", "", config.Architecture)
-	if err == nil {
+	if _, nightly, _, err := config.JobManager.ResolveImageOrVersion("nightly", "", config.Architecture); err != nil {
+		klog.Warningf("failed to resolve current nightly: %s", err)
+		return modals.ErrorView("failed to resolve current nightly", err)
+	} else {
 		latestBuildOptions = append(latestBuildOptions, &slackClient.OptionBlockObject{
 			Value: "nightly",
 			Text:  &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: nightly},
 		})
 	}
-	_, ci, _, err := config.JobManager.ResolveImageOrVersion("ci", "", config.Architecture)
-	if err == nil {
+	if _, ci, _, err := config.JobManager.ResolveImageOrVersion("ci", "", config.Architecture); err != nil {
+		klog.Warningf("failed to resolve current ci image: %s", err)
+		return modals.ErrorView("failed to resolve current ci image", err)
+	} else {
 		latestBuildOptions = append(latestBuildOptions, &slackClient.OptionBlockObject{
 			Value: "ci",
 			Text:  &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: ci},
@@ -90,7 +94,12 @@ func BuildFilterVersionView(config FilterVersionViewConfig) slackClient.ModalVie
 		return modals.ErrorView("retrieve valid releases from the release-controller", err)
 	}
 
-	streams := filterStreams(releases, config.Data.Input[modals.LaunchPlatform])
+	platform := config.Data.Input[modals.LaunchPlatform]
+	streams := filterStreams(releases, platform)
+	if len(streams) == 0 {
+		klog.Warningf("no release streams found for platform %q", platform)
+		return modals.ErrorView("find release streams", fmt.Errorf("no release streams found for platform %q", platform))
+	}
 	sort.Strings(streams)
 	streamsOptions := modals.BuildOptions(streams, nil)
 
@@ -245,14 +254,17 @@ func BuildSelectVersionView(config SelectVersionViewConfig) slackClient.ModalVie
 	}
 
 	var allTags []string
-	for stream, tags := range releases {
-		if stream == selectedStream {
-			for _, tag := range tags {
-				if strings.HasPrefix(tag, selectedMajorMinor) {
-					allTags = append(allTags, tag)
-				}
+	if tags, ok := releases[selectedStream]; ok {
+		for _, tag := range tags {
+			if strings.HasPrefix(tag, selectedMajorMinor) {
+				allTags = append(allTags, tag)
 			}
 		}
+	}
+
+	if len(allTags) == 0 {
+		klog.Warningf("no versions found for stream %q with prefix %q", selectedStream, selectedMajorMinor)
+		return modals.ErrorView("find versions matching your selection", fmt.Errorf("no versions found for stream %q with major.minor %q", selectedStream, selectedMajorMinor))
 	}
 
 	// If too many results, redirect to major/minor selection
@@ -336,16 +348,11 @@ func BuildSelectMinorMajorView(config ReleaseViewConfig) slackClient.ModalViewRe
 	}
 
 	majorMinor := make(map[string]bool, 0)
-	for stream, tags := range releases {
-		if stream != selectedStream {
-			continue
-		}
-		if strings.HasPrefix(stream, modals.StableReleasesPrefix) {
-			for _, tag := range tags {
-				splitTag := strings.Split(tag, ".")
-				if len(splitTag) >= 2 {
-					majorMinor[fmt.Sprintf("%s.%s", splitTag[0], splitTag[1])] = true
-				}
+	if tags, ok := releases[selectedStream]; ok && strings.HasPrefix(selectedStream, modals.StableReleasesPrefix) {
+		for _, tag := range tags {
+			splitTag := strings.Split(tag, ".")
+			if len(splitTag) >= 2 {
+				majorMinor[fmt.Sprintf("%s.%s", splitTag[0], splitTag[1])] = true
 			}
 		}
 	}
@@ -367,6 +374,11 @@ func BuildSelectMinorMajorView(config ReleaseViewConfig) slackClient.ModalViewRe
 	}
 	slices.Reverse(majorMinorReleases)
 
+	if len(majorMinorReleases) == 0 {
+		klog.Warningf("no major.minor versions found for stream %q", selectedStream)
+		return modals.ErrorView("find major.minor versions", fmt.Errorf("no major.minor versions found for stream %q", selectedStream))
+	}
+
 	majorMinorOptions := modals.BuildOptions(majorMinorReleases, nil)
 
 	// Set the previous step for back navigation
@@ -384,7 +396,7 @@ func BuildSelectMinorMajorView(config ReleaseViewConfig) slackClient.ModalViewRe
 				Type: slackClient.MBTHeader,
 				Text: &slackClient.TextBlockObject{
 					Type:     slackClient.PlainTextType,
-					Text:     "There are too many results from the selected Stream. Select a Minor.Major as well",
+					Text:     "There are too many results from the selected Stream. Select a Major.Minor as well",
 					Emoji:    false,
 					Verbatim: false,
 				},
@@ -499,12 +511,7 @@ func filterStreams(releases map[string][]string, platform string) []string {
 
 // SelectModeViewConfig holds configuration for building the select mode view
 type SelectModeViewConfig struct {
-	Callback        *slackClient.InteractionCallback
-	Data            modals.CallbackData
-	ModalIdentifier string
-	Title           string
-	PreviousStep    string
-	ContextMetadata string
+	BaseViewConfig
 }
 
 // BuildSelectModeView creates a modal view for selecting launch mode (PR/Version)

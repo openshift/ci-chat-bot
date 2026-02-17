@@ -153,12 +153,14 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 		Build()
 
 	return common.BuildSelectModeView(common.SelectModeViewConfig{
-		Callback:        callback,
-		Data:            data,
-		ModalIdentifier: string(IdentifierSelectModeView),
-		Title:           ModalTitle,
-		PreviousStep:    string(IdentifierInitialView),
-		ContextMetadata: metadata,
+		BaseViewConfig: common.BaseViewConfig{
+			Callback:        callback,
+			Data:            data,
+			ModalIdentifier: string(IdentifierSelectModeView),
+			Title:           ModalTitle,
+			PreviousStep:    string(IdentifierInitialView),
+			ContextMetadata: metadata,
+		},
 	})
 }
 

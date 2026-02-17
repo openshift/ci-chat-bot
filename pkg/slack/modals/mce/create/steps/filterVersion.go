@@ -16,7 +16,7 @@ func RegisterFilterVersion(client *slack.Client, jobmanager manager.JobManager, 
 		slack.InteractionTypeViewSubmission: common.MakeFilterVersionHandler(
 			string(create.IdentifierFilterVersionView),
 			create.ModalTitle,
-			string(create.IdentifierFilterVersionView),
+			string(create.IdentifierSelectVersion),
 			common.ViewFuncs{
 				FilterVersionView: create.FilterVersionView,
 				PRInputView:       create.PRInputView,

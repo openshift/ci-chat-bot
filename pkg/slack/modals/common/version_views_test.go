@@ -193,7 +193,9 @@ func TestFilterStreams(t *testing.T) {
 func TestBuildSelectModeView(t *testing.T) {
 	t.Run("nil callback returns empty view", func(t *testing.T) {
 		config := SelectModeViewConfig{
-			Callback: nil,
+			BaseViewConfig: BaseViewConfig{
+				Callback: nil,
+			},
 		}
 		view := BuildSelectModeView(config)
 		if view.Type != "" {
@@ -202,14 +204,15 @@ func TestBuildSelectModeView(t *testing.T) {
 	})
 
 	t.Run("valid callback returns proper view", func(t *testing.T) {
-		callback := &slack.InteractionCallback{}
 		config := SelectModeViewConfig{
-			Callback:        callback,
-			Data:            modals.CallbackData{},
-			ModalIdentifier: "test-mode",
-			Title:           "Select Mode",
-			PreviousStep:    "step1",
-			ContextMetadata: "Platform: aws",
+			BaseViewConfig: BaseViewConfig{
+				Callback:        &slack.InteractionCallback{},
+				Data:            modals.CallbackData{},
+				ModalIdentifier: "test-mode",
+				Title:           "Select Mode",
+				PreviousStep:    "step1",
+				ContextMetadata: "Platform: aws",
+			},
 		}
 
 		view := BuildSelectModeView(config)
@@ -245,16 +248,17 @@ func TestBuildSelectModeView(t *testing.T) {
 	})
 
 	t.Run("preserves initial selections", func(t *testing.T) {
-		callback := &slack.InteractionCallback{}
 		config := SelectModeViewConfig{
-			Callback: callback,
-			Data: modals.CallbackData{
-				MultipleSelection: map[string][]string{
-					modals.LaunchMode: {modals.LaunchModePRKey, modals.LaunchModeVersionKey},
+			BaseViewConfig: BaseViewConfig{
+				Callback: &slack.InteractionCallback{},
+				Data: modals.CallbackData{
+					MultipleSelection: map[string][]string{
+						modals.LaunchMode: {modals.LaunchModePRKey, modals.LaunchModeVersionKey},
+					},
 				},
+				ModalIdentifier: "test-mode",
+				Title:           "Select Mode",
 			},
-			ModalIdentifier: "test-mode",
-			Title:           "Select Mode",
 		}
 
 		view := BuildSelectModeView(config)

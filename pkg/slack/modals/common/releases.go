@@ -21,6 +21,9 @@ func FetchReleases(client *http.Client, architecture string) (map[string][]strin
 			klog.Errorf("Failed to close response for FetchReleases: %v", closeErr)
 		}
 	}()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("FetchReleases: unexpected status %d from %s", resp.StatusCode, url)
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&acceptedReleases); err != nil {
 		return nil, err
 	}
