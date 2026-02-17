@@ -257,7 +257,7 @@ workflow-launch openshift-e2e-gcp 4.19 "BASELINE_CAPABILITY_SET=None","ADDITIONA
 ### Testing
 - Unit tests: `*_test.go` files (using Ginkgo/Gomega)
 - Test command: `make test` (includes race detection via `-race` flag)
-- Manual test command: `go test ./...` or `go test -race ./...` for race detection
+- Manual test command: `go test ./...` or `go test -race ./...`
 - Race detection is enabled by default in the Makefile to catch concurrency issues
 - Integration tests in `pkg/manager/manager_test.go` and `pkg/manager/prow_test.go`
 
@@ -342,6 +342,10 @@ This ensures that:
 - Cluster lifetimes are limited and automatically cleaned up
 - Metal/bare-metal clusters require special proxy configuration
 - The bot integrates deeply with Red Hat's Prow CI infrastructure
+
+### Build Tag: `-tags gcs`
+
+This repo requires the `-tags gcs` build flag. The vendored `cyborg-data` package gates GCS client code behind this tag. Both the Makefile and `.claude/settings.json` (via `GOFLAGS`) handle this automatically, so `make` commands and direct `go` commands within Claude Code work without any extra flags.
 
 ### Testing and Verification Guidelines for Claude
 
