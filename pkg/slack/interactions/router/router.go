@@ -54,7 +54,7 @@ func ForModals(client *slack.Client, jobmanager manager.JobManager, httpclient *
 		mceauth.Register(client, jobmanager, httpclient),
 		mcelist.Register(client, jobmanager, httpclient),
 		mcedelete.Register(client, jobmanager),
-		mcelookup.Register(client, jobmanager, httpclient),
+		mcelookup.Register(client, jobmanager),
 	}
 
 	for _, entry := range toRegister {

@@ -1,5 +1,6 @@
 /ci-chat-bot
 .idea/
+.zed/
 
 .dccache
 .scannerwork/

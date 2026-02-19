@@ -17,6 +17,7 @@ func Register(client *slack.Client, jobmanager manager.JobManager) *modals.FlowW
 	})
 }
 
+// process has custom logic and can't use MakeSimpleProcessHandler
 func process(updater *slack.Client, jobManager manager.JobManager) interactions.Handler {
 	return interactions.HandlerFunc(identifier, func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		go func() {
@@ -40,7 +41,8 @@ func process(updater *slack.Client, jobManager manager.JobManager) interactions.
 			}
 			msg, err := jobManager.DeleteMceCluster(callback.User.ID, clusterName)
 			if err != nil {
-				modals.OverwriteView(updater, modals.ErrorView("deleting the Managed Cluster", err), callback, logger)
+				modals.OverwriteView(updater, modals.ErrorView("deleting managed cluster", err), callback, logger)
+				return
 			}
 			modals.OverwriteView(updater, modals.SubmissionView(title, msg), callback, logger)
 		}()
