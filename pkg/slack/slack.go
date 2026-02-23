@@ -329,7 +329,7 @@ func BuildJobParams(params string) (map[string]string, error) {
 				if len(variable) != 2 {
 					return nil, fmt.Errorf("unable to interpret parameter in `%s`. Each nested parameter must be in the form of KEY=VALUE", param)
 				}
-				value.WriteString(fmt.Sprintf("\n%s=%s", variable[0], variable[1]))
+				fmt.Fprintf(&value, "\n%s=%s", variable[0], variable[1])
 			}
 			jobParams[split[0]] = value.String()
 		} else if len(split) == 2 {
