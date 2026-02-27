@@ -26,6 +26,7 @@ import (
 	"github.com/tektoncd/pipeline/pkg/apis/validate"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/strings/slices"
 	"knative.dev/pkg/apis"
@@ -50,6 +51,9 @@ func (tr *TaskRun) Validate(ctx context.Context) *apis.FieldError {
 
 // Validate taskrun spec
 func (ts *TaskRunSpec) Validate(ctx context.Context) (errs *apis.FieldError) {
+	// Validate the spec changes
+	errs = errs.Also(ts.ValidateUpdate(ctx))
+
 	// Must have exactly one of taskRef and taskSpec.
 	if ts.TaskRef == nil && ts.TaskSpec == nil {
 		errs = errs.Also(apis.ErrMissingOneOf("taskRef", "taskSpec"))
@@ -80,11 +84,11 @@ func (ts *TaskRunSpec) Validate(ctx context.Context) (errs *apis.FieldError) {
 		errs = errs.Also(validateDebug(ts.Debug).ViaField("debug"))
 	}
 	if ts.StepSpecs != nil {
-		errs = errs.Also(config.ValidateEnabledAPIFields(ctx, "stepSpecs", config.AlphaAPIFields).ViaField("stepSpecs"))
+		errs = errs.Also(config.ValidateEnabledAPIFields(ctx, "stepSpecs", config.BetaAPIFields).ViaField("stepSpecs"))
 		errs = errs.Also(validateStepSpecs(ts.StepSpecs).ViaField("stepSpecs"))
 	}
 	if ts.SidecarSpecs != nil {
-		errs = errs.Also(config.ValidateEnabledAPIFields(ctx, "sidecarSpecs", config.AlphaAPIFields).ViaField("sidecarSpecs"))
+		errs = errs.Also(config.ValidateEnabledAPIFields(ctx, "sidecarSpecs", config.BetaAPIFields).ViaField("sidecarSpecs"))
 		errs = errs.Also(validateSidecarSpecs(ts.SidecarSpecs).ViaField("sidecarSpecs"))
 	}
 	if ts.ComputeResources != nil {
@@ -105,17 +109,62 @@ func (ts *TaskRunSpec) Validate(ctx context.Context) (errs *apis.FieldError) {
 	if ts.Retries < 0 {
 		errs = errs.Also(apis.ErrInvalidValue(fmt.Sprintf("%d should be >= 0", ts.Retries), "retries"))
 	}
-	if ts.Timeout != nil {
-		// timeout should be a valid duration of at least 0.
-		if ts.Timeout.Duration < 0 {
-			errs = errs.Also(apis.ErrInvalidValue(ts.Timeout.Duration.String()+" should be >= 0", "timeout"))
-		}
-	}
 
 	if ts.PodTemplate != nil {
 		errs = errs.Also(validatePodTemplateEnv(ctx, *ts.PodTemplate))
 	}
+
+	if ts.Timeout != nil && ts.Timeout.Duration < 0 {
+		errs = errs.Also(apis.ErrInvalidValue(ts.Timeout.Duration.String()+" should be >= 0", "timeout"))
+	}
+
 	return errs
+}
+
+// ValidateUpdate validates the update of a TaskRunSpec
+func (ts *TaskRunSpec) ValidateUpdate(ctx context.Context) (errs *apis.FieldError) {
+	if !apis.IsInUpdate(ctx) {
+		return
+	}
+
+	oldObj, ok := apis.GetBaseline(ctx).(*TaskRun)
+	if !ok || oldObj == nil {
+		return
+	}
+
+	if (oldObj.Spec.ManagedBy == nil) != (ts.ManagedBy == nil) || (oldObj.Spec.ManagedBy != nil && *oldObj.Spec.ManagedBy != *ts.ManagedBy) {
+		errs = errs.Also(apis.ErrInvalidValue("managedBy is immutable", "spec.managedBy"))
+	}
+
+	if oldObj.IsDone() {
+		// try comparing without any copying first
+		// this handles the common case where only finalizers changed
+		if equality.Semantic.DeepEqual(&oldObj.Spec, ts) {
+			return nil // Specs identical, allow update
+		}
+		// Specs differ, this could be due to different defaults after upgrade
+		// Apply current defaults to old spec to normalize
+		oldCopy := oldObj.Spec.DeepCopy()
+		oldCopy.SetDefaults(ctx)
+
+		if equality.Semantic.DeepEqual(oldCopy, ts) {
+			return nil // Difference was only defaults, allow update
+		}
+
+		// Real spec changes detected, reject update
+		errs = errs.Also(apis.ErrInvalidValue("Once the TaskRun is complete, no updates are allowed", ""))
+		return errs
+	}
+
+	// Handle started but not done case
+	old := oldObj.Spec.DeepCopy()
+	old.Status = ts.Status
+	old.StatusMessage = ts.StatusMessage
+	old.ManagedBy = ts.ManagedBy // Already tested before
+	if !equality.Semantic.DeepEqual(old, ts) {
+		errs = errs.Also(apis.ErrInvalidValue("Once the TaskRun has started, only status and statusMessage updates are allowed", ""))
+	}
+	return
 }
 
 // validateInlineParameters validates that any parameters called in the
@@ -224,8 +273,20 @@ func validateDebug(db *TaskRunDebug) (errs *apis.FieldError) {
 	if db == nil || db.Breakpoints == nil {
 		return errs
 	}
+
+	if db.Breakpoints.OnFailure == "" {
+		errs = errs.Also(apis.ErrInvalidValue("onFailure breakpoint is empty, it is only allowed to be set as enabled", "breakpoints.onFailure"))
+	}
+
 	if db.Breakpoints.OnFailure != "" && db.Breakpoints.OnFailure != EnabledOnFailureBreakpoint {
 		errs = errs.Also(apis.ErrInvalidValue(db.Breakpoints.OnFailure+" is not a valid onFailure breakpoint value, onFailure breakpoint is only allowed to be set as enabled", "breakpoints.onFailure"))
+	}
+	beforeSteps := sets.NewString()
+	for i, step := range db.Breakpoints.BeforeSteps {
+		if beforeSteps.Has(step) {
+			errs = errs.Also(apis.ErrGeneric(fmt.Sprintf("before step must be unique, the same step: %s is defined multiple times at", step), fmt.Sprintf("breakpoints.beforeSteps[%d]", i)))
+		}
+		beforeSteps.Insert(step)
 	}
 	return errs
 }

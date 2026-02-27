@@ -25,6 +25,10 @@ type Step struct {
 	// Name of the Step specified as a DNS_LABEL.
 	// Each Step in a Task must have a unique name.
 	Name string `json:"name" protobuf:"bytes,1,opt,name=name"`
+	// DisplayName is a user-facing name of the step that may be
+	// used to populate a UI.
+	// +optional
+	DisplayName string `json:"displayName,omitempty"`
 	// Docker image name.
 	// More info: https://kubernetes.io/docs/concepts/containers/images
 	// +optional
@@ -140,11 +144,8 @@ type Step struct {
 	Ref *Ref `json:"ref,omitempty"`
 	// Params declares parameters passed to this step action.
 	// +optional
-	// +listType=atomic
 	Params Params `json:"params,omitempty"`
 	// Results declares StepResults produced by the Step.
-	//
-	// This is field is at an ALPHA stability level and gated by "enable-step-actions" feature flag.
 	//
 	// It can be used in an inlined Step when used to store Results to $(step.results.resultName.path).
 	// It cannot be used when referencing StepActions using [v1.Step.Ref].
@@ -152,6 +153,10 @@ type Step struct {
 	// +optional
 	// +listType=atomic
 	Results []StepResult `json:"results,omitempty"`
+
+	// When is a list of when expressions that need to be true for the task to run
+	// +optional
+	When StepWhenExpressions `json:"when,omitempty"`
 }
 
 // Ref can be used to refer to a specific instance of a StepAction.
@@ -539,10 +544,43 @@ type Sidecar struct {
 	// +optional
 	// +listType=atomic
 	Workspaces []WorkspaceUsage `json:"workspaces,omitempty"`
+
+	// RestartPolicy refers to kubernetes RestartPolicy. It can only be set for an
+	// initContainer and must have it's policy set to "Always". It is currently
+	// left optional to help support Kubernetes versions prior to 1.29 when this feature
+	// was introduced.
+	// +optional
+	RestartPolicy *corev1.ContainerRestartPolicy `json:"restartPolicy,omitempty"`
 }
 
 // ToK8sContainer converts the Sidecar to a Kubernetes Container struct
 func (s *Sidecar) ToK8sContainer() *corev1.Container {
+	if s.RestartPolicy == nil {
+		return &corev1.Container{
+			Name:                     s.Name,
+			Image:                    s.Image,
+			Command:                  s.Command,
+			Args:                     s.Args,
+			WorkingDir:               s.WorkingDir,
+			Ports:                    s.Ports,
+			EnvFrom:                  s.EnvFrom,
+			Env:                      s.Env,
+			Resources:                s.ComputeResources,
+			VolumeMounts:             s.VolumeMounts,
+			VolumeDevices:            s.VolumeDevices,
+			LivenessProbe:            s.LivenessProbe,
+			ReadinessProbe:           s.ReadinessProbe,
+			StartupProbe:             s.StartupProbe,
+			Lifecycle:                s.Lifecycle,
+			TerminationMessagePath:   s.TerminationMessagePath,
+			TerminationMessagePolicy: s.TerminationMessagePolicy,
+			ImagePullPolicy:          s.ImagePullPolicy,
+			SecurityContext:          s.SecurityContext,
+			Stdin:                    s.Stdin,
+			StdinOnce:                s.StdinOnce,
+			TTY:                      s.TTY,
+		}
+	}
 	return &corev1.Container{
 		Name:                     s.Name,
 		Image:                    s.Image,
@@ -557,6 +595,7 @@ func (s *Sidecar) ToK8sContainer() *corev1.Container {
 		VolumeDevices:            s.VolumeDevices,
 		LivenessProbe:            s.LivenessProbe,
 		ReadinessProbe:           s.ReadinessProbe,
+		RestartPolicy:            s.RestartPolicy,
 		StartupProbe:             s.StartupProbe,
 		Lifecycle:                s.Lifecycle,
 		TerminationMessagePath:   s.TerminationMessagePath,
@@ -593,6 +632,7 @@ func (s *Sidecar) SetContainerFields(c corev1.Container) {
 	s.Stdin = c.Stdin
 	s.StdinOnce = c.StdinOnce
 	s.TTY = c.TTY
+	s.RestartPolicy = c.RestartPolicy
 }
 
 // GetVarSubstitutionExpressions walks all the places a substitution reference can be used

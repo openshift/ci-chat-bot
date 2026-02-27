@@ -32,8 +32,15 @@ type MachinePool struct {
 
 	// IAMRole is the name of the IAM Role to use for the instance profile of the machine.
 	// Leave unset to have the installer create the IAM Role on your behalf.
+	// Cannot be specified together with iamProfile.
 	// +optional
 	IAMRole string `json:"iamRole,omitempty"`
+
+	// IAMProfile is the name of the IAM instance profile to use for the machine.
+	// Leave unset to have the installer create the IAM Profile on your behalf.
+	// Cannot be specified together with iamRole.
+	// +optional
+	IAMProfile string `json:"iamProfile,omitempty"`
 
 	// AdditionalSecurityGroupIDs contains IDs of additional security groups for machines, where each ID
 	// is presented in the format sg-xxxx.
@@ -41,6 +48,14 @@ type MachinePool struct {
 	// +kubebuilder:validation:MaxItems=10
 	// +optional
 	AdditionalSecurityGroupIDs []string `json:"additionalSecurityGroupIDs,omitempty"`
+
+	// CPUOptions defines CPU-related settings for the instance, including the confidential computing policy.
+	// When omitted, this means no opinion and the AWS platform is left to choose a reasonable default.
+	// More info:
+	// https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_CpuOptionsRequest.html,
+	// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/cpu-options-supported-instances-values.html
+	// +optional
+	CPUOptions *CPUOptions `json:"cpuOptions,omitempty,omitzero"`
 }
 
 // Set sets the values from `required` to `a`.
@@ -64,6 +79,9 @@ func (a *MachinePool) Set(required *MachinePool) {
 	if required.EC2RootVolume.IOPS != 0 {
 		a.EC2RootVolume.IOPS = required.EC2RootVolume.IOPS
 	}
+	if required.EC2RootVolume.Throughput != nil {
+		a.EC2RootVolume.Throughput = required.EC2RootVolume.Throughput
+	}
 	if required.EC2RootVolume.Size != 0 {
 		a.EC2RootVolume.Size = required.EC2RootVolume.Size
 	}
@@ -82,8 +100,16 @@ func (a *MachinePool) Set(required *MachinePool) {
 		a.IAMRole = required.IAMRole
 	}
 
+	if required.IAMProfile != "" {
+		a.IAMProfile = required.IAMProfile
+	}
+
 	if len(required.AdditionalSecurityGroupIDs) > 0 {
 		a.AdditionalSecurityGroupIDs = required.AdditionalSecurityGroupIDs
+	}
+
+	if required.CPUOptions != nil {
+		a.CPUOptions = required.CPUOptions
 	}
 }
 
@@ -95,6 +121,20 @@ type EC2RootVolume struct {
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	IOPS int `json:"iops"`
+
+	// Throughput to provision in MiB/s supported for the volume type. Not applicable to all types.
+	//
+	// This parameter is valid only for gp3 volumes.
+	// Valid Range: Minimum value of 125. Maximum value of 2000.
+	//
+	// When omitted, this means no opinion, and the platform is left to
+	// choose a reasonable default, which is subject to change over time.
+	// The current default is 125.
+	//
+	// +kubebuilder:validation:Minimum:=125
+	// +kubebuilder:validation:Maximum:=2000
+	// +optional
+	Throughput *int32 `json:"throughput,omitempty"`
 
 	// Size defines the size of the volume in gibibytes (GiB).
 	//
@@ -123,4 +163,35 @@ type EC2Metadata struct {
 	// +kubebuilder:validation:Enum=Required;Optional
 	// +optional
 	Authentication string `json:"authentication,omitempty"`
+}
+
+// ConfidentialComputePolicy represents the confidential compute configuration for the instance.
+// +kubebuilder:validation:Enum=Disabled;AMDEncryptedVirtualizationNestedPaging
+type ConfidentialComputePolicy string
+
+const (
+	// ConfidentialComputePolicyDisabled disables confidential computing for the instance.
+	ConfidentialComputePolicyDisabled ConfidentialComputePolicy = "Disabled"
+	// ConfidentialComputePolicySEVSNP enables AMD SEV-SNP as the confidential computing technology for the instance.
+	ConfidentialComputePolicySEVSNP ConfidentialComputePolicy = "AMDEncryptedVirtualizationNestedPaging"
+)
+
+// CPUOptions defines CPU-related settings for the instance, including the confidential computing policy.
+// If provided, it must not be empty — at least one field must be set.
+// +kubebuilder:validation:MinProperties=1
+type CPUOptions struct {
+	// ConfidentialCompute specifies whether confidential computing should be enabled for the instance,
+	// and, if so, which confidential computing technology to use.
+	// Valid values are: Disabled, AMDEncryptedVirtualizationNestedPaging and omitted.
+	// When set to Disabled, confidential computing will be disabled for the instance.
+	// When set to AMDEncryptedVirtualizationNestedPaging, AMD SEV-SNP will be used as the confidential computing technology for the instance.
+	// In this case, ensure the following conditions are met:
+	// 1) The selected instance type supports AMD SEV-SNP.
+	// 2) The selected AWS region supports AMD SEV-SNP.
+	// 3) The selected AMI supports AMD SEV-SNP.
+	// More details can be checked at https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/sev-snp.html
+	// When omitted, this means no opinion and the AWS platform is left to choose a reasonable default,
+	// which is subject to change without notice. The current default is Disabled.
+	// +optional
+	ConfidentialCompute *ConfidentialComputePolicy `json:"confidentialCompute,omitempty"`
 }
