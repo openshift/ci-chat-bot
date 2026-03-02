@@ -1,8 +1,6 @@
 module github.com/openshift/ci-chat-bot
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.25.0
 
 replace (
 	github.com/Sirupsen/logrus => github.com/sirupsen/logrus v1.6.0
@@ -349,7 +347,7 @@ require (
 	go4.org v0.0.0-20201209231011-d4a079459e60 // indirect
 	gocloud.dev v0.40.0 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
-	golang.org/x/net v0.50.0 // indirect
+	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/oauth2 v0.34.0
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
