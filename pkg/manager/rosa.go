@@ -22,7 +22,7 @@ import (
 	"github.com/openshift/rosa/pkg/helper/roles"
 	"github.com/openshift/rosa/pkg/ocm"
 
-	awssdk "github.com/aws/aws-sdk-go/aws"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	"github.com/openshift/oc/pkg/helpers/tokencmd"
 	corev1 "k8s.io/api/core/v1"
@@ -190,8 +190,8 @@ func (m *jobManager) createRosaCluster(providedVersion, slackID, slackChannel st
 	availabilityZones := sets.NewString()
 	foundSubnets := 0
 	for _, subnet := range subnets {
-		if m.rosaSubnets.Subnets.Has(awssdk.StringValue(subnet.SubnetId)) {
-			availabilityZones.Insert(awssdk.StringValue(subnet.AvailabilityZone))
+		if m.rosaSubnets.Subnets.Has(awssdk.ToString(subnet.SubnetId)) {
+			availabilityZones.Insert(awssdk.ToString(subnet.AvailabilityZone))
 			foundSubnets++
 		}
 	}
