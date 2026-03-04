@@ -5,7 +5,6 @@ const (
 	LaunchFromPR                = "pr"
 	LaunchFromMajorMinor        = "major_minor"
 	LaunchFromStream            = "stream"
-	LaunchFromLatestBuild       = "latest_build"
 	LaunchFromReleaseController = "release_controller_version"
 	LaunchFromCustom            = "custom"
 	LaunchPlatform              = "platform"
@@ -14,10 +13,8 @@ const (
 	LaunchVersion               = "version"
 	LaunchStepContext           = "context"
 	LaunchMode                  = "launch_mode"
-	LaunchModeVersion           = "version"
-	LaunchModePR                = "pr"
-	LaunchModePRKey             = "One or multiple PRs"
-	LaunchModeVersionKey        = "A Version"
+	LaunchFromPRYes             = "Yes"
+	LaunchFromPRNo              = "No"
 	LaunchModeContext           = "Launch Mode"
 
 	// Back button constants

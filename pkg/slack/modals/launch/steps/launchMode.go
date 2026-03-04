@@ -17,7 +17,6 @@ func RegisterLaunchModeStep(client *slack.Client, jobmanager manager.JobManager,
 			string(launch.IdentifierRegisterLaunchMode),
 			launch.ModalTitle,
 			launch.FilterVersionView,
-			launch.PRInputView,
 		)(client, jobmanager, httpclient),
 	})
 }

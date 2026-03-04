@@ -3,7 +3,7 @@ package create
 import (
 	"fmt"
 	"net/http"
-	"strings"
+
 	"time"
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
@@ -95,12 +95,12 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 		prs = "None"
 	}
 	version := modals.GetVersion(data, jobmanager)
-	blacklist := sets.Set[string]{}
+	excludeList := sets.Set[string]{}
 	for _, parameter := range manager.SupportedParameters {
 		for k, envs := range manager.MultistageParameters {
 			if k == parameter {
 				if !envs.Platforms.Has(platform) {
-					blacklist.Insert(parameter)
+					excludeList.Insert(parameter)
 				}
 			}
 
@@ -164,13 +164,13 @@ func SelectModeView(callback *slackClient.InteractionCallback, jobmanager manage
 	})
 }
 
-func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, data modals.CallbackData, httpclient *http.Client, mode sets.Set[string], noneSelected bool) slackClient.ModalViewRequest {
+func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, data modals.CallbackData, httpclient *http.Client, noneSelected bool) slackClient.ModalViewRequest {
 	platform := data.Input[modals.LaunchPlatform]
 	duration := data.Input[CreateDuration]
 	metadata := common.NewMetadataBuilder().
 		Add("Duration", duration).
 		Add("Platform", platform).
-		Add(modals.LaunchModeContext, strings.Join(sets.List(mode), ",")).
+		Add(modals.LaunchModeContext, data.Input[modals.LaunchMode]).
 		Build()
 
 	return common.BuildFilterVersionView(common.FilterVersionViewConfig{
@@ -186,7 +186,6 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 			HTTPClient:   httpclient,
 			Architecture: "amd64", // MCE clusters use amd64
 		},
-		JobManager:   jobmanager,
 		NoneSelected: noneSelected,
 	})
 }
@@ -194,11 +193,10 @@ func FilterVersionView(callback *slackClient.InteractionCallback, jobmanager man
 func PRInputView(callback *slackClient.InteractionCallback, data modals.CallbackData, previousStep string) slackClient.ModalViewRequest {
 	platform := data.Input[modals.LaunchPlatform]
 	duration := data.Input[CreateDuration]
-	mode := data.MultipleSelection[modals.LaunchMode]
 	baseMetadata := common.NewMetadataBuilder().
 		Add("Duration", duration).
 		Add("Platform", platform).
-		Add(modals.LaunchModeContext, strings.Join(mode, ",")).
+		Add(modals.LaunchModeContext, data.Input[modals.LaunchMode]).
 		Build()
 	metadata := common.BuildPRInputMetadata(data, baseMetadata)
 
@@ -215,11 +213,10 @@ func PRInputView(callback *slackClient.InteractionCallback, data modals.Callback
 func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager manager.JobManager, httpclient *http.Client, data modals.CallbackData, previousStep string) slackClient.ModalViewRequest {
 	platform := data.Input[modals.LaunchPlatform]
 	duration := data.Input[CreateDuration]
-	mode := data.MultipleSelection[modals.LaunchMode]
 	metadata := common.NewMetadataBuilder().
 		Add("Duration", duration).
 		Add("Platform", platform).
-		Add(modals.LaunchModeContext, strings.Join(mode, ",")).
+		Add(modals.LaunchModeContext, data.Input[modals.LaunchMode]).
 		Build()
 
 	return common.BuildSelectVersionView(common.SelectVersionViewConfig{
@@ -242,12 +239,11 @@ func SelectVersionView(callback *slackClient.InteractionCallback, jobmanager man
 func SelectMinorMajor(callback *slackClient.InteractionCallback, httpclient *http.Client, data modals.CallbackData, previousStep string) slackClient.ModalViewRequest {
 	platform := data.Input[modals.LaunchPlatform]
 	duration := data.Input[CreateDuration]
-	mode := data.MultipleSelection[modals.LaunchMode]
 	selectedStream := data.Input[modals.LaunchFromStream]
 	metadata := common.NewMetadataBuilder().
 		Add("Duration", duration).
 		Add("Platform", platform).
-		Add(modals.LaunchModeContext, strings.Join(mode, ",")).
+		Add(modals.LaunchModeContext, data.Input[modals.LaunchMode]).
 		Add(modals.LaunchFromStream, selectedStream).
 		Build()
 

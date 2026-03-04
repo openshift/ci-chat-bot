@@ -79,94 +79,49 @@ func (m *mockJobManager) RevokeGCPAccess(email, requestedBy string) (string, err
 func (m *mockJobManager) GetGCPAccessManager() *manager.GCPAccessManager { return nil }
 func (m *mockJobManager) GetOrgDataService() manager.OrgDataService      { return nil }
 
-func TestParseModeSelections(t *testing.T) {
-	tests := []struct {
-		name       string
-		selections []string
-		wantPR     bool
-		wantVer    bool
-	}{
-		{
-			name:       "empty selections",
-			selections: nil,
-			wantPR:     false,
-			wantVer:    false,
-		},
-		{
-			name:       "PR key",
-			selections: []string{modals.LaunchModePRKey},
-			wantPR:     true,
-			wantVer:    false,
-		},
-		{
-			name:       "version key",
-			selections: []string{modals.LaunchModeVersionKey},
-			wantPR:     false,
-			wantVer:    true,
-		},
-		{
-			name:       "both keys",
-			selections: []string{modals.LaunchModePRKey, modals.LaunchModeVersionKey},
-			wantPR:     true,
-			wantVer:    true,
-		},
-		{
-			name:       "unknown key ignored",
-			selections: []string{"something_else"},
-			wantPR:     false,
-			wantVer:    false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ParseModeSelections(tt.selections)
-			if got := result.Has(modals.LaunchModePR); got != tt.wantPR {
-				t.Errorf("Has(LaunchModePR) = %v, want %v", got, tt.wantPR)
-			}
-			if got := result.Has(modals.LaunchModeVersion); got != tt.wantVer {
-				t.Errorf("Has(LaunchModeVersion) = %v, want %v", got, tt.wantVer)
-			}
-		})
-	}
-}
-
 func TestHasPRMode(t *testing.T) {
 	tests := []struct {
 		name string
-		mode []string
+		data modals.CallbackData
 		want bool
 	}{
 		{
-			name: "empty",
-			mode: nil,
+			name: "empty input",
+			data: modals.CallbackData{},
 			want: false,
 		},
 		{
-			name: "contains PR key",
-			mode: []string{modals.LaunchModePRKey},
+			name: "PR mode yes",
+			data: modals.CallbackData{
+				Input: map[string]string{
+					modals.LaunchMode: modals.LaunchFromPRYes,
+				},
+			},
 			want: true,
 		},
 		{
-			name: "whitespace-padded PR key",
-			mode: []string{"  " + modals.LaunchModePRKey + "  "},
-			want: true,
-		},
-		{
-			name: "version key only",
-			mode: []string{modals.LaunchModeVersionKey},
+			name: "PR mode no",
+			data: modals.CallbackData{
+				Input: map[string]string{
+					modals.LaunchMode: modals.LaunchFromPRNo,
+				},
+			},
 			want: false,
 		},
 		{
-			name: "both keys",
-			mode: []string{modals.LaunchModeVersionKey, modals.LaunchModePRKey},
-			want: true,
+			name: "unrelated value",
+			data: modals.CallbackData{
+				Input: map[string]string{
+					modals.LaunchMode: "something_else",
+				},
+			},
+			want: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := HasPRMode(tt.mode); got != tt.want {
+			if got := HasPRMode(tt.data); got != tt.want {
 				t.Errorf("HasPRMode() = %v, want %v", got, tt.want)
 			}
 		})
@@ -186,11 +141,6 @@ func TestValidateFilterVersion(t *testing.T) {
 			wantNil: true,
 		},
 		{
-			name:    "single input - latest build",
-			input:   map[string]string{modals.LaunchFromLatestBuild: "nightly"},
-			wantNil: true,
-		},
-		{
 			name:    "single input - custom",
 			input:   map[string]string{modals.LaunchFromCustom: "quay.io/foo:bar"},
 			wantNil: true,
@@ -203,18 +153,8 @@ func TestValidateFilterVersion(t *testing.T) {
 		{
 			name: "two inputs set",
 			input: map[string]string{
-				modals.LaunchFromLatestBuild: "nightly",
-				modals.LaunchFromCustom:      "quay.io/foo:bar",
-			},
-			wantNil:   false,
-			wantError: true,
-		},
-		{
-			name: "all three set",
-			input: map[string]string{
-				modals.LaunchFromLatestBuild: "nightly",
-				modals.LaunchFromCustom:      "quay.io/foo:bar",
-				modals.LaunchFromStream:      "4-stable",
+				modals.LaunchFromCustom: "quay.io/foo:bar",
+				modals.LaunchFromStream: "4-stable",
 			},
 			wantNil:   false,
 			wantError: true,
