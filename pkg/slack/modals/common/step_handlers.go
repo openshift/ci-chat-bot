@@ -301,6 +301,7 @@ func clearForwardSelections(data *modals.CallbackData, fromStep string, identifi
 	for _, s := range steps {
 		if s.step == fromStep {
 			clearing = true
+			continue
 		}
 		if !clearing {
 			continue

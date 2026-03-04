@@ -10,7 +10,6 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/common"
 	slackClient "github.com/slack-go/slack"
-	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 func FirstStepView() slackClient.ModalViewRequest {
@@ -95,17 +94,6 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 		prs = "None"
 	}
 	version := modals.GetVersion(data, jobmanager)
-	excludeList := sets.Set[string]{}
-	for _, parameter := range manager.SupportedParameters {
-		for k, envs := range manager.MultistageParameters {
-			if k == parameter {
-				if !envs.Platforms.Has(platform) {
-					excludeList.Insert(parameter)
-				}
-			}
-
-		}
-	}
 	context := common.NewMetadataBuilder().
 		Add("Duration", duration).
 		Add("Platform", platform).

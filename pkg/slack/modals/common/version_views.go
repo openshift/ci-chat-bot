@@ -469,12 +469,14 @@ func BuildSelectModeView(config SelectModeViewConfig) slackClient.ModalViewReque
 
 	options := modals.BuildOptions([]string{modals.LaunchFromPRYes, modals.LaunchFromPRNo}, nil)
 
-	// Build initial option from saved selection
+	// Build initial option from saved selection, validating against allowed values
 	var initialOption *slackClient.OptionBlockObject
 	if mode, ok := config.Data.Input[modals.LaunchMode]; ok && mode != "" {
-		initialOption = &slackClient.OptionBlockObject{
-			Value: mode,
-			Text:  &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: mode},
+		for _, opt := range options {
+			if opt.Value == mode {
+				initialOption = opt
+				break
+			}
 		}
 	}
 
