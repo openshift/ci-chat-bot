@@ -18,21 +18,18 @@ func TestBuildPRInputMetadata(t *testing.T) {
 		want         string
 	}{
 		{
-			name: "no version mode returns base unchanged",
+			name: "no version returns base unchanged",
 			data: modals.CallbackData{
-				MultipleSelection: map[string][]string{
-					modals.LaunchMode: {modals.LaunchModePRKey},
+				Input: map[string]string{
+					modals.LaunchMode: modals.LaunchFromPRYes,
 				},
 			},
 			baseMetadata: "Platform: aws",
 			want:         "Platform: aws",
 		},
 		{
-			name: "version mode with LaunchVersion",
+			name: "with LaunchVersion",
 			data: modals.CallbackData{
-				MultipleSelection: map[string][]string{
-					modals.LaunchMode: {modals.LaunchModeVersionKey},
-				},
 				Input: map[string]string{
 					modals.LaunchVersion: "4.15.0-rc.1",
 				},
@@ -41,24 +38,8 @@ func TestBuildPRInputMetadata(t *testing.T) {
 			want:         "Platform: aws; Version: 4.15.0-rc.1",
 		},
 		{
-			name: "version mode falls back to LaunchFromLatestBuild",
+			name: "falls back to LaunchFromCustom",
 			data: modals.CallbackData{
-				MultipleSelection: map[string][]string{
-					modals.LaunchMode: {modals.LaunchModeVersionKey},
-				},
-				Input: map[string]string{
-					modals.LaunchFromLatestBuild: "nightly",
-				},
-			},
-			baseMetadata: "Base",
-			want:         "Base; Version: nightly",
-		},
-		{
-			name: "version mode falls back to LaunchFromCustom",
-			data: modals.CallbackData{
-				MultipleSelection: map[string][]string{
-					modals.LaunchMode: {modals.LaunchModeVersionKey},
-				},
 				Input: map[string]string{
 					modals.LaunchFromCustom: "quay.io/foo:bar",
 				},
@@ -67,24 +48,8 @@ func TestBuildPRInputMetadata(t *testing.T) {
 			want:         "Base; Version: quay.io/foo:bar",
 		},
 		{
-			name: "LaunchVersion takes precedence over LaunchFromLatestBuild",
-			data: modals.CallbackData{
-				MultipleSelection: map[string][]string{
-					modals.LaunchMode: {modals.LaunchModeVersionKey},
-				},
-				Input: map[string]string{
-					modals.LaunchVersion:         "4.15.0",
-					modals.LaunchFromLatestBuild: "nightly",
-				},
-			},
-			baseMetadata: "Base",
-			want:         "Base; Version: 4.15.0",
-		},
-		{
-			name: "empty MultipleSelection",
-			data: modals.CallbackData{
-				MultipleSelection: map[string][]string{},
-			},
+			name:         "empty input",
+			data:         modals.CallbackData{},
 			baseMetadata: "Base",
 			want:         "Base",
 		},
@@ -203,7 +168,7 @@ func TestBuildSelectModeView(t *testing.T) {
 		}
 	})
 
-	t.Run("valid callback returns proper view", func(t *testing.T) {
+	t.Run("valid callback returns proper view with dropdown", func(t *testing.T) {
 		config := SelectModeViewConfig{
 			BaseViewConfig: BaseViewConfig{
 				Callback:        &slack.InteractionCallback{},
@@ -227,33 +192,37 @@ func TestBuildSelectModeView(t *testing.T) {
 			t.Error("expected Submit button with text 'Next'")
 		}
 
-		// Should have blocks: back button, header, input (checkbox group), divider, context
+		// Should have blocks: back button, header, input (dropdown), divider, context
 		if len(view.Blocks.BlockSet) < 3 {
 			t.Fatalf("block count = %d, want at least 3", len(view.Blocks.BlockSet))
 		}
 
-		// Verify checkbox group exists
-		foundCheckbox := false
+		// Verify dropdown exists (not checkbox)
+		foundDropdown := false
 		for _, block := range view.Blocks.BlockSet {
 			if input, ok := block.(*slack.InputBlock); ok {
 				if input.BlockID == modals.LaunchMode {
-					foundCheckbox = true
+					_, isSelect := input.Element.(*slack.SelectBlockElement)
+					if !isSelect {
+						t.Error("expected SelectBlockElement, got different element type")
+					}
+					foundDropdown = true
 					break
 				}
 			}
 		}
-		if !foundCheckbox {
-			t.Error("expected checkbox group block with LaunchMode BlockID")
+		if !foundDropdown {
+			t.Error("expected dropdown block with LaunchMode BlockID")
 		}
 	})
 
-	t.Run("preserves initial selections", func(t *testing.T) {
+	t.Run("preserves initial selection", func(t *testing.T) {
 		config := SelectModeViewConfig{
 			BaseViewConfig: BaseViewConfig{
 				Callback: &slack.InteractionCallback{},
 				Data: modals.CallbackData{
-					MultipleSelection: map[string][]string{
-						modals.LaunchMode: {modals.LaunchModePRKey, modals.LaunchModeVersionKey},
+					Input: map[string]string{
+						modals.LaunchMode: modals.LaunchFromPRYes,
 					},
 				},
 				ModalIdentifier: "test-mode",
@@ -263,15 +232,17 @@ func TestBuildSelectModeView(t *testing.T) {
 
 		view := BuildSelectModeView(config)
 
-		// Find the input block with checkbox
+		// Find the input block with dropdown
 		for _, block := range view.Blocks.BlockSet {
 			if input, ok := block.(*slack.InputBlock); ok && input.BlockID == modals.LaunchMode {
-				checkbox, ok := input.Element.(*slack.CheckboxGroupsBlockElement)
+				dropdown, ok := input.Element.(*slack.SelectBlockElement)
 				if !ok {
-					t.Fatal("expected CheckboxGroupsBlockElement")
+					t.Fatal("expected SelectBlockElement")
 				}
-				if len(checkbox.InitialOptions) != 2 {
-					t.Errorf("InitialOptions length = %d, want 2", len(checkbox.InitialOptions))
+				if dropdown.InitialOption == nil {
+					t.Error("expected InitialOption to be set")
+				} else if dropdown.InitialOption.Value != modals.LaunchFromPRYes {
+					t.Errorf("InitialOption.Value = %q, want %q", dropdown.InitialOption.Value, modals.LaunchFromPRYes)
 				}
 				return
 			}

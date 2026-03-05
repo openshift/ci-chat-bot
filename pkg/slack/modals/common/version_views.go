@@ -48,8 +48,6 @@ type ReleaseViewConfig struct {
 // FilterVersionViewConfig holds configuration for BuildFilterVersionView
 type FilterVersionViewConfig struct {
 	ReleaseViewConfig
-	// JobManager is used to resolve nightly/ci versions
-	JobManager manager.JobManager
 	// NoneSelected indicates if validation failed due to no selection
 	NoneSelected bool
 }
@@ -68,26 +66,6 @@ func BuildFilterVersionView(config FilterVersionViewConfig) slackClient.ModalVie
 		return slackClient.ModalViewRequest{}
 	}
 
-	latestBuildOptions := []*slackClient.OptionBlockObject{}
-	if _, nightly, _, err := config.JobManager.ResolveImageOrVersion("nightly", "", config.Architecture); err != nil {
-		klog.Warningf("failed to resolve current nightly: %s", err)
-		return modals.ErrorView("failed to resolve current nightly", err)
-	} else {
-		latestBuildOptions = append(latestBuildOptions, &slackClient.OptionBlockObject{
-			Value: "nightly",
-			Text:  &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: nightly},
-		})
-	}
-	if _, ci, _, err := config.JobManager.ResolveImageOrVersion("ci", "", config.Architecture); err != nil {
-		klog.Warningf("failed to resolve current ci image: %s", err)
-		return modals.ErrorView("failed to resolve current ci image", err)
-	} else {
-		latestBuildOptions = append(latestBuildOptions, &slackClient.OptionBlockObject{
-			Value: "ci",
-			Text:  &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: ci},
-		})
-	}
-
 	releases, err := FetchReleases(config.HTTPClient, config.Architecture)
 	if err != nil {
 		klog.Warningf("failed to fetch the data from release controller: %s", err)
@@ -104,19 +82,11 @@ func BuildFilterVersionView(config FilterVersionViewConfig) slackClient.ModalVie
 	streamsOptions := modals.BuildOptions(streams, nil)
 
 	// Preserve previous selections
-	var streamInitial, latestBuildInitial *slackClient.OptionBlockObject
+	var streamInitial *slackClient.OptionBlockObject
 	if stream, ok := config.Data.Input[modals.LaunchFromStream]; ok && stream != "" {
 		streamInitial = &slackClient.OptionBlockObject{
 			Value: stream,
 			Text:  &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: stream},
-		}
-	}
-	if build, ok := config.Data.Input[modals.LaunchFromLatestBuild]; ok && build != "" {
-		for _, opt := range latestBuildOptions {
-			if opt.Value == build {
-				latestBuildInitial = opt
-				break
-			}
 		}
 	}
 	customValue := config.Data.Input[modals.LaunchFromCustom]
@@ -158,29 +128,6 @@ func BuildFilterVersionView(config FilterVersionViewConfig) slackClient.ModalVie
 					Placeholder:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an entry..."},
 					Options:       streamsOptions,
 					InitialOption: streamInitial,
-				},
-			},
-			&slackClient.DividerBlock{
-				Type:    slackClient.MBTDivider,
-				BlockID: "divider_section",
-			},
-			&slackClient.SectionBlock{
-				Type: slackClient.MBTSection,
-				Text: &slackClient.TextBlockObject{
-					Type: slackClient.MarkdownType,
-					Text: "\n*Alternatively:*\n*Launch using the latest Nightly or CI build*",
-				},
-			},
-			&slackClient.InputBlock{
-				Type:     slackClient.MBTInput,
-				BlockID:  modals.LaunchFromLatestBuild,
-				Optional: true,
-				Label:    &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "The latest build (nightly) or CI build:"},
-				Element: &slackClient.SelectBlockElement{
-					Type:          slackClient.OptTypeStatic,
-					Placeholder:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an entry..."},
-					Options:       latestBuildOptions,
-					InitialOption: latestBuildInitial,
 				},
 			},
 			&slackClient.DividerBlock{
@@ -514,22 +461,22 @@ type SelectModeViewConfig struct {
 	BaseViewConfig
 }
 
-// BuildSelectModeView creates a modal view for selecting launch mode (PR/Version)
+// BuildSelectModeView creates a modal view for selecting whether to launch from a PR
 func BuildSelectModeView(config SelectModeViewConfig) slackClient.ModalViewRequest {
 	if config.Callback == nil {
 		return slackClient.ModalViewRequest{}
 	}
 
-	options := modals.BuildOptions([]string{modals.LaunchModePRKey, modals.LaunchModeVersionKey}, nil)
+	options := modals.BuildOptions([]string{modals.LaunchFromPRYes, modals.LaunchFromPRNo}, nil)
 
-	// Build initial options from saved selections
-	var initialOptions []*slackClient.OptionBlockObject
-	if modes, ok := config.Data.MultipleSelection[modals.LaunchMode]; ok {
-		for _, mode := range modes {
-			initialOptions = append(initialOptions, &slackClient.OptionBlockObject{
-				Value: mode,
-				Text:  &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: mode},
-			})
+	// Build initial option from saved selection, validating against allowed values
+	var initialOption *slackClient.OptionBlockObject
+	if mode, ok := config.Data.Input[modals.LaunchMode]; ok && mode != "" {
+		for _, opt := range options {
+			if opt.Value == mode {
+				initialOption = opt
+				break
+			}
 		}
 	}
 
@@ -548,7 +495,7 @@ func BuildSelectModeView(config SelectModeViewConfig) slackClient.ModalViewReque
 				Type: slackClient.MBTHeader,
 				Text: &slackClient.TextBlockObject{
 					Type:     slackClient.PlainTextType,
-					Text:     "Select the launch mode",
+					Text:     "Do you want to launch from a PR?",
 					Emoji:    false,
 					Verbatim: false,
 				},
@@ -556,11 +503,12 @@ func BuildSelectModeView(config SelectModeViewConfig) slackClient.ModalViewReque
 			&slackClient.InputBlock{
 				Type:    slackClient.MBTInput,
 				BlockID: modals.LaunchMode,
-				Label:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch the Cluster using:"},
-				Element: &slackClient.CheckboxGroupsBlockElement{
-					Type:           slackClient.METCheckboxGroups,
-					Options:        options,
-					InitialOptions: initialOptions,
+				Label:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Launch from a PR:"},
+				Element: &slackClient.SelectBlockElement{
+					Type:          slackClient.OptTypeStatic,
+					Placeholder:   &slackClient.TextBlockObject{Type: slackClient.PlainTextType, Text: "Select an option..."},
+					Options:       options,
+					InitialOption: initialOption,
 				},
 			},
 			&slackClient.DividerBlock{
@@ -585,25 +533,13 @@ func BuildSelectModeView(config SelectModeViewConfig) slackClient.ModalViewReque
 
 // BuildPRInputMetadata builds metadata string for PR input view
 func BuildPRInputMetadata(data modals.CallbackData, baseMetadata string) string {
-	mode := data.MultipleSelection[modals.LaunchMode]
-	launchWithVersion := false
-	for _, key := range mode {
-		if strings.TrimSpace(key) == modals.LaunchModeVersionKey {
-			launchWithVersion = true
-			break
-		}
-	}
-
-	if !launchWithVersion {
-		return baseMetadata
-	}
-
 	version := data.Input[modals.LaunchVersion]
 	if version == "" {
-		version = data.Input[modals.LaunchFromLatestBuild]
-	}
-	if version == "" {
 		version = data.Input[modals.LaunchFromCustom]
+	}
+
+	if version == "" {
+		return baseMetadata
 	}
 
 	return fmt.Sprintf("%s; Version: %s", baseMetadata, version)

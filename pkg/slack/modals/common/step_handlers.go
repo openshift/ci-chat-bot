@@ -11,32 +11,12 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
 	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 )
 
-// ParseModeSelections converts modal selection keys to mode set
-func ParseModeSelections(selections []string) sets.Set[string] {
-	mode := sets.New[string]()
-	for _, selection := range selections {
-		switch selection {
-		case modals.LaunchModePRKey:
-			mode.Insert(modals.LaunchModePR)
-		case modals.LaunchModeVersionKey:
-			mode.Insert(modals.LaunchModeVersion)
-		}
-	}
-	return mode
-}
-
-// HasPRMode checks if PR mode is enabled in the mode selections
-func HasPRMode(mode []string) bool {
-	for _, key := range mode {
-		if strings.TrimSpace(key) == modals.LaunchModePRKey {
-			return true
-		}
-	}
-	return false
+// HasPRMode checks if PR mode is enabled in the callback data
+func HasPRMode(data modals.CallbackData) bool {
+	return data.Input[modals.LaunchMode] == modals.LaunchFromPRYes
 }
 
 // ValidatePRInput validates PR input by resolving each PR concurrently
@@ -91,26 +71,13 @@ func ValidatePRInput(submissionData modals.CallbackData, jobmanager manager.JobM
 
 // ValidateFilterVersion validates that only one version source is selected
 func ValidateFilterVersion(submissionData modals.CallbackData) []byte {
-	errs := make(map[string]string, 0)
-	nightlyOrCi := submissionData.Input[modals.LaunchFromLatestBuild]
-	if nightlyOrCi != "" {
-		errs[modals.LaunchFromLatestBuild] = "Select only one parameter!"
-	}
 	customBuild := submissionData.Input[modals.LaunchFromCustom]
-	if customBuild != "" {
-		errs[modals.LaunchFromCustom] = "Select only one parameter!"
-	}
 	selectedStream := submissionData.Input[modals.LaunchFromStream]
-	if selectedStream != "" {
-		errs[modals.LaunchFromStream] = "Select only one parameter!"
-	}
-	count := 0
-	for _, v := range []string{nightlyOrCi, customBuild, selectedStream} {
-		if v != "" {
-			count++
+	if customBuild != "" && selectedStream != "" {
+		errs := map[string]string{
+			modals.LaunchFromCustom: "Select only one parameter!",
+			modals.LaunchFromStream: "Select only one parameter!",
 		}
-	}
-	if count > 1 {
 		response, err := modals.ValidationError(errs)
 		if err == nil {
 			return response
@@ -121,7 +88,7 @@ func ValidateFilterVersion(submissionData modals.CallbackData) []byte {
 
 // ViewFuncs groups all view builder functions for a flow
 type ViewFuncs struct {
-	FilterVersionView func(*slack.InteractionCallback, manager.JobManager, modals.CallbackData, *http.Client, sets.Set[string], bool) slack.ModalViewRequest
+	FilterVersionView func(*slack.InteractionCallback, manager.JobManager, modals.CallbackData, *http.Client, bool) slack.ModalViewRequest
 	PRInputView       func(*slack.InteractionCallback, modals.CallbackData, string) slack.ModalViewRequest
 	ThirdStepView     func(*slack.InteractionCallback, manager.JobManager, *http.Client, modals.CallbackData, string) slack.ModalViewRequest
 	SelectVersionView func(*slack.InteractionCallback, manager.JobManager, *http.Client, modals.CallbackData, string) slack.ModalViewRequest
@@ -131,19 +98,13 @@ type ViewFuncs struct {
 func MakeModeStepHandler(
 	identifier string,
 	modalTitle string,
-	filterVersionView func(*slack.InteractionCallback, manager.JobManager, modals.CallbackData, *http.Client, sets.Set[string], bool) slack.ModalViewRequest,
-	prInputView func(*slack.InteractionCallback, modals.CallbackData, string) slack.ModalViewRequest,
+	filterVersionView func(*slack.InteractionCallback, manager.JobManager, modals.CallbackData, *http.Client, bool) slack.ModalViewRequest,
 ) func(modals.ViewUpdater, manager.JobManager, *http.Client) interactions.Handler {
 	return func(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
 		return interactions.HandlerFunc(identifier, func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 			submissionData := modals.MergeCallbackData(callback)
-			mode := ParseModeSelections(submissionData.MultipleSelection[modals.LaunchMode])
 			go func() {
-				if mode.Has(modals.LaunchModeVersion) {
-					modals.OverwriteView(updater, filterVersionView(callback, jobmanager, submissionData, httpclient, mode, false), callback, logger)
-				} else {
-					modals.OverwriteView(updater, prInputView(callback, submissionData, identifier), callback, logger)
-				}
+				modals.OverwriteView(updater, filterVersionView(callback, jobmanager, submissionData, httpclient, false), callback, logger)
 			}()
 			return modals.SubmitPrepare(modalTitle, identifier, logger)
 		})
@@ -183,17 +144,15 @@ func MakeFilterVersionHandler(
 			if errorResponse != nil {
 				return errorResponse, nil
 			}
-			nightlyOrCi := submissionData.Input[modals.LaunchFromLatestBuild]
 			customBuild := submissionData.Input[modals.LaunchFromCustom]
 			stream := submissionData.Input[modals.LaunchFromStream]
-			mode := submissionData.MultipleSelection[modals.LaunchMode]
-			hasPR := HasPRMode(mode)
+			hasPR := HasPRMode(submissionData)
 			go func() {
-				if (nightlyOrCi == "") && customBuild == "" && !hasPR && stream == "" {
-					modals.OverwriteView(updater, views.FilterVersionView(callback, jobmanager, submissionData, httpclient, sets.New(mode...), true), callback, logger)
-				} else if (nightlyOrCi != "" || customBuild != "") && hasPR {
+				if customBuild == "" && stream == "" {
+					modals.OverwriteView(updater, views.FilterVersionView(callback, jobmanager, submissionData, httpclient, true), callback, logger)
+				} else if customBuild != "" && hasPR {
 					modals.OverwriteView(updater, views.PRInputView(callback, submissionData, identifier), callback, logger)
-				} else if (nightlyOrCi != "" || customBuild != "") && !hasPR {
+				} else if customBuild != "" && !hasPR {
 					modals.OverwriteView(updater, views.ThirdStepView(callback, jobmanager, httpclient, submissionData, identifier), callback, logger)
 				} else {
 					modals.OverwriteView(updater, views.SelectVersionView(callback, jobmanager, httpclient, submissionData, identifier), callback, logger)
@@ -214,8 +173,7 @@ func MakeSelectVersionHandler(
 	return func(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
 		return interactions.HandlerFunc(identifier, func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 			submissionData := modals.MergeCallbackData(callback)
-			mode := submissionData.MultipleSelection[modals.LaunchMode]
-			hasPR := HasPRMode(mode)
+			hasPR := HasPRMode(submissionData)
 			go func() {
 				if hasPR {
 					modals.OverwriteView(updater, prInputView(callback, submissionData, identifier), callback, logger)
@@ -260,26 +218,37 @@ func MakeFirstStepHandler(
 ) func(modals.ViewUpdater, manager.JobManager, *http.Client) interactions.Handler {
 	return func(updater modals.ViewUpdater, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
 		return interactions.HandlerFunc(identifier, func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
+			callbackData := modals.CallbackData{
+				Input: modals.CallBackInputAll(callback),
+			}
+
+			// Apply platform defaults if configured
+			if config.NeedsArchitecture {
+				if callbackData.Input[modals.LaunchPlatform] == "" {
+					callbackData.Input[modals.LaunchPlatform] = config.DefaultPlatform
+				}
+				if callbackData.Input[modals.LaunchArchitecture] == "" {
+					// Handle multi-arch for hypershift-hosted
+					if callbackData.Input[modals.LaunchPlatform] == "hypershift-hosted" {
+						callbackData.Input[modals.LaunchArchitecture] = "multi"
+					} else {
+						callbackData.Input[modals.LaunchArchitecture] = config.DefaultArchitecture
+					}
+				}
+
+				// Validate architecture for hypershift-hosted
+				if callbackData.Input[modals.LaunchPlatform] == "hypershift-hosted" && callbackData.Input[modals.LaunchArchitecture] != "multi" {
+					errs := map[string]string{
+						modals.LaunchArchitecture: `hypershift-hosted only supports the "multi" architecture`,
+					}
+					response, err := modals.ValidationError(errs)
+					if err == nil {
+						return response, nil
+					}
+				}
+			}
+
 			go func() {
-				callbackData := modals.CallbackData{
-					Input: modals.CallBackInputAll(callback),
-				}
-
-				// Apply platform defaults if configured
-				if config.NeedsArchitecture {
-					if callbackData.Input[modals.LaunchPlatform] == "" {
-						callbackData.Input[modals.LaunchPlatform] = config.DefaultPlatform
-					}
-					if callbackData.Input[modals.LaunchArchitecture] == "" {
-						// Handle multi-arch for hypershift-hosted
-						if callbackData.Input[modals.LaunchPlatform] == "hypershift-hosted" {
-							callbackData.Input[modals.LaunchArchitecture] = "multi"
-						} else {
-							callbackData.Input[modals.LaunchArchitecture] = config.DefaultArchitecture
-						}
-					}
-				}
-
 				modals.OverwriteView(updater, selectModeView(callback, jobmanager, callbackData), callback, logger)
 			}()
 			return modals.SubmitPrepare(modalTitle, identifier, logger)
@@ -291,7 +260,7 @@ func MakeFirstStepHandler(
 type BackNavigationViews struct {
 	FirstStepViewWithData func(modals.CallbackData) slack.ModalViewRequest
 	SelectModeView        func(*slack.InteractionCallback, manager.JobManager, modals.CallbackData) slack.ModalViewRequest
-	FilterVersionView     func(*slack.InteractionCallback, manager.JobManager, modals.CallbackData, *http.Client, sets.Set[string], bool) slack.ModalViewRequest
+	FilterVersionView     func(*slack.InteractionCallback, manager.JobManager, modals.CallbackData, *http.Client, bool) slack.ModalViewRequest
 	SelectMinorMajor      func(*slack.InteractionCallback, *http.Client, modals.CallbackData, string) slack.ModalViewRequest
 	SelectVersionView     func(*slack.InteractionCallback, manager.JobManager, *http.Client, modals.CallbackData, string) slack.ModalViewRequest
 	PRInputView           func(*slack.InteractionCallback, modals.CallbackData, string) slack.ModalViewRequest
@@ -308,6 +277,44 @@ type BackNavigationIdentifiers struct {
 	ThirdStep         string
 }
 
+// clearForwardSelections removes Input and MultipleSelection keys belonging to
+// the target step and all subsequent steps. This prevents stale selections from
+// leaking forward when the user navigates back through the modal flow.
+func clearForwardSelections(data *modals.CallbackData, fromStep string, identifiers BackNavigationIdentifiers) {
+	// Ordered list of steps and their associated keys.
+	type stepKeys struct {
+		step       string
+		input      []string
+		multiInput []string
+	}
+	steps := []stepKeys{
+		{step: identifiers.InitialView, input: []string{modals.LaunchPlatform, modals.LaunchArchitecture}},
+		{step: identifiers.SelectModeView, input: []string{modals.LaunchMode}},
+		{step: identifiers.FilterVersionView, input: []string{modals.LaunchFromStream, modals.LaunchFromCustom}},
+		{step: identifiers.SelectMinorMajor, input: []string{modals.LaunchFromMajorMinor}},
+		{step: identifiers.SelectVersion, input: []string{modals.LaunchVersion}},
+		{step: identifiers.PRInputView, input: []string{modals.LaunchFromPR}},
+		{step: identifiers.ThirdStep, multiInput: []string{modals.LaunchParameters}},
+	}
+
+	clearing := false
+	for _, s := range steps {
+		if s.step == fromStep {
+			clearing = true
+			continue
+		}
+		if !clearing {
+			continue
+		}
+		for _, k := range s.input {
+			delete(data.Input, k)
+		}
+		for _, k := range s.multiInput {
+			delete(data.MultipleSelection, k)
+		}
+	}
+}
+
 // NavigateBack resolves the previous step view and overwrites the current modal.
 // The caller is responsible for extracting the callback data and previous step.
 func NavigateBack(
@@ -321,6 +328,8 @@ func NavigateBack(
 	views BackNavigationViews,
 	identifiers BackNavigationIdentifiers,
 ) {
+	clearForwardSelections(&data, previousStep, identifiers)
+
 	var previousView slack.ModalViewRequest
 	switch previousStep {
 	case identifiers.InitialView:
@@ -328,15 +337,14 @@ func NavigateBack(
 	case identifiers.SelectModeView:
 		previousView = views.SelectModeView(callback, jobmanager, data)
 	case identifiers.FilterVersionView:
-		mode := sets.New(data.MultipleSelection[modals.LaunchMode]...)
-		previousView = views.FilterVersionView(callback, jobmanager, data, httpclient, mode, false)
+		previousView = views.FilterVersionView(callback, jobmanager, data, httpclient, false)
 	case identifiers.SelectMinorMajor:
 		previousView = views.SelectMinorMajor(callback, httpclient, data, identifiers.FilterVersionView)
 	case identifiers.SelectVersion:
 		previousView = views.SelectVersionView(callback, jobmanager, httpclient, data, identifiers.FilterVersionView)
 	case identifiers.PRInputView:
 		prPreviousStep := identifiers.SelectModeView
-		if data.Input[modals.LaunchVersion] != "" || data.Input[modals.LaunchFromLatestBuild] != "" || data.Input[modals.LaunchFromCustom] != "" {
+		if data.Input[modals.LaunchVersion] != "" || data.Input[modals.LaunchFromCustom] != "" {
 			prPreviousStep = identifiers.FilterVersionView
 		}
 		previousView = views.PRInputView(callback, data, prPreviousStep)

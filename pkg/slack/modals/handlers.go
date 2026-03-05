@@ -374,10 +374,10 @@ func ValidationError(errors map[string]string) ([]byte, error) {
 	return response, nil
 }
 
-func BuildOptions(options []string, blacklist sets.Set[string]) []*slack.OptionBlockObject {
+func BuildOptions(options []string, excludeList sets.Set[string]) []*slack.OptionBlockObject {
 	slackOptions := make([]*slack.OptionBlockObject, 0)
 	for _, parameter := range options {
-		if !blacklist.Has(parameter) {
+		if !excludeList.Has(parameter) {
 			slackOptions = append(slackOptions, &slack.OptionBlockObject{
 				Value: parameter,
 				Text: &slack.TextBlockObject{
@@ -390,7 +390,7 @@ func BuildOptions(options []string, blacklist sets.Set[string]) []*slack.OptionB
 	return slackOptions
 }
 
-var launchTypes = []string{LaunchVersion, LaunchFromLatestBuild, LaunchFromMajorMinor, LaunchFromStream, LaunchFromReleaseController, LaunchFromCustom}
+var launchTypes = []string{LaunchVersion, LaunchFromMajorMinor, LaunchFromStream, LaunchFromReleaseController, LaunchFromCustom}
 
 func GetVersion(data CallbackData, jobmanager manager.JobManager) string {
 	var version string
@@ -400,9 +400,6 @@ func GetVersion(data CallbackData, jobmanager manager.JobManager) string {
 		if ok {
 			break
 		}
-	}
-	if version == "" {
-		_, version, _, _ = jobmanager.ResolveImageOrVersion("nightly", "", "amd64")
 	}
 	return version
 }
