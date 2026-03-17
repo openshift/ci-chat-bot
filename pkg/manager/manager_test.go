@@ -1,6 +1,124 @@
 package manager
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+
+	"github.com/openshift/ci-tools/pkg/lease"
+)
+
+type mockLeaseClient struct {
+	metrics map[string]lease.Metrics
+}
+
+func (m *mockLeaseClient) Metrics(rtype string) (lease.Metrics, error) {
+	if metrics, ok := m.metrics[rtype]; ok {
+		return metrics, nil
+	}
+	return lease.Metrics{}, fmt.Errorf("resource type %q not found", rtype)
+}
+
+func Test_selectCloudAccountProfile(t *testing.T) {
+	tests := []struct {
+		name        string
+		platform    string
+		metrics     map[string]lease.Metrics
+		wantNil     bool
+		wantProfile string
+		wantErr     bool
+	}{
+		{
+			name:     "platform not in map returns nil",
+			platform: "metal",
+			metrics:  map[string]lease.Metrics{},
+			wantNil:  true,
+		},
+		{
+			name:     "primary has more free resources returns nil",
+			platform: "aws",
+			metrics: map[string]lease.Metrics{
+				"aws-quota-slice":   {Free: 10, Leased: 5},
+				"aws-2-quota-slice": {Free: 3, Leased: 12},
+			},
+			wantNil: true,
+		},
+		{
+			name:     "secondary has more free resources returns that profile",
+			platform: "aws",
+			metrics: map[string]lease.Metrics{
+				"aws-quota-slice":   {Free: 2, Leased: 13},
+				"aws-2-quota-slice": {Free: 8, Leased: 7},
+			},
+			wantProfile: "aws-2",
+		},
+		{
+			name:     "equal free counts returns nil (primary wins)",
+			platform: "aws",
+			metrics: map[string]lease.Metrics{
+				"aws-quota-slice":   {Free: 5, Leased: 10},
+				"aws-2-quota-slice": {Free: 5, Leased: 10},
+			},
+			wantNil: true,
+		},
+		{
+			name:     "all zero free returns nil",
+			platform: "aws",
+			metrics: map[string]lease.Metrics{
+				"aws-quota-slice":   {Free: 0, Leased: 15},
+				"aws-2-quota-slice": {Free: 0, Leased: 15},
+			},
+			wantNil: true,
+		},
+		{
+			name:     "gcp secondary wins",
+			platform: "gcp",
+			metrics: map[string]lease.Metrics{
+				"gcp-quota-slice":                          {Free: 1, Leased: 14},
+				"gcp-openshift-gce-devel-ci-2-quota-slice": {Free: 7, Leased: 8},
+			},
+			wantProfile: "gcp-openshift-gce-devel-ci-2",
+		},
+		{
+			name:     "azure secondary wins",
+			platform: "azure",
+			metrics: map[string]lease.Metrics{
+				"azure4-quota-slice":  {Free: 3, Leased: 12},
+				"azure-2-quota-slice": {Free: 9, Leased: 6},
+			},
+			wantProfile: "azure-2",
+		},
+		{
+			name:     "metrics error returns error",
+			platform: "aws",
+			metrics:  map[string]lease.Metrics{},
+			wantErr:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &mockLeaseClient{metrics: tt.metrics}
+			got, err := selectCloudAccountProfile(tt.platform, client)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("selectCloudAccountProfile() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+			if tt.wantNil && got != nil {
+				t.Errorf("selectCloudAccountProfile() = %+v, want nil", got)
+				return
+			}
+			if !tt.wantNil && got == nil {
+				t.Errorf("selectCloudAccountProfile() = nil, want profile %q", tt.wantProfile)
+				return
+			}
+			if !tt.wantNil && got.ProfileName != tt.wantProfile {
+				t.Errorf("selectCloudAccountProfile() ProfileName = %q, want %q", got.ProfileName, tt.wantProfile)
+			}
+		})
+	}
+}
 
 func Test_containsValidVersion(t *testing.T) {
 	type args struct {
