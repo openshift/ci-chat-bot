@@ -139,6 +139,33 @@ var platformQuotaSlices = map[string][]CloudAccountProfile{
 	},
 }
 
+// selectCloudAccountProfile queries Boskos metrics for each quota-slice
+// candidate for the given platform and returns the profile with the most free
+// resources. Returns nil if the platform has no configured accounts or if the
+// primary (index 0) has the most free resources (no conversion needed).
+func selectCloudAccountProfile(platform string, lClient LeaseClient) (*CloudAccountProfile, error) {
+	accounts, ok := platformQuotaSlices[platform]
+	if !ok || len(accounts) < 2 {
+		return nil, nil
+	}
+	bestIdx := 0
+	bestFree := -1
+	for i := range accounts {
+		metrics, err := lClient.Metrics(accounts[i].QuotaSlice)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get metrics for %q leases: %v", accounts[i].QuotaSlice, err)
+		}
+		if metrics.Free > bestFree {
+			bestIdx = i
+			bestFree = metrics.Free
+		}
+	}
+	if bestIdx == 0 {
+		return nil, nil
+	}
+	return &accounts[bestIdx], nil
+}
+
 func (j Job) IsComplete() bool {
 	return j.Complete || len(j.Credentials) > 0 || (len(j.State) > 0 && j.State != prowapiv1.PendingState)
 }
