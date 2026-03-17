@@ -1713,7 +1713,7 @@ func (e *resolvedEnvironment) Lookup(name string) string {
 	return ""
 }
 
-func convertToAccount2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration, profileName, profileSecret, accountDomain string) error {
+func applyClusterProfile(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration, profileName, profileSecret, accountDomain string) error {
 	job.Labels["ci-operator.openshift.io/cloud-cluster-profile"] = profileName
 	for index, volume := range job.Spec.PodSpec.Volumes {
 		// TODO: only some ci-chat-bot jobs have this; check if they can all be removed
@@ -1746,13 +1746,13 @@ func convertToAccount2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuil
 }
 
 func convertAWSToAWS2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration) error {
-	return convertToAccount2(job, sourceConfig, "aws-2", "cluster-secrets-aws-2", "aws-2.ci.openshift.org")
+	return applyClusterProfile(job, sourceConfig, "aws-2", "cluster-secrets-aws-2", "aws-2.ci.openshift.org")
 }
 
 func convertAzureToAzure2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration) error {
-	return convertToAccount2(job, sourceConfig, "azure-2", "cluster-secrets-azure-2", "ci2.azure.devcluster.openshift.com")
+	return applyClusterProfile(job, sourceConfig, "azure-2", "cluster-secrets-azure-2", "ci2.azure.devcluster.openshift.com")
 }
 
 func convertGCPToGCP2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration) error {
-	return convertToAccount2(job, sourceConfig, "gcp-openshift-gce-devel-ci-2", "cluster-secrets-gcp-openshift-gce-devel-ci-2", "")
+	return applyClusterProfile(job, sourceConfig, "gcp-openshift-gce-devel-ci-2", "cluster-secrets-gcp-openshift-gce-devel-ci-2", "")
 }
