@@ -107,6 +107,38 @@ var HypershiftSupportedVersions = HypershiftSupportedVersionsType{}
 var reBranchVersion = regexp.MustCompile(`^(openshift-|release-)(\d+\.\d+)$`)
 var reMajorMinorVersion = regexp.MustCompile(`^(\d+)\.(\d+)$`)
 
+// platformQuotaSlices maps each cloud platform to its available quota-slice
+// accounts. The first entry is the primary (default) account. Subsequent entries
+// are alternates that can be selected when they have more free resources.
+var platformQuotaSlices = map[string][]CloudAccountProfile{
+	"aws": {
+		{QuotaSlice: "aws-quota-slice"},
+		{
+			QuotaSlice:    "aws-2-quota-slice",
+			ProfileName:   "aws-2",
+			ProfileSecret: "cluster-secrets-aws-2",
+			AccountDomain: "aws-2.ci.openshift.org",
+		},
+	},
+	"azure": {
+		{QuotaSlice: "azure4-quota-slice"},
+		{
+			QuotaSlice:    "azure-2-quota-slice",
+			ProfileName:   "azure-2",
+			ProfileSecret: "cluster-secrets-azure-2",
+			AccountDomain: "ci2.azure.devcluster.openshift.com",
+		},
+	},
+	"gcp": {
+		{QuotaSlice: "gcp-quota-slice"},
+		{
+			QuotaSlice:    "gcp-openshift-gce-devel-ci-2-quota-slice",
+			ProfileName:   "gcp-openshift-gce-devel-ci-2",
+			ProfileSecret: "cluster-secrets-gcp-openshift-gce-devel-ci-2",
+		},
+	},
+}
+
 func (j Job) IsComplete() bool {
 	return j.Complete || len(j.Credentials) > 0 || (len(j.State) > 0 && j.State != prowapiv1.PendingState)
 }
