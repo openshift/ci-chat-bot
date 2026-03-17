@@ -495,7 +495,7 @@ type Job struct {
 
 	WorkflowName string
 
-	UseSecondaryAccount bool
+	CloudAccountProfile *CloudAccountProfile
 
 	Operator        OperatorInfo
 	CatalogComplete bool
