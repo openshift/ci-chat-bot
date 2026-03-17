@@ -562,21 +562,11 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		}
 	}
 
-	// if a step based config, launch should now be the test config we will run; time to update the config for lease balancing
-	if job.UseSecondaryAccount {
-		switch job.Platform {
-		case "aws":
-			if err := convertAWSToAWS2(pj, sourceConfig); err != nil {
-				return "", fmt.Errorf("failed updating aws job to aws-2: %w", err)
-			}
-		case "gcp":
-			if err := convertGCPToGCP2(pj, sourceConfig); err != nil {
-				return "", fmt.Errorf("failed updating gcp job to gcp-openshift-gce-devel-ci-2: %w", err)
-			}
-		case "azure":
-			if err := convertAzureToAzure2(pj, sourceConfig); err != nil {
-				return "", fmt.Errorf("failed updating azure job to azure-2: %w", err)
-			}
+	// if an alternate cloud account was selected for lease balancing, apply it
+	if job.CloudAccountProfile != nil {
+		p := job.CloudAccountProfile
+		if err := applyClusterProfile(pj, sourceConfig, p.ProfileName, p.ProfileSecret, p.AccountDomain); err != nil {
+			return "", fmt.Errorf("failed applying cluster profile %q: %w", p.ProfileName, err)
 		}
 	}
 
@@ -1743,16 +1733,4 @@ func applyClusterProfile(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBu
 		matchedTarget.MultiStageTestConfiguration.Environment["BASE_DOMAIN"] = accountDomain
 	}
 	return nil
-}
-
-func convertAWSToAWS2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration) error {
-	return applyClusterProfile(job, sourceConfig, "aws-2", "cluster-secrets-aws-2", "aws-2.ci.openshift.org")
-}
-
-func convertAzureToAzure2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration) error {
-	return applyClusterProfile(job, sourceConfig, "azure-2", "cluster-secrets-azure-2", "ci2.azure.devcluster.openshift.com")
-}
-
-func convertGCPToGCP2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration) error {
-	return applyClusterProfile(job, sourceConfig, "gcp-openshift-gce-devel-ci-2", "cluster-secrets-gcp-openshift-gce-devel-ci-2", "")
 }
