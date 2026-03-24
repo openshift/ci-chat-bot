@@ -30,6 +30,24 @@ import (
 
 var MCEPlatforms = sets.New([]string{"aws", "gcp"}...)
 
+// mceClusterIsAWS reports whether the managed cluster runs on AWS. Hive ClusterDeployment may be
+// absent while a custom image build is in progress; ManagedCluster labels are set at creation.
+func mceClusterIsAWS(mc *clusterv1.ManagedCluster, cd *hivev1.ClusterDeployment) bool {
+	if mc != nil && mc.Labels != nil && mc.Labels["Cloud"] == "Amazon" {
+		return true
+	}
+	return cd != nil && cd.Spec.Platform.AWS != nil
+}
+
+// mceClusterIsGCP reports whether the managed cluster runs on GCP. Hive ClusterDeployment may be
+// absent while a custom image build is in progress; ManagedCluster labels are set at creation.
+func mceClusterIsGCP(mc *clusterv1.ManagedCluster, cd *hivev1.ClusterDeployment) bool {
+	if mc != nil && mc.Labels != nil && mc.Labels["Cloud"] == "Google" {
+		return true
+	}
+	return cd != nil && cd.Spec.Platform.GCP != nil
+}
+
 func (m *jobManager) createManagedCluster(imageSet, platform, user, slackChannel string, req *JobRequest, duration time.Duration) (*clusterv1.ManagedCluster, error) {
 	m.mceConfig.Mutex.RLock()
 	mceUserConfig := m.mceConfig.Users[user]

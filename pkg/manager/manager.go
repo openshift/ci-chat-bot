@@ -79,8 +79,9 @@ const (
 	// prevent saturating the infrastructure account.
 	maxTotalClusters = 80
 
-	maxTotalMCEClusters = 15
-	MaxMCEDuration      = time.Duration(8 * time.Hour)
+	maxTotalMCEAWSClusters = 10 // AWS VPC capacity shared across MCE clusters
+	maxTotalMCEGCPClusters = 10
+	MaxMCEDuration         = time.Duration(8 * time.Hour)
 )
 
 const (
@@ -2467,8 +2468,23 @@ func UseSpotInstances(job *Job) bool {
 }
 
 func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]string, duration time.Duration) (string, error) {
-	if len(m.mceClusters.clusters) >= maxTotalMCEClusters {
-		return "", fmt.Errorf("The maximum number of active MCE clusters (%d) has been reached. Please try again later.", maxTotalMCEClusters) //nolint:staticcheck
+	m.mceClusters.lock.RLock()
+	var activeAwsMCEClusterCount, activeGcpMCEClusterCount int
+	for _, mc := range m.mceClusters.clusters {
+		cd := m.mceClusters.deployments[mc.GetName()]
+		if mceClusterIsAWS(mc, cd) {
+			activeAwsMCEClusterCount++
+		}
+		if mceClusterIsGCP(mc, cd) {
+			activeGcpMCEClusterCount++
+		}
+	}
+	m.mceClusters.lock.RUnlock()
+	if platform == "aws" && activeAwsMCEClusterCount >= maxTotalMCEAWSClusters {
+		return "", fmt.Errorf("The maximum number of active AWS MCE clusters (%d) has been reached. Please try again later or launch on GCP.", maxTotalMCEAWSClusters) //nolint:staticcheck
+	}
+	if platform == "gcp" && activeGcpMCEClusterCount >= maxTotalMCEGCPClusters {
+		return "", fmt.Errorf("The maximum number of active GCP MCE clusters (%d) has been reached. Please try again later or launch on AWS.", maxTotalMCEGCPClusters) //nolint:staticcheck
 	}
 	imageset := ""
 	if len(from) > 0 && len(from[0]) == 1 {
