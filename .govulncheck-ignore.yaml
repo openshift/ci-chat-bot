@@ -25,3 +25,7 @@ ignored_vulnerabilities:
   - id: GO-2023-1901
     module: github.com/tektoncd/pipeline
     reason: "No fix available - Pipelines do not validate child UIDs in Tekton Pipeline"
+
+  - id: GO-2026-4730
+    module: github.com/tektoncd/pipeline
+    reason: "No fix available - Tekton Pipelines controller panic via long resolver name in TaskRun/PipelineRun in github.com/tektoncd/pipeline (CVE-2026-33022)"
