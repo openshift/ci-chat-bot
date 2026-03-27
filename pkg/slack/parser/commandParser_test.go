@@ -109,6 +109,15 @@ func TestMatch(t *testing.T) {
 			},
 		},
 	}, {
+		command: "launch 4.19,openshift/installer#7160,openshift/machine-config-operator#3688 aws,devpreview",
+		match:   0,
+		properties: &Properties{
+			PropertyMap: map[string]string{
+				"image_or_version_or_prs": "4.19,openshift/installer#7160,openshift/machine-config-operator#3688",
+				"options":                 "aws,devpreview",
+			},
+		},
+	}, {
 		command: "rosa create",
 		match:   1,
 		properties: &Properties{

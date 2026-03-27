@@ -256,7 +256,7 @@ func GenerateLaunchHelpMessage() string {
 
 	helpMessage += "*Advanced Options (combine as needed):*\n"
 	helpMessage += "• Installation: `upi`, `preserve-bootstrap`\n"
-	helpMessage += "• Runtime: `techpreview`\n"
+	helpMessage += "• Runtime: `techpreview`, `devpreview`\n"
 	helpMessage += "• Infrastructure: `mirror`, `shared-vpc`, `no-spot`, `virtualization-support`\n"
 	helpMessage += "• Special: `test`, `bundle`, `nfv`\n\n"
 
@@ -264,7 +264,7 @@ func GenerateLaunchHelpMessage() string {
 	helpMessage += "• Start with platform (aws, gcp, etc.)\n"
 	helpMessage += "• Add architecture if not default (arm64, multi)\n"
 	helpMessage += "• Add networking if needed (sdn, kuryr, ipv6)\n"
-	helpMessage += "• Add size/features last (compact, fips, techpreview)\n"
+	helpMessage += "• Add size/features last (compact, fips, techpreview, devpreview)\n"
 	helpMessage += "• Bot will validate combinations and inform about conflicts\n\n"
 
 	helpMessage += "*Examples (Simple to Complex):*\n"
