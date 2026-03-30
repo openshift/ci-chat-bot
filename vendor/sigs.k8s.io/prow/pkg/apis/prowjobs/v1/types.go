@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"mime"
 	"net/url"
 	"strings"
@@ -502,6 +503,12 @@ type DecorationConfig struct {
 	// BloblessFetch tells Prow to avoid fetching objects when cloning using
 	// the --filter=blob:none flag.
 	BloblessFetch *bool `json:"blobless_fetch,omitempty"`
+	// SparseCheckoutFiles limits the working tree to only the listed paths.
+	// Accepts the same patterns as git sparse-checkout set (file names,
+	// directory names, gitignore-style globs). When set, clonerefs performs a
+	// sparse checkout instead of a full clone. Applied to the primary ref for
+	// presubmit/postsubmit jobs. Not applied to extra refs.
+	SparseCheckoutFiles []string `json:"sparse_checkout_files,omitempty"`
 	// SkipCloning determines if we should clone source code in the
 	// initcontainers for jobs that specify refs
 	SkipCloning *bool `json:"skip_cloning,omitempty"`
@@ -853,6 +860,9 @@ func (d *DecorationConfig) ApplyDefault(def *DecorationConfig) *DecorationConfig
 	if merged.BloblessFetch == nil {
 		merged.BloblessFetch = def.BloblessFetch
 	}
+	if len(merged.SparseCheckoutFiles) == 0 {
+		merged.SparseCheckoutFiles = def.SparseCheckoutFiles
+	}
 	if merged.SchedulingOptions == nil {
 		merged.SchedulingOptions = def.SchedulingOptions
 	}
@@ -1025,9 +1035,7 @@ func (g *GCSConfiguration) ApplyDefault(def *GCSConfiguration) *GCSConfiguration
 		merged.MediaTypes = map[string]string{}
 	}
 
-	for extension, mediaType := range def.MediaTypes {
-		merged.MediaTypes[extension] = mediaType
-	}
+	maps.Copy(merged.MediaTypes, def.MediaTypes)
 
 	if merged.JobURLPrefix == "" {
 		merged.JobURLPrefix = def.JobURLPrefix

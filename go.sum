@@ -4539,8 +4539,8 @@ sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd/go.mod h1:B8JuhiUyNFVKdsE8h6
 sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 h1:gBQPwqORJ8d8/YNZWEjoZs7npUVDpVXUUOFfW6CgAqE=
 sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8/go.mod h1:mdzfpAEoE6DHQEN0uh9ZbOCuHbLK5wOm7dK4ctXE9Tg=
 sigs.k8s.io/kube-storage-version-migrator v0.0.4/go.mod h1:mXfSLkx9xbJHQsgNDDUZK/iQTs2tMbx/hsJlWe6Fthw=
-sigs.k8s.io/prow v0.0.0-20260227184331-937f24a5dcd2 h1:WmO1hZGFozg+27fZJe2Jw/LapRzfOPHtjIVGYcZCKdQ=
-sigs.k8s.io/prow v0.0.0-20260227184331-937f24a5dcd2/go.mod h1:mp/tLCcvJyJAIk8+QL7zyS2SzI28HDP0LPV91Z73pGU=
+sigs.k8s.io/prow v0.0.0-20260325094416-feedafda4290 h1:XKV3mq/MRwNR0R49qNXIV1rCrTN/auYCBYyZ1cqbK/o=
+sigs.k8s.io/prow v0.0.0-20260325094416-feedafda4290/go.mod h1:LkFUWvukcR88tO0JBhMpKFh0rnzBkWa3fbM37/1eBjU=
 sigs.k8s.io/randfill v0.0.0-20250304075658-069ef1bbf016/go.mod h1:XeLlZ/jmk4i1HRopwe7/aU3H5n1zNUcX6TM94b3QxOY=
 sigs.k8s.io/randfill v1.0.0 h1:JfjMILfT8A6RbawdsK2JXGBR5AQVfd+9TbzrlneTyrU=
 sigs.k8s.io/randfill v1.0.0/go.mod h1:XeLlZ/jmk4i1HRopwe7/aU3H5n1zNUcX6TM94b3QxOY=

@@ -1,6 +1,6 @@
 module github.com/openshift/ci-chat-bot
 
-go 1.25.5
+go 1.25.8
 
 replace (
 	github.com/Sirupsen/logrus => github.com/sirupsen/logrus v1.6.0
@@ -63,7 +63,7 @@ require (
 	k8s.io/klog v1.0.0
 	open-cluster-management.io/api v0.14.0
 	sigs.k8s.io/controller-runtime v0.22.1
-	sigs.k8s.io/prow v0.0.0-20260227184331-937f24a5dcd2
+	sigs.k8s.io/prow v0.0.0-20260325094416-feedafda4290
 	sigs.k8s.io/yaml v1.6.0
 )
 
