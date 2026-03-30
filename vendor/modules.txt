@@ -2817,8 +2817,8 @@ sigs.k8s.io/controller-runtime/pkg/webhook/internal/metrics
 ## explicit; go 1.23
 sigs.k8s.io/json
 sigs.k8s.io/json/internal/golang/encoding/json
-# sigs.k8s.io/prow v0.0.0-20260227184331-937f24a5dcd2
-## explicit; go 1.25.5
+# sigs.k8s.io/prow v0.0.0-20260325094416-feedafda4290
+## explicit; go 1.25.8
 sigs.k8s.io/prow/pkg/apis/prowjobs
 sigs.k8s.io/prow/pkg/apis/prowjobs/v1
 sigs.k8s.io/prow/pkg/bugzilla
