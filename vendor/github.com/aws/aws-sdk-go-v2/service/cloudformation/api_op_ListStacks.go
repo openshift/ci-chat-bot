@@ -105,6 +105,9 @@ func (c *Client) addOperationListStacksMiddlewares(stack *middleware.Stack, opti
 	if err = addRecordResponseTiming(stack); err != nil {
 		return err
 	}
+	if err = addSpanRetryLoop(stack, options); err != nil {
+		return err
+	}
 	if err = addClientUserAgent(stack, options); err != nil {
 		return err
 	}
@@ -115,6 +118,12 @@ func (c *Client) addOperationListStacksMiddlewares(stack *middleware.Stack, opti
 		return err
 	}
 	if err = addSetLegacyContextSigningOptionsMiddleware(stack); err != nil {
+		return err
+	}
+	if err = addTimeOffsetBuild(stack, c); err != nil {
+		return err
+	}
+	if err = addUserAgentRetryMode(stack, options); err != nil {
 		return err
 	}
 	if err = stack.Initialize.Add(newServiceMetadataMiddleware_opListStacks(options.Region), middleware.Before); err != nil {
@@ -135,15 +144,20 @@ func (c *Client) addOperationListStacksMiddlewares(stack *middleware.Stack, opti
 	if err = addDisableHTTPSMiddleware(stack, options); err != nil {
 		return err
 	}
+	if err = addSpanInitializeStart(stack); err != nil {
+		return err
+	}
+	if err = addSpanInitializeEnd(stack); err != nil {
+		return err
+	}
+	if err = addSpanBuildRequestStart(stack); err != nil {
+		return err
+	}
+	if err = addSpanBuildRequestEnd(stack); err != nil {
+		return err
+	}
 	return nil
 }
-
-// ListStacksAPIClient is a client that implements the ListStacks operation.
-type ListStacksAPIClient interface {
-	ListStacks(context.Context, *ListStacksInput, ...func(*Options)) (*ListStacksOutput, error)
-}
-
-var _ ListStacksAPIClient = (*Client)(nil)
 
 // ListStacksPaginatorOptions is the paginator options for ListStacks
 type ListStacksPaginatorOptions struct {
@@ -196,6 +210,9 @@ func (p *ListStacksPaginator) NextPage(ctx context.Context, optFns ...func(*Opti
 	params := *p.params
 	params.NextToken = p.nextToken
 
+	optFns = append([]func(*Options){
+		addIsPaginatorUserAgent,
+	}, optFns...)
 	result, err := p.client.ListStacks(ctx, &params, optFns...)
 	if err != nil {
 		return nil, err
@@ -214,6 +231,13 @@ func (p *ListStacksPaginator) NextPage(ctx context.Context, optFns ...func(*Opti
 
 	return result, nil
 }
+
+// ListStacksAPIClient is a client that implements the ListStacks operation.
+type ListStacksAPIClient interface {
+	ListStacks(context.Context, *ListStacksInput, ...func(*Options)) (*ListStacksOutput, error)
+}
+
+var _ ListStacksAPIClient = (*Client)(nil)
 
 func newServiceMetadataMiddleware_opListStacks(region string) *awsmiddleware.RegisterServiceMetadata {
 	return &awsmiddleware.RegisterServiceMetadata{

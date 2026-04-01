@@ -46,7 +46,7 @@ require (
 	github.com/openshift-online/ocm-sdk-go v0.1.459
 	github.com/openshift/api v0.0.0-20251120220512-cb382c9eaf42
 	github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee
-	github.com/openshift/ci-tools v0.0.0-20240710031808-de122ac79fa9
+	github.com/openshift/ci-tools v0.0.0-20260401181544-dbe3f838b8a0
 	github.com/openshift/client-go v3.9.0+incompatible
 	github.com/openshift/hive v0.0.0-00010101000000-000000000000
 	github.com/openshift/oc v0.0.0-alpha.0.0.20230410203846-b68ac7c39057
@@ -70,6 +70,7 @@ require (
 require (
 	cel.dev/expr v0.24.0 // indirect
 	cloud.google.com/go/monitoring v1.24.3 // indirect
+	cloud.google.com/go/secretmanager v1.16.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.19.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v5 v5.7.0 // indirect
@@ -123,7 +124,7 @@ require (
 	github.com/nutanix-cloud-native/prism-go-client v0.5.0 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/opencontainers/runtime-spec v1.3.0 // indirect
-	github.com/openshift/cluster-autoscaler-operator v0.0.0-20211006175002-fe524080b551 // indirect
+	github.com/openshift/cluster-autoscaler-operator v0.0.1-0.20241204142113-43631b045675 // indirect
 	github.com/otiai10/mint v1.6.3 // indirect
 	github.com/pierrec/lz4/v4 v4.1.18 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
@@ -172,7 +173,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.9 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.3 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.9 // indirect
-	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.50.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.56.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.233.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/iam v1.32.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.1 // indirect
@@ -254,7 +255,7 @@ require (
 	github.com/openshift/cluster-api-provider-ovirt v0.1.1-0.20220323121149-e3f2850dd519 // indirect
 	github.com/openshift/custom-resource-status v1.1.3-0.20220503160415-f2fdb4999d87 // indirect
 	github.com/openshift/hive/apis v0.0.0
-	github.com/openshift/installer v0.9.0-master.0.20240613201043-5e36f8fb1dde
+	github.com/openshift/installer v1.4.17
 	github.com/openshift/library-go v0.0.0-20251107090138-0de9712313a5 // indirect
 	github.com/otiai10/copy v1.14.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect

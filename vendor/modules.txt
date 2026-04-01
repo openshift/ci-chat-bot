@@ -47,12 +47,20 @@ cloud.google.com/go/compute/metadata
 # cloud.google.com/go/iam v1.5.3
 ## explicit; go 1.24.0
 cloud.google.com/go/iam
+cloud.google.com/go/iam/admin/apiv1
+cloud.google.com/go/iam/admin/apiv1/adminpb
 cloud.google.com/go/iam/apiv1/iampb
+cloud.google.com/go/iam/internal
 # cloud.google.com/go/monitoring v1.24.3
 ## explicit; go 1.24.0
 cloud.google.com/go/monitoring/apiv3/v2
 cloud.google.com/go/monitoring/apiv3/v2/monitoringpb
 cloud.google.com/go/monitoring/internal
+# cloud.google.com/go/secretmanager v1.16.0
+## explicit; go 1.24.0
+cloud.google.com/go/secretmanager/apiv1
+cloud.google.com/go/secretmanager/apiv1/secretmanagerpb
+cloud.google.com/go/secretmanager/internal
 # cloud.google.com/go/storage v1.57.0
 ## explicit; go 1.24.0
 cloud.google.com/go/storage
@@ -363,8 +371,8 @@ github.com/aws/aws-sdk-go-v2/internal/ini
 github.com/aws/aws-sdk-go-v2/internal/v4a
 github.com/aws/aws-sdk-go-v2/internal/v4a/internal/crypto
 github.com/aws/aws-sdk-go-v2/internal/v4a/internal/v4
-# github.com/aws/aws-sdk-go-v2/service/cloudformation v1.50.0
-## explicit; go 1.20
+# github.com/aws/aws-sdk-go-v2/service/cloudformation v1.56.0
+## explicit; go 1.21
 github.com/aws/aws-sdk-go-v2/service/cloudformation
 github.com/aws/aws-sdk-go-v2/service/cloudformation/internal/endpoints
 github.com/aws/aws-sdk-go-v2/service/cloudformation/types
@@ -1305,11 +1313,15 @@ github.com/openshift/build-machinery-go/make/targets/golang
 github.com/openshift/build-machinery-go/make/targets/openshift
 github.com/openshift/build-machinery-go/make/targets/openshift/operator
 github.com/openshift/build-machinery-go/scripts
-# github.com/openshift/ci-tools v0.0.0-20240710031808-de122ac79fa9
-## explicit; go 1.22.4
+# github.com/openshift/ci-tools v0.0.0-20260401181544-dbe3f838b8a0
+## explicit; go 1.25.5
 github.com/openshift/ci-tools/pkg/api
 github.com/openshift/ci-tools/pkg/api/utils
+github.com/openshift/ci-tools/pkg/group
+github.com/openshift/ci-tools/pkg/gsm-secrets
+github.com/openshift/ci-tools/pkg/gsm-validation
 github.com/openshift/ci-tools/pkg/lease
+github.com/openshift/ci-tools/pkg/util/gzip
 # github.com/openshift/client-go v3.9.0+incompatible => github.com/openshift/client-go v0.0.0-20251015124057-db0dee36e235
 ## explicit; go 1.24.0
 github.com/openshift/client-go/build/applyconfigurations/build/v1
@@ -1331,8 +1343,8 @@ github.com/openshift/client-go/project/clientset/versioned/typed/project/v1
 ## explicit; go 1.17
 github.com/openshift/cluster-api-provider-ovirt/pkg/apis
 github.com/openshift/cluster-api-provider-ovirt/pkg/apis/ovirtprovider/v1beta1
-# github.com/openshift/cluster-autoscaler-operator v0.0.0-20211006175002-fe524080b551
-## explicit; go 1.16
+# github.com/openshift/cluster-autoscaler-operator v0.0.1-0.20241204142113-43631b045675
+## explicit; go 1.22.0
 github.com/openshift/cluster-autoscaler-operator/pkg/apis/autoscaling/v1
 github.com/openshift/cluster-autoscaler-operator/pkg/apis/autoscaling/v1beta1
 # github.com/openshift/custom-resource-status v1.1.3-0.20220503160415-f2fdb4999d87
@@ -1359,7 +1371,7 @@ github.com/openshift/hive/apis/hive/v1/vsphere
 github.com/openshift/hive/apis/hivecontracts/v1alpha1
 github.com/openshift/hive/apis/hiveinternal/v1alpha1
 github.com/openshift/hive/apis/scheme
-# github.com/openshift/installer v0.9.0-master.0.20240613201043-5e36f8fb1dde => github.com/openshift/installer v0.0.0-20260211082425-e973ac44d688
+# github.com/openshift/installer v1.4.17 => github.com/openshift/installer v0.0.0-20260211082425-e973ac44d688
 ## explicit; go 1.24.0
 github.com/openshift/installer/pkg/ipnet
 github.com/openshift/installer/pkg/types
@@ -1961,6 +1973,7 @@ google.golang.org/api/transport/grpc
 google.golang.org/api/transport/http
 # google.golang.org/genproto v0.0.0-20251202230838-ff82c1b0f217
 ## explicit; go 1.24.0
+google.golang.org/genproto/googleapis/cloud/location
 google.golang.org/genproto/googleapis/type/calendarperiod
 google.golang.org/genproto/googleapis/type/date
 google.golang.org/genproto/googleapis/type/expr

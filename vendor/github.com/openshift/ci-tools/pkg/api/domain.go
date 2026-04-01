@@ -23,9 +23,12 @@ const (
 	ServiceDomainArm01Registry     = "registry.arm-build01.arm-build.devcluster.openshift.com"
 	ServiceDomainMulti01Registry   = "registry.multi-build01.arm-build.devcluster.openshift.com"
 
-	QuayOpenShiftCIRepo = "quay.io/openshift/ci"
+	QuayOpenShiftCIRepo          = "quay.io/openshift/ci"
+	QuayOpenShiftNetworkEdgeRepo = "quay.io/openshift/network-edge-testing"
 
 	QCIAPPCIDomain = "quay-proxy.ci.openshift.org"
+
+	QCICacheDomain = "qci-pull-through-cache-us-east-1-ci.apps.ci.l2s4.p1.openshiftapps.com"
 )
 
 type Service string

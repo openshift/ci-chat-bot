@@ -20,6 +20,8 @@ const (
 
 	PromotionStepName     = "promotion"
 	PromotionQuayStepName = "promotion-quay"
+
+	PromotionExcludeImageWildcard = "*"
 )
 
 // PromotionTargets adapts the single-target configuration to the multi-target paradigm.
@@ -40,7 +42,7 @@ func ImageTargets(c *ReleaseBuildConfiguration) sets.Set[string] {
 		}
 	}
 
-	if len(c.Images) > 0 || imageTargets.Len() > 0 {
+	if len(c.Images.Items) > 0 || imageTargets.Len() > 0 {
 		imageTargets.Insert("[images]")
 	}
 	return imageTargets
@@ -105,6 +107,36 @@ func quayImageWithTime(timestamp string, tag ImageStreamTagReference) string {
 	return fmt.Sprintf("%s:%s_prune_%s_%s_%s", QuayOpenShiftCIRepo, timestamp, tag.Namespace, tag.Name, tag.Tag)
 }
 
+// getQuayProxyTarget creates the quay-proxy target imagestream tag reference.
+// Format: namespace/imagestream-name-quay:tag
+func getQuayProxyTarget(target string, tag ImageStreamTagReference) string {
+	if tag.Name != "" {
+		proxyTarget := fmt.Sprintf("%s/%s-quay:%s", tag.Namespace, tag.Name, tag.Tag)
+		return proxyTarget
+	}
+
+	// For tag-based promotion, parse the target string to extract component name
+	targetParts := strings.Split(target, ":")
+	if len(targetParts) >= 2 && strings.HasPrefix(target, QuayOpenShiftCIRepo+":") {
+		tagPart := targetParts[1]
+		first := strings.Index(tagPart, "_")
+		tagSuffix := "_" + tag.Tag
+		if first > 0 && strings.HasSuffix(tagPart, tagSuffix) {
+			targetNamespace := tagPart[:first]
+			tagStart := len(tagPart) - len(tagSuffix)
+			targetComponent := tagPart[first+1 : tagStart]
+			if targetComponent != "" {
+				proxyTarget := fmt.Sprintf("%s/%s-quay:%s", targetNamespace, targetComponent, tag.Tag)
+				return proxyTarget
+			}
+		}
+	}
+
+	// Fallback: use namespace and tag
+	proxyTarget := fmt.Sprintf("%s/%s-quay:%s", tag.Namespace, tag.Tag, tag.Tag)
+	return proxyTarget
+}
+
 var (
 	// DefaultMirrorFunc is the default mirroring function
 	DefaultMirrorFunc = func(source, target string, _ ImageStreamTagReference, _ string, mirror map[string]string) {
@@ -135,5 +167,21 @@ var (
 			return fmt.Sprintf("%s:%s_%s_${component}", QuayOpenShiftCIRepo, config.Namespace, config.Name)
 		}
 		return fmt.Sprintf("%s:%s_${component}_%s", QuayOpenShiftCIRepo, config.Namespace, config.Tag)
+	}
+
+	// QuayCombinedMirrorFunc does both quay mirroring and quay-proxy tagging
+	QuayCombinedMirrorFunc = func(source, target string, tag ImageStreamTagReference, time string, mirror map[string]string) {
+		// quay mirroring
+		if time == "" {
+			logrus.Warn("Found time is empty string and skipped the promotion to quay for this image")
+		} else {
+			t := QuayImage(tag)
+			mirror[t] = source
+			mirror[quayImageWithTime(time, tag)] = t
+		}
+
+		proxyTarget := getQuayProxyTarget(target, tag)
+		quayProxySource := QuayImageReference(tag)
+		mirror[proxyTarget] = quayProxySource
 	}
 )

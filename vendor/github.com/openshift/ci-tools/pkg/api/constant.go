@@ -18,6 +18,19 @@ const (
 	ManifestToolLocalPusherSecret          = "manifest-tool-local-pusher"
 	ManifestToolLocalPusherSecretMountPath = "/secrets/manifest-tool"
 
+	//Google Secret Manager
+	GSMConfigConfigMap        = "gsm-config"
+	GSMConfigMountPath        = "/etc/gsm-config"
+	GSMConfigFileParameter    = "--gsm-config=/etc/gsm-config/gsm-config.yaml"
+	GSMProjectConfigParameter = "--gsm-project-config=/etc/gsm-config/gsm-project-config.yaml"
+	EnableCSIFlag             = "--enable-secrets-store-csi-driver=true"
+	GSMCredentialsVolumeMount = "gsm-sa-key"
+	GSMCredentialsMountPath   = "/etc/gsm-credentials"
+	GSMCredentialsParameter   = "--gsm-credentials-file=/etc/gsm-credentials/key.json"
+	GSMCiOperatorSPCName      = "ci-operator-sa-key-spc"
+
+	PromotionQuayTaggerKubeconfigSecret = "promotion-quay-tagger-kubeconfig"
+
 	ReleaseAnnotationSoftDelete = "release.openshift.io/soft-delete"
 
 	// DPTPRequesterLabel is the label on a Kubernates CR whose value indicates the automated tool that requests the CR
@@ -62,6 +75,9 @@ const (
 	CliEnv                = "CLI_DIR"
 	DefaultLeaseEnv       = "LEASED_RESOURCE"
 	DefaultIPPoolLeaseEnv = "IP_POOL_AVAILABLE"
+	ClusterProfileSetEnv  = "CLUSTER_PROFILE_SET_NAME"
+	ClusterProfileParam   = "CLUSTER_PROFILE"
+
 	// SkipCensoringLabel is the label we use to mark a secret as not needing to be censored
 	SkipCensoringLabel = "ci.openshift.io/skip-censoring"
 
@@ -79,7 +95,22 @@ const (
 	// to copy the annotation if it exists
 	ReleaseConfigAnnotation = "release.openshift.io/config"
 
+	// AggregationIDLabel is the label used to link aggregated jobs to their aggregator job
+	AggregationIDLabel = "release.openshift.io/aggregation-id"
+
+	// ProwJobJobNameAnnotation is the annotation in prowJob for the Job Name.
+	// It is used to match relevant job names for different aggregators
+	ProwJobJobNameAnnotation = "prow.k8s.io/job"
+
 	ImageStreamImportRetries = 6
+
+	NestedPodmanSCC         = "nested-podman"
+	NestedPodmanClusterRole = "nested-podman-creater"
+
+	CIOperatorHTTPServerIPEnvVarName = "HTTP_SERVER_IP"
+	CIOperatorHTTPServerPort         = 8080
+	LeaseProxyServerURLEnvVarName    = "LEASE_PROXY_SERVER_URL"
+	LeaseProxyConfigMapName          = "lease-proxy"
 )
 
 var (

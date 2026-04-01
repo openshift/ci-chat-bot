@@ -730,7 +730,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 				// have a full graph of dependencies. This can cause optional images that are needed to not be built.
 				// This simplest way to handle this is to just override the optional field for all images
 				updatedImageList := []citools.ProjectDirectoryImageBuildStepConfiguration{}
-				for _, image := range targetConfig.Images {
+				for _, image := range targetConfig.Images.Items {
 					newImage := image
 					newImage.Optional = false
 					updatedImageList = append(updatedImageList, newImage)
@@ -742,7 +742,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 						Namespace: "$(NAMESPACE)",
 					}
 				}
-				targetConfig.Images = updatedImageList
+				targetConfig.Images.Items = updatedImageList
 
 				if i == 0 && len(job.Inputs) > 1 {
 					targetConfig.PromotionConfiguration = &citools.PromotionConfiguration{
@@ -1006,7 +1006,7 @@ func processOperatorPR(oldOperatorRepo string, sourceConfig, targetConfig *citoo
 				}
 			}
 			// the `operator` stanza needs the built images to be in `pipeline`. This is a hacky way to acheieve that
-			for _, image := range targetConfig.Images {
+			for _, image := range targetConfig.Images.Items {
 				if sourceConfig.BaseImages == nil {
 					sourceConfig.BaseImages = make(map[string]citools.ImageStreamTagReference)
 				}

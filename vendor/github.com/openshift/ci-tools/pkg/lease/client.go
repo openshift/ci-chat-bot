@@ -3,7 +3,9 @@ package lease
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/rand"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -29,10 +31,25 @@ type boskosClient interface {
 	Metric(rtype string) (common.Metric, error)
 }
 
-var ErrNotFound = boskos.ErrNotFound
+var (
+	// ErrNotFound is returned when no resources of the requested type are currently available.
+	ErrNotFound = boskos.ErrNotFound
+	// ErrTypeNotFound is returned when the requested resource type does not exist.
+	ErrTypeNotFound = boskos.ErrTypeNotFound
+)
 
 type Metrics struct {
 	Free, Leased int
+}
+
+type clientOptions struct {
+	randID func() string
+}
+
+type ClientOptions func(*clientOptions)
+
+func WithRandID(randID func() string) ClientOptions {
+	return func(o *clientOptions) { o.randID = randID }
 }
 
 // Client manages resource leases, acquiring, releasing, and keeping them
@@ -57,25 +74,33 @@ type Client interface {
 	// Metrics queries the states of a particular resource, for informational
 	// purposes.
 	Metrics(rtype string) (Metrics, error)
+	// Leases returns the leases collected so far.
+	Leases() []string
 }
 
 // NewClient creates a client that leases resources with the specified owner.
-func NewClient(owner, url, username string, passwordGetter func() []byte, retries int, acquireTimeout time.Duration) (Client, error) {
-	randId = func() string {
-		return strconv.Itoa(rand.Int())
-	}
+func NewClient(owner, url, username string, passwordGetter func() []byte, retries int, acquireTimeout time.Duration, opts ...ClientOptions) (Client, error) {
 	c, err := boskos.NewClientWithPasswordGetter(owner, url, username, passwordGetter)
 	if err != nil {
 		return nil, err
 	}
-	return newClient(c, retries, acquireTimeout), nil
+	c.DistinguishNotFoundVsTypeNotFound = true
+	return newClient(c, retries, acquireTimeout, opts...), nil
 }
 
-// for test mocking
-var randId func() string
+func newClient(boskos boskosClient, retries int, acquireTimeout time.Duration, opts ...ClientOptions) Client {
+	defOpts := &clientOptions{
+		randID: func() string {
+			return strconv.Itoa(rand.Int())
+		},
+	}
 
-func newClient(boskos boskosClient, retries int, acquireTimeout time.Duration) Client {
+	for _, f := range opts {
+		f(defOpts)
+	}
+
 	return &client{
+		opts:           defOpts,
 		boskos:         boskos,
 		retries:        retries,
 		acquireTimeout: acquireTimeout,
@@ -85,6 +110,7 @@ func newClient(boskos boskosClient, retries int, acquireTimeout time.Duration) C
 
 type client struct {
 	sync.RWMutex
+	opts           *clientOptions
 	boskos         boskosClient
 	retries        int
 	acquireTimeout time.Duration
@@ -107,7 +133,7 @@ func (c *client) Acquire(rtype string, n uint, ctx context.Context, cancel conte
 	var ret []string
 	// TODO `m` processes may fight for the last `m * n` remaining leases
 	for i := uint(0); i < n; i++ {
-		r, err := c.boskos.AcquireWaitWithPriority(ctx, rtype, freeState, leasedState, randId())
+		r, err := c.boskos.AcquireWaitWithPriority(ctx, rtype, freeState, leasedState, c.opts.randID())
 		if err != nil {
 			return nil, err
 		}
@@ -191,4 +217,12 @@ func (c *client) Metrics(rtype string) (Metrics, error) {
 		Free:   metrics.Current[freeState],
 		Leased: metrics.Current[leasedState],
 	}, nil
+}
+
+func (c *client) Leases() []string {
+	c.Lock()
+	defer c.Unlock()
+	l := slices.Collect(maps.Keys(c.leases))
+	slices.Sort(l)
+	return l
 }

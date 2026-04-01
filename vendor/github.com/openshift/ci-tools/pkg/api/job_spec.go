@@ -22,14 +22,14 @@ type JobSpec struct {
 
 	// these fields allow the job to be targeted at a location
 	namespace     string
-	BaseNamespace string
+	BaseNamespace string `json:"base_namespace,omitempty"`
 
 	// if set, any new artifacts will be a child of this object
 	owner *meta.OwnerReference
 
-	Metadata               Metadata
-	Target                 string
-	TargetAdditionalSuffix string
+	Metadata               Metadata `json:"metadata,omitempty"`
+	Target                 string   `json:"target,omitempty"`
+	TargetAdditionalSuffix string   `json:"target_additional_suffix,omitempty"`
 }
 
 // Namespace returns the namespace of the job. Must not be evaluated
@@ -100,4 +100,37 @@ func ResolveSpecFromEnv() (*JobSpec, error) {
 		JobSpec: *apiSpec,
 		rawSpec: string(raw),
 	}, nil
+}
+
+func (s *JobSpec) MetricsData() map[string]any {
+	if s == nil {
+		return nil
+	}
+	result := map[string]any{
+		"type":      s.Type,
+		"job":       s.Job,
+		"buildid":   s.BuildID,
+		"prowjobid": s.ProwJobID,
+		"target":    s.Target,
+	}
+
+	if s.Metadata.Org != "" {
+		result["org"] = s.Metadata.Org
+	}
+	if s.Metadata.Repo != "" {
+		result["repo"] = s.Metadata.Repo
+	}
+	if s.Metadata.Branch != "" {
+		result["branch"] = s.Metadata.Branch
+	}
+
+	if s.Refs != nil && len(s.Refs.Pulls) > 0 {
+		pulls := make([]map[string]any, 0, len(s.Refs.Pulls))
+		for _, pull := range s.Refs.Pulls {
+			pulls = append(pulls, map[string]any{"number": pull.Number, "author": pull.Author, "sha": pull.SHA})
+		}
+		result["pulls"] = pulls
+	}
+
+	return result
 }

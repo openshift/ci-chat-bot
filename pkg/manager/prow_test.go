@@ -60,13 +60,16 @@ func Test_processOperatorPR(t *testing.T) {
 				BuildRootImage: &citools.BuildRootImageConfiguration{FromRepository: true},
 				BaseImages:     map[string]citools.ImageStreamTagReference{"an-image": {Namespace: "ci", Name: "test-image", Tag: "4.19"}},
 			},
-			Images: []citools.ProjectDirectoryImageBuildStepConfiguration{{
-				From: "base",
-				To:   "my-operator",
-				ProjectDirectoryImageBuildInputs: citools.ProjectDirectoryImageBuildInputs{
-					DockerfilePath: "path/to/dockerfile",
-				},
-			}},
+			Images: citools.ImageConfiguration{
+				Items: []citools.ProjectDirectoryImageBuildStepConfiguration{{
+
+					From: "base",
+					To:   "my-operator",
+					ProjectDirectoryImageBuildInputs: citools.ProjectDirectoryImageBuildInputs{
+						DockerfilePath: "path/to/dockerfile",
+					},
+				}},
+			},
 			Operator: &citools.OperatorStepConfiguration{Bundles: []citools.Bundle{{As: "test"}}},
 			Tests: []citools.TestStepConfiguration{{
 				As: "my-test",
@@ -167,13 +170,15 @@ func Test_processOperatorPR(t *testing.T) {
 				BuildRootImage: &citools.BuildRootImageConfiguration{FromRepository: true},
 				BaseImages:     map[string]citools.ImageStreamTagReference{"an-image": {Namespace: "ci", Name: "test-image", Tag: "4.19"}},
 			},
-			Images: []citools.ProjectDirectoryImageBuildStepConfiguration{{
-				From: "base",
-				To:   "my-operator",
-				ProjectDirectoryImageBuildInputs: citools.ProjectDirectoryImageBuildInputs{
-					DockerfilePath: "path/to/dockerfile",
-				},
-			}},
+			Images: citools.ImageConfiguration{
+				Items: []citools.ProjectDirectoryImageBuildStepConfiguration{{
+					From: "base",
+					To:   "my-operator",
+					ProjectDirectoryImageBuildInputs: citools.ProjectDirectoryImageBuildInputs{
+						DockerfilePath: "path/to/dockerfile",
+					},
+				}},
+			},
 			Operator: &citools.OperatorStepConfiguration{Bundles: []citools.Bundle{{As: "test"}}},
 			Tests: []citools.TestStepConfiguration{{
 				As: "my-test",

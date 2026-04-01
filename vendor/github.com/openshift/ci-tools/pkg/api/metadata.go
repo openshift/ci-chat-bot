@@ -49,8 +49,15 @@ func (m *Metadata) AsString() string {
 	return identifier
 }
 
+// ShardSuffix matches shard suffixes like -1of2, -3of10 at the end of a string.
+// These suffixes are reserved for infrastructure use and are stripped from test
+// names during rehearsals.
+var ShardSuffix = regexp.MustCompile(`-\d+of\d+$`)
+
 // TestNameFromJobName returns the name of the test from a given job name and prefix
+// If the test contains shard information in the suffix, that will also be trimmed
 func (m *Metadata) TestNameFromJobName(jobName, prefix string) string {
+	jobName = ShardSuffix.ReplaceAllString(jobName, "")
 	return strings.TrimPrefix(jobName, m.JobName(prefix, ""))
 }
 
@@ -107,14 +114,14 @@ func IsCiopConfigCM(name string) bool {
 }
 
 var releaseBranches = regexp.MustCompile(`^(release|enterprise|openshift)-([1-3])\.[0-9]+(?:\.[0-9]+)?$`)
-var fourXBranches = regexp.MustCompile(`^(release|enterprise|openshift)-(4\.[0-9]+)$`)
+var fourXAndLaterBranches = regexp.MustCompile(`^(release|enterprise|openshift)-([4-9]\.[0-9]+)$`)
 
 func FlavorForBranch(branch string) string {
 	var flavor string
 	if branch == "master" || branch == "main" {
 		flavor = branch
-	} else if m := fourXBranches.FindStringSubmatch(branch); m != nil {
-		flavor = m[2] // the 4.x release string
+	} else if m := fourXAndLaterBranches.FindStringSubmatch(branch); m != nil {
+		flavor = m[2] // the 4.x, 5.x, etc. release string
 	} else if m := releaseBranches.FindStringSubmatch(branch); m != nil {
 		flavor = m[2] + ".x"
 	} else {
