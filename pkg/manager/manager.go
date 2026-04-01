@@ -100,7 +100,7 @@ const (
 
 var CurrentRelease = semver.Version{
 	Major: 4,
-	Minor: 19,
+	Minor: 21,
 }
 
 var HypershiftSupportedVersions = HypershiftSupportedVersionsType{}
@@ -1274,19 +1274,25 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 	switch architecture {
 	case "amd64":
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "release"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "release-5"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "4-dev-preview"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "5-dev-preview"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "konflux-release"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "origin", Imagestream: "release"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "origin", Imagestream: "release-scos"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "origin", Imagestream: "release-scos-next"})
 	case "arm64":
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-arm64", Imagestream: "release-arm64", ArchSuffix: "-arm64"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-arm64", Imagestream: "release-5-arm64", ArchSuffix: "-arm64"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-arm64", Imagestream: "4-dev-preview-arm64", ArchSuffix: "-arm64"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-arm64", Imagestream: "5-dev-preview-arm64", ArchSuffix: "-arm64"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-arm64", Imagestream: "konflux-release-arm64", ArchSuffix: "-arm64"})
 	case "multi":
 		// the release-controller cannot assemble multi-arch release, so we must use the `art-latest` streams instead of `release-multi`
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "release-multi", ArchSuffix: "-multi"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "release-5-multi", ArchSuffix: "-multi"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "4-dev-preview-multi", ArchSuffix: "-multi"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "5-dev-preview-multi", ArchSuffix: "-multi"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp-multi", Imagestream: "konflux-release-multi", ArchSuffix: "-multi"})
 		HypershiftSupportedVersions.Mu.RLock()
 		defer HypershiftSupportedVersions.Mu.RUnlock()
@@ -1376,7 +1382,7 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 					if err != nil {
 						return "", "", "", fmt.Errorf("failed to identify semver for image %s: %w", tag.Image, err)
 					}
-					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("4.%d.0-0.nightly", ver.Minor))
+					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("%d.%d.0-0.nightly", ver.Major, ver.Minor))
 					runSpec = buildPullSpec("ocp", runTag.Name, "release")
 				} else {
 					runTag, _ := findImageStatusTag(amd64IS, unresolved)
@@ -1401,7 +1407,7 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 					if err != nil {
 						return "", "", "", fmt.Errorf("failed to identify semver for image %s: %w", tag.Name, err)
 					}
-					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("4.%d.0-0.nightly", ver.Minor))
+					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("%d.%d.0-0.nightly", ver.Major, ver.Minor))
 					runSpec = buildPullSpec("ocp", runTag.Name, "release")
 				} else {
 					runTag := findNewestImageSpecTagWithStream(amd64IS, unresolved)
@@ -1433,7 +1439,7 @@ func findNewestStableImageSpecTagBySemanticMajor(is *imagev1.ImageStream, majorM
 	}
 	var candidates semver.Versions
 	for _, tag := range is.Spec.Tags {
-		if tag.Annotations["release.openshift.io/name"] != fmt.Sprintf("4-stable%s", archSuffix) {
+		if tag.Annotations["release.openshift.io/name"] != fmt.Sprintf("%d-stable%s", base.Major, archSuffix) {
 			continue
 		}
 		v, err := semver.ParseTolerant(tag.Name)
