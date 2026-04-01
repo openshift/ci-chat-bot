@@ -9,16 +9,34 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/sirupsen/logrus"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Step is a self-contained bit of work that the
-// build pipeline needs to do.
+// Step holds a common step
 // +k8s:deepcopy-gen=false
 type Step interface {
+	CommonStep
+}
+
+// MultiArchStep is a step that can be executed for multiple architectures.
+// It is used to propagate the multi-arch property up the graph, ensuring that any step
+// that depends on a multi-arch step is also considered multi-arch.
+// +k8s:deepcopy-gen=false
+type MultiArchStep interface {
+	CommonStep
+
+	ResolveMultiArch() sets.Set[string]
+	AddArchitectures([]string)
+}
+
+// CommonStep is a self-contained bit of work that the
+// build pipeline needs to do.
+// +k8s:deepcopy-gen=false
+type CommonStep interface {
 	Inputs() (InputDefinition, error)
 	// Validate checks inputs of steps that are part of the execution graph.
 	Validate() error
@@ -34,6 +52,54 @@ type Step interface {
 	Provides() ParameterMap
 	// Objects returns all objects the client for this step has seen
 	Objects() []ctrlruntimeclient.Object
+}
+
+// ResolveMultiArch traverses the graph of StepNodes and updates the multiArch field of each node.
+// If a node has a child that is multi-arch, the node itself is marked as multi-arch by
+// adding the child's architecture to the node.
+// This function is used to propagate the multi-arch property up the graph, ensuring that any step
+// that depends on a multi-arch step is also considered multi-arch.
+func ResolveMultiArch(nodes []*StepNode) {
+	for _, node := range nodes {
+		setMultiArchForChildren(node)
+		ResolveMultiArch(node.Children)
+	}
+
+	for _, node := range nodes {
+		if len(node.MultiArchReasons) == 0 {
+			continue
+		}
+
+		if multiArchStep, ok := node.Step.(MultiArchStep); ok {
+			for arch, reasons := range node.MultiArchReasons {
+				logrus.WithField("reasons", strings.Join(reasons.UnsortedList(), ", ")).
+					WithField("arch", arch).
+					Infof("Setting arch for %s", multiArchStep.Name())
+			}
+		}
+	}
+}
+
+func setMultiArchForChildren(node *StepNode) {
+	for _, child := range node.Children {
+		setMultiArchForChildren(child)
+
+		if multiArchStep, ok := child.Step.(MultiArchStep); ok {
+			childArchs := multiArchStep.ResolveMultiArch()
+			for _, arch := range childArchs.UnsortedList() {
+				if node.MultiArchReasons == nil {
+					node.MultiArchReasons = make(map[string]sets.Set[string])
+				}
+				if _, ok := node.MultiArchReasons[arch]; !ok {
+					node.MultiArchReasons[arch] = sets.New[string]()
+				}
+				node.MultiArchReasons[arch].Insert(multiArchStep.Name())
+				if nodeMultiArchStep, ok := node.Step.(MultiArchStep); ok {
+					nodeMultiArchStep.AddArchitectures([]string{arch})
+				}
+			}
+		}
+	}
 }
 
 type InputDefinition []string
@@ -216,6 +282,25 @@ func (l *rpmRepoLink) UnsatisfiableError() string {
 	return ""
 }
 
+func LeaseProxyServerLink() StepLink {
+	return &leaseProxyServerLink{}
+}
+
+type leaseProxyServerLink struct{}
+
+func (*leaseProxyServerLink) SatisfiedBy(other StepLink) bool {
+	switch other.(type) {
+	case *leaseProxyServerLink:
+		return true
+	default:
+		return false
+	}
+}
+
+func (*leaseProxyServerLink) UnsatisfiableError() string {
+	return ""
+}
+
 // ReleaseImagesLink describes the content of a stable(-foo)?
 // ImageStream in the test namespace.
 func ReleaseImagesLink(name string) StepLink {
@@ -275,8 +360,9 @@ func IsReleasePayloadStream(stream string) bool {
 
 // +k8s:deepcopy-gen=false
 type StepNode struct {
-	Step     Step
-	Children []*StepNode
+	Step             Step
+	Children         []*StepNode
+	MultiArchReasons map[string]sets.Set[string]
 }
 
 // GraphConfiguration contains step data used to build the execution graph.
