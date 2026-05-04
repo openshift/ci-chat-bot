@@ -257,6 +257,27 @@ func Test_containsValidVersion(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name: "Quay-proxy ci-quay release: 'launch quay-proxy.ci.openshift.org/openshift/ci:rc_payload__5.0.0-0.ci-quay-2026-05-04-204309'",
+			args: args{
+				listOfImageOrVersionOrPRs: []string{"quay-proxy.ci.openshift.org/openshift/ci:rc_payload__5.0.0-0.ci-quay-2026-05-04-204309"},
+			},
+			want: true,
+		},
+		{
+			name: "Quay-proxy ci-quay release with PR: 'launch openshift/installer#7160,quay-proxy.ci.openshift.org/openshift/ci:rc_payload__5.0.0-0.ci-quay-2026-05-04-204309'",
+			args: args{
+				listOfImageOrVersionOrPRs: []string{"openshift/installer#7160", "quay-proxy.ci.openshift.org/openshift/ci:rc_payload__5.0.0-0.ci-quay-2026-05-04-204309"},
+			},
+			want: true,
+		},
+		{
+			name: "Quay-proxy ci release without -quay: 'launch quay-proxy.ci.openshift.org/openshift/ci:rc_payload__5.0.0-0.ci-2026-05-04-204309'",
+			args: args{
+				listOfImageOrVersionOrPRs: []string{"quay-proxy.ci.openshift.org/openshift/ci:rc_payload__5.0.0-0.ci-2026-05-04-204309"},
+			},
+			want: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
