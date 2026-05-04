@@ -2020,6 +2020,10 @@ var validVersionRegexes = []*regexp.Regexp{
 
 	// Releases built with clusterbot 'build' command
 	regexp.MustCompile(`^registry\.build.*\.ci\.openshift\.org/ci.*/release`),
+
+	// Quay-proxy releases
+	// quay-proxy.ci.openshift.org/openshift/ci:rc_payload__5.0.0-0.ci-quay-2026-05-04-204309
+	regexp.MustCompile(`^quay-proxy\.ci\.openshift\.org/openshift/ci:rc_payload__\d+\.\d+\.\d+-0\.(ci|nightly)(-quay)?-\d{4}-\d{2}-\d{2}-\d{6}$`),
 }
 
 // containsValidVersion checks if the provided list of images, versions, or PRs contains a valid version.
