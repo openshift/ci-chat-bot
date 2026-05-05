@@ -1275,6 +1275,7 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 	case "amd64":
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "release"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "release-5"})
+		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "release-5-quay"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "4-dev-preview"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "5-dev-preview"})
 		imagestreams = append(imagestreams, namespaceAndStream{Namespace: "ocp", Imagestream: "konflux-release"})
