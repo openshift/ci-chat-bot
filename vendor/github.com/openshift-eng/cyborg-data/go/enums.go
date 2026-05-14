@@ -58,3 +58,21 @@ func (e EntityType) IsValid() bool {
 	}
 	return false
 }
+
+type PIIMode string
+
+const (
+	PIIModeFull       PIIMode = "full"
+	PIIModeRedacted   PIIMode = "redacted"
+	PIIModeAnonymized PIIMode = "anonymized"
+)
+
+func (p PIIMode) String() string { return string(p) }
+
+func (p PIIMode) IsValid() bool {
+	switch p {
+	case PIIModeFull, PIIModeRedacted, PIIModeAnonymized:
+		return true
+	}
+	return false
+}

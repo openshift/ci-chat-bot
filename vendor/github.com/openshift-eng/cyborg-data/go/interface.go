@@ -31,19 +31,25 @@ type ServiceInterface interface {
 	GetEmployeeByEmail(email string) *Employee
 	GetManagerForEmployee(uid string) *Employee
 	GetTeamByName(teamName string) *Team
+	GetTeamsBySlackChannel(channel string) []Team
 	GetOrgByName(orgName string) *Org
 	GetPillarByName(pillarName string) *Pillar
 	GetTeamGroupByName(teamGroupName string) *TeamGroup
 
+	GetUserMemberships(uid string) []MembershipInfo
+	GetUserTeams(uid string) []string
 	GetTeamsForUID(uid string) []string
 	GetTeamsForSlackID(slackID string) []string
 	GetTeamMembers(teamName string) []Employee
+	GetOrgMembers(orgName string) []Employee
 	IsEmployeeInTeam(uid string, teamName string) bool
 	IsSlackUserInTeam(slackID string, teamName string) bool
 
 	IsEmployeeInOrg(uid string, orgName string) bool
 	IsSlackUserInOrg(slackID string, orgName string) bool
 	GetUserOrganizations(slackUserID string) []OrgInfo
+
+	GetTeamEscalation(teamName string) []EscalationContactInfo
 
 	GetVersion() DataVersion
 	GetDataAge() time.Duration
@@ -53,10 +59,15 @@ type ServiceInterface interface {
 	StopWatcher()
 
 	GetAllEmployeeUIDs() []string
+	GetAllEmployees() []Employee
 	GetAllTeamNames() []string
+	GetAllTeams() []Team
 	GetAllOrgNames() []string
+	GetAllOrgs() []Org
 	GetAllPillarNames() []string
+	GetAllPillars() []Pillar
 	GetAllTeamGroupNames() []string
+	GetAllTeamGroups() []TeamGroup
 
 	// Hierarchy queries
 	GetHierarchyPath(entityName string, entityType string) []HierarchyPathEntry
@@ -66,6 +77,8 @@ type ServiceInterface interface {
 	GetComponentByName(name string) *Component
 	GetAllComponents() []Component
 	GetAllComponentNames() []string
+	GetTeamsForComponent(componentName string) []ComponentOwnerInfo
+	GetComponentsForTeam(teamName string) []ComponentOwnership
 
 	// Jira queries
 	GetJiraProjects() []string
@@ -73,6 +86,13 @@ type ServiceInterface interface {
 	GetTeamsByJiraProject(project string) []JiraOwnerInfo
 	GetTeamsByJiraComponent(project, component string) []JiraOwnerInfo
 	GetJiraOwnershipForTeam(teamName string) []JiraOwnership
+
+	// Context queries
+	GetContextForTeam(teamName string) []ContextItemInfo
+	GetContextForEntity(entityName string, entityType string) []ContextItemInfo
+	GetContextByType(entityName string, contextType string, entityType string) []ContextItemInfo
+	GetAllContextTypesForEntity(entityName string, entityType string) []string
+	GetContextTypeDescriptions() map[string]string
 }
 
 type OrgInfo struct {

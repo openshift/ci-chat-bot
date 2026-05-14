@@ -1,6 +1,7 @@
 package orgdatacore
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -16,6 +17,7 @@ type Employee struct {
 	CostCenter      int    `json:"cost_center,omitempty"`
 	ManagerUID      string `json:"manager_uid,omitempty"`
 	IsPeopleManager bool   `json:"is_people_manager,omitempty"`
+	Timezone        string `json:"timezone,omitempty"`
 }
 
 // SlackConfig contains Slack channel and alias configuration
@@ -40,8 +42,9 @@ type AliasInfo struct {
 
 // RoleInfo represents a role assignment with associated people
 type RoleInfo struct {
-	People []string `json:"people"`
-	Types  []string `json:"types"`
+	People      []string `json:"people"`
+	Roles       []string `json:"roles"`
+	Description string   `json:"description,omitempty"`
 }
 
 // JiraInfo represents Jira project/component configuration
@@ -55,7 +58,7 @@ type JiraInfo struct {
 
 // RepoInfo represents GitHub repository configuration
 type RepoInfo struct {
-	Repo        string   `json:"repo,omitempty"`
+	Repo        string   `json:"repo_name,omitempty"`
 	Description string   `json:"description,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
 	Path        string   `json:"path,omitempty"`
@@ -76,6 +79,38 @@ type ResourceInfo struct {
 	Name        string `json:"name"`
 	URL         string `json:"url,omitempty"`
 	Description string `json:"description,omitempty"`
+}
+
+// EscalationContactInfo represents an escalation contact for incident response
+type EscalationContactInfo struct {
+	Name        string `json:"name"`
+	URL         string `json:"url,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// ContextItemInfo represents an authoritative document pointer
+type ContextItemInfo struct {
+	Types        []string `json:"types,omitempty"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description,omitempty"`
+	URL          string   `json:"url,omitempty"`
+	Owner        string   `json:"owner,omitempty"`
+	Inheritance  string   `json:"inheritance,omitempty"`
+	SourceEntity string   `json:"source_entity,omitempty"`
+	SourceType   string   `json:"source_type,omitempty"`
+}
+
+// ComponentOwnerInfo represents an entity that owns a component, with ownership types
+type ComponentOwnerInfo struct {
+	Name           string   `json:"name"`
+	Type           string   `json:"type"`
+	OwnershipTypes []string `json:"ownership_types"`
+}
+
+// ComponentOwnership represents a component owned by a team, with ownership types
+type ComponentOwnership struct {
+	Component      string   `json:"component"`
+	OwnershipTypes []string `json:"ownership_types"`
 }
 
 // ComponentRoleInfo represents component ownership information
@@ -106,13 +141,16 @@ type Group struct {
 	Type                  GroupType           `json:"type"`
 	ResolvedPeopleUIDList []string            `json:"resolved_people_uid_list"`
 	Slack                 *SlackConfig        `json:"slack,omitempty"`
-	Roles                 []RoleInfo          `json:"roles,omitempty"`
+	Roles                 []RoleInfo          `json:"resolved_roles,omitempty"`
 	Jiras                 []JiraInfo          `json:"jiras,omitempty"`
 	Repos                 []RepoInfo          `json:"repos,omitempty"`
 	Keywords              []string            `json:"keywords,omitempty"`
 	Emails                []EmailInfo         `json:"emails,omitempty"`
-	Resources             []ResourceInfo      `json:"resources,omitempty"`
-	ComponentRoles        []ComponentRoleInfo `json:"component_roles,omitempty"`
+	Resources             []ResourceInfo         `json:"resources,omitempty"`
+	Escalation            []EscalationContactInfo `json:"escalation,omitempty"`
+	ComponentRoles        []string               `json:"component_roles,omitempty"`
+	Context               []ContextItemInfo      `json:"context,omitempty"`
+	ResolvedContext       []ContextItemInfo      `json:"resolved_context,omitempty"`
 }
 
 // GroupType contains group type information
@@ -129,11 +167,12 @@ type Data struct {
 
 // Metadata contains summary information about the data
 type Metadata struct {
-	GeneratedAt    string `json:"generated_at"`
-	DataVersion    string `json:"data_version"`
-	TotalEmployees int    `json:"total_employees"`
-	TotalOrgs      int    `json:"total_orgs"`
-	TotalTeams     int    `json:"total_teams"`
+	GeneratedAt             string            `json:"generated_at"`
+	DataVersion             string            `json:"data_version"`
+	TotalEmployees          int               `json:"total_employees"`
+	TotalOrgs               int               `json:"total_orgs"`
+	TotalTeams              int               `json:"total_teams"`
+	ContextTypeDescriptions map[string]string `json:"context_type_descriptions,omitempty"`
 }
 
 // Lookups contains the main data objects
@@ -181,22 +220,90 @@ type TeamGroup struct {
 
 // Component represents a component in the organizational data
 type Component struct {
-	Name        string      `json:"name"`
-	Type        string      `json:"type"`
-	Description string      `json:"description,omitempty"`
-	Parent      *ParentInfo `json:"parent,omitempty"`
-	ParentPath  string      `json:"parent_path,omitempty"`
-	Repos       []RepoInfo  `json:"repos,omitempty"`
-	Jiras       []JiraInfo  `json:"jiras,omitempty"`
-	ReposList   []string    `json:"repos_list,omitempty"`
+	Name            string            `json:"name"`
+	Type            string            `json:"type"`
+	Description     string            `json:"description,omitempty"`
+	Parent          *ParentInfo       `json:"parent,omitempty"`
+	ParentPath      string            `json:"parent_path,omitempty"`
+	Repos           []RepoInfo        `json:"repos,omitempty"`
+	Jiras           []JiraInfo        `json:"jiras,omitempty"`
+	ReposList       []string          `json:"repos_list,omitempty"`
+	Context         []ContextItemInfo `json:"context,omitempty"`
+	ResolvedContext []ContextItemInfo `json:"resolved_context,omitempty"`
+}
+
+// UnmarshalJSON supports both flat and nested component formats.
+// The indexer writes type/repos/jiras under a nested "component" key;
+// this method reads top-level fields first, then merges from the nested
+// object if present (filling in any fields not already set).
+func (c *Component) UnmarshalJSON(data []byte) error {
+	type Alias Component
+	aux := &struct {
+		*Alias
+		Nested json.RawMessage `json:"component,omitempty"`
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	if len(aux.Nested) > 0 {
+		var nested struct {
+			Type            json.RawMessage   `json:"type,omitempty"`
+			Repos           []RepoInfo        `json:"repos,omitempty"`
+			Jiras           []JiraInfo        `json:"jiras,omitempty"`
+			ReposList       []string          `json:"repos_list,omitempty"`
+			Context         []ContextItemInfo `json:"context,omitempty"`
+			ResolvedContext []ContextItemInfo `json:"resolved_context,omitempty"`
+		}
+		if err := json.Unmarshal(aux.Nested, &nested); err != nil {
+			return err
+		}
+
+		if len(nested.Type) > 0 && c.Type == "" {
+			// Try object form: {"name": "team", ...}
+			var typeName struct {
+				Name string `json:"name"`
+			}
+			if err := json.Unmarshal(nested.Type, &typeName); err == nil && typeName.Name != "" {
+				c.Type = typeName.Name
+			} else {
+				// Try string form: "team"
+				var typeStr string
+				if err := json.Unmarshal(nested.Type, &typeStr); err == nil && typeStr != "" {
+					c.Type = typeStr
+				}
+			}
+		}
+		if len(nested.Repos) > 0 && len(c.Repos) == 0 {
+			c.Repos = nested.Repos
+		}
+		if len(nested.Jiras) > 0 && len(c.Jiras) == 0 {
+			c.Jiras = nested.Jiras
+		}
+		if len(nested.ReposList) > 0 && len(c.ReposList) == 0 {
+			c.ReposList = nested.ReposList
+		}
+		if len(nested.Context) > 0 && len(c.Context) == 0 {
+			c.Context = nested.Context
+		}
+		if len(nested.ResolvedContext) > 0 && len(c.ResolvedContext) == 0 {
+			c.ResolvedContext = nested.ResolvedContext
+		}
+	}
+
+	return nil
 }
 
 // Indexes contains pre-computed lookup tables
 type Indexes struct {
-	Membership       MembershipIndex  `json:"membership"`
-	SlackIDMappings  SlackIDMappings  `json:"slack_id_mappings"`
-	GitHubIDMappings GitHubIDMappings `json:"github_id_mappings,omitempty"`
-	Jira             JiraIndex        `json:"jira,omitempty"`
+	Membership         MembershipIndex                  `json:"membership"`
+	SlackIDMappings    SlackIDMappings                  `json:"slack_id_mappings"`
+	GitHubIDMappings   GitHubIDMappings                 `json:"github_id_mappings,omitempty"`
+	Jira               JiraIndex                        `json:"jira,omitempty"`
+	ComponentOwnership map[string][]ComponentOwnerInfo   `json:"component_ownership,omitempty"`
 }
 
 // SlackIDMappings contains Slack ID to UID mappings
