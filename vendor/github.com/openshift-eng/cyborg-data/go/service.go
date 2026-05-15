@@ -11,12 +11,13 @@ import (
 )
 
 type Service struct {
-	mu             sync.RWMutex
-	data           *Data
-	version        DataVersion
-	logger         *slog.Logger
-	watcherRunning bool
-	watcherCancel  context.CancelFunc
+	mu                sync.RWMutex
+	data              *Data
+	version           DataVersion
+	logger            *slog.Logger
+	watcherRunning    bool
+	watcherCancel     context.CancelFunc
+	slackChannelIndex map[string][]string
 }
 
 func NewService(opts ...ServiceOption) *Service {
@@ -55,6 +56,19 @@ func (s *Service) LoadFromDataSource(ctx context.Context, source DataSource) err
 		LoadTime:      time.Now(),
 		OrgCount:      len(orgData.Lookups.Orgs),
 		EmployeeCount: len(orgData.Lookups.Employees),
+	}
+
+	s.slackChannelIndex = make(map[string][]string)
+	for _, team := range orgData.Lookups.Teams {
+		if team.Group.Slack == nil {
+			continue
+		}
+		for _, ch := range team.Group.Slack.Channels {
+			if ch.Channel != "" {
+				normalized := normalizeSlackChannel(ch.Channel)
+				s.slackChannelIndex[normalized] = append(s.slackChannelIndex[normalized], team.Name)
+			}
+		}
 	}
 
 	s.logger.Info("data loaded", "source", source.String(), "employees", s.version.EmployeeCount, "orgs", s.version.OrgCount)
@@ -237,6 +251,35 @@ func (s *Service) GetTeamByName(teamName string) *Team {
 		return &team
 	}
 	return nil
+}
+
+func normalizeSlackChannel(channel string) string {
+	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(channel), "#"))
+}
+
+func (s *Service) GetTeamsBySlackChannel(channel string) []Team {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.data == nil || s.slackChannelIndex == nil || channel == "" {
+		return []Team{}
+	}
+
+	teamNames, exists := s.slackChannelIndex[normalizeSlackChannel(channel)]
+	if !exists {
+		return []Team{}
+	}
+
+	var teams []Team
+	for _, name := range teamNames {
+		if team, exists := s.data.Lookups.Teams[name]; exists {
+			teams = append(teams, team)
+		}
+	}
+	if teams == nil {
+		return []Team{}
+	}
+	return teams
 }
 
 func (s *Service) GetOrgByName(orgName string) *Org {
@@ -843,6 +886,322 @@ func (s *Service) GetJiraOwnershipForTeam(teamName string) []JiraOwnership {
 				}
 			}
 		}
+	}
+	return result
+}
+
+// GetUserMemberships returns all memberships for a user.
+func (s *Service) GetUserMemberships(uid string) []MembershipInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.data == nil || s.data.Indexes.Membership.MembershipIndex == nil {
+		return []MembershipInfo{}
+	}
+	memberships := s.data.Indexes.Membership.MembershipIndex[uid]
+	if len(memberships) == 0 {
+		return []MembershipInfo{}
+	}
+	result := make([]MembershipInfo, len(memberships))
+	copy(result, memberships)
+	return result
+}
+
+// GetUserTeams returns team names for a user.
+func (s *Service) GetUserTeams(uid string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.getTeamsForUID(uid)
+}
+
+// GetAllEmployees returns all employees.
+func (s *Service) GetAllEmployees() []Employee {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.data == nil || s.data.Lookups.Employees == nil {
+		return []Employee{}
+	}
+	employees := make([]Employee, 0, len(s.data.Lookups.Employees))
+	for _, emp := range s.data.Lookups.Employees {
+		employees = append(employees, emp)
+	}
+	return employees
+}
+
+// GetAllTeams returns all teams.
+func (s *Service) GetAllTeams() []Team {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.data == nil || s.data.Lookups.Teams == nil {
+		return []Team{}
+	}
+	teams := make([]Team, 0, len(s.data.Lookups.Teams))
+	for _, team := range s.data.Lookups.Teams {
+		teams = append(teams, team)
+	}
+	return teams
+}
+
+// GetAllOrgs returns all organizations.
+func (s *Service) GetAllOrgs() []Org {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.data == nil || s.data.Lookups.Orgs == nil {
+		return []Org{}
+	}
+	orgs := make([]Org, 0, len(s.data.Lookups.Orgs))
+	for _, org := range s.data.Lookups.Orgs {
+		orgs = append(orgs, org)
+	}
+	return orgs
+}
+
+// GetAllPillars returns all pillars.
+func (s *Service) GetAllPillars() []Pillar {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.data == nil || s.data.Lookups.Pillars == nil {
+		return []Pillar{}
+	}
+	pillars := make([]Pillar, 0, len(s.data.Lookups.Pillars))
+	for _, pillar := range s.data.Lookups.Pillars {
+		pillars = append(pillars, pillar)
+	}
+	return pillars
+}
+
+// GetAllTeamGroups returns all team groups.
+func (s *Service) GetAllTeamGroups() []TeamGroup {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.data == nil || s.data.Lookups.TeamGroups == nil {
+		return []TeamGroup{}
+	}
+	tgs := make([]TeamGroup, 0, len(s.data.Lookups.TeamGroups))
+	for _, tg := range s.data.Lookups.TeamGroups {
+		tgs = append(tgs, tg)
+	}
+	return tgs
+}
+
+// GetOrgMembers returns all members of an organization.
+func (s *Service) GetOrgMembers(orgName string) []Employee {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.data == nil || s.data.Lookups.Orgs == nil {
+		return []Employee{}
+	}
+	org, exists := s.data.Lookups.Orgs[orgName]
+	if !exists {
+		return []Employee{}
+	}
+	var members []Employee
+	for _, uid := range org.Group.ResolvedPeopleUIDList {
+		if emp, exists := s.data.Lookups.Employees[uid]; exists {
+			members = append(members, emp)
+		}
+	}
+	if members == nil {
+		return []Employee{}
+	}
+	return members
+}
+
+// GetTeamEscalation returns the escalation contacts for a team.
+func (s *Service) GetTeamEscalation(teamName string) []EscalationContactInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.data == nil || s.data.Lookups.Teams == nil {
+		return []EscalationContactInfo{}
+	}
+	team, exists := s.data.Lookups.Teams[teamName]
+	if !exists {
+		return []EscalationContactInfo{}
+	}
+	if len(team.Group.Escalation) == 0 {
+		return []EscalationContactInfo{}
+	}
+	result := make([]EscalationContactInfo, len(team.Group.Escalation))
+	copy(result, team.Group.Escalation)
+	return result
+}
+
+// GetTeamsForComponent returns all teams/entities that own a component.
+func (s *Service) GetTeamsForComponent(componentName string) []ComponentOwnerInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.data == nil || s.data.Indexes.ComponentOwnership == nil {
+		return []ComponentOwnerInfo{}
+	}
+	owners, exists := s.data.Indexes.ComponentOwnership[componentName]
+	if !exists {
+		return []ComponentOwnerInfo{}
+	}
+	result := make([]ComponentOwnerInfo, len(owners))
+	copy(result, owners)
+	return result
+}
+
+// GetComponentsForTeam returns all components owned by a team.
+func (s *Service) GetComponentsForTeam(teamName string) []ComponentOwnership {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.data == nil || s.data.Indexes.ComponentOwnership == nil {
+		return []ComponentOwnership{}
+	}
+
+	var result []ComponentOwnership
+	for componentName, owners := range s.data.Indexes.ComponentOwnership {
+		for _, owner := range owners {
+			if owner.Name == teamName {
+				result = append(result, ComponentOwnership{
+					Component:      componentName,
+					OwnershipTypes: owner.OwnershipTypes,
+				})
+				break
+			}
+		}
+	}
+	if result == nil {
+		return []ComponentOwnership{}
+	}
+	return result
+}
+
+// getEntityGroup returns the Group for an entity by name and type.
+// Must be called with s.mu held.
+func (s *Service) getEntityGroup(entityName, entityType string) *Group {
+	if s.data == nil {
+		return nil
+	}
+	switch strings.ToLower(entityType) {
+	case "team":
+		if team, ok := s.data.Lookups.Teams[entityName]; ok {
+			return &team.Group
+		}
+	case "org":
+		if org, ok := s.data.Lookups.Orgs[entityName]; ok {
+			return &org.Group
+		}
+	case "pillar":
+		if pillar, ok := s.data.Lookups.Pillars[entityName]; ok {
+			return &pillar.Group
+		}
+	case "team_group":
+		if tg, ok := s.data.Lookups.TeamGroups[entityName]; ok {
+			return &tg.Group
+		}
+	}
+	return nil
+}
+
+// GetContextForTeam returns resolved context items for a team (including inherited).
+func (s *Service) GetContextForTeam(teamName string) []ContextItemInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.data == nil || s.data.Lookups.Teams == nil {
+		return []ContextItemInfo{}
+	}
+	team, exists := s.data.Lookups.Teams[teamName]
+	if !exists {
+		return []ContextItemInfo{}
+	}
+	if len(team.Group.ResolvedContext) == 0 {
+		return []ContextItemInfo{}
+	}
+	result := make([]ContextItemInfo, len(team.Group.ResolvedContext))
+	copy(result, team.Group.ResolvedContext)
+	return result
+}
+
+// GetContextForEntity returns resolved context items for any entity type.
+func (s *Service) GetContextForEntity(entityName string, entityType string) []ContextItemInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	group := s.getEntityGroup(entityName, entityType)
+	if group == nil {
+		return []ContextItemInfo{}
+	}
+	if len(group.ResolvedContext) == 0 {
+		return []ContextItemInfo{}
+	}
+	result := make([]ContextItemInfo, len(group.ResolvedContext))
+	copy(result, group.ResolvedContext)
+	return result
+}
+
+// GetContextByType returns resolved context items filtered by a specific context type.
+func (s *Service) GetContextByType(entityName string, contextType string, entityType string) []ContextItemInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	group := s.getEntityGroup(entityName, entityType)
+	if group == nil {
+		return []ContextItemInfo{}
+	}
+	var result []ContextItemInfo
+	for _, item := range group.ResolvedContext {
+		for _, t := range item.Types {
+			if t == contextType {
+				result = append(result, item)
+				break
+			}
+		}
+	}
+	if result == nil {
+		return []ContextItemInfo{}
+	}
+	return result
+}
+
+// GetAllContextTypesForEntity returns distinct context types available for an entity.
+func (s *Service) GetAllContextTypesForEntity(entityName string, entityType string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	group := s.getEntityGroup(entityName, entityType)
+	if group == nil {
+		return []string{}
+	}
+	seen := make(map[string]bool)
+	var result []string
+	for _, item := range group.ResolvedContext {
+		for _, t := range item.Types {
+			if !seen[t] {
+				seen[t] = true
+				result = append(result, t)
+			}
+		}
+	}
+	if result == nil {
+		return []string{}
+	}
+	return result
+}
+
+// GetContextTypeDescriptions returns the description registry for all context types.
+func (s *Service) GetContextTypeDescriptions() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.data == nil || s.data.Metadata.ContextTypeDescriptions == nil {
+		return map[string]string{}
+	}
+	result := make(map[string]string, len(s.data.Metadata.ContextTypeDescriptions))
+	for k, v := range s.data.Metadata.ContextTypeDescriptions {
+		result[k] = v
 	}
 	return result
 }

@@ -23,7 +23,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	monitoring "cloud.google.com/go/monitoring/apiv3/v2"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	apioption "google.golang.org/api/option"
 )
 
@@ -43,8 +43,8 @@ type Option func(*options)
 type options struct {
 	// context allows you to provide a custom context for API calls.
 	//
-	// This context will be used several times: first, to create Cloud Monitoring
-	// clients, and then every time a new batch of metrics needs to be uploaded.
+	// This context will be used to create Cloud Monitoring clients, and to get
+	// application default credentials.
 	//
 	// If unset, context.Background() will be used.
 	context context.Context
@@ -211,5 +211,13 @@ func WithMonitoredResourceDescription(mrType string, mrLabels []string) func(o *
 			mrType:   mrType,
 			mrLabels: mrLabelSet,
 		}
+	}
+}
+
+// WithContext allows callers to provide a context to create clients and fetch
+// application default credentials with.
+func WithContext(ctx context.Context) func(o *options) {
+	return func(o *options) {
+		o.context = ctx
 	}
 }
