@@ -1246,6 +1246,13 @@ func buildPullSpec(namespace, tagName, isName string) string {
 	return fmt.Sprintf("registry.ci.openshift.org/%s/%s%s%s", namespace, isName, delimiter, tagName)
 }
 
+func pullSpecForTagRef(tag *imagev1.TagReference, namespace, isName string) string {
+	if tag.Reference && tag.From != nil && tag.From.Kind == "DockerImage" && tag.From.Name != "" {
+		return tag.From.Name
+	}
+	return buildPullSpec(namespace, tag.Name, isName)
+}
+
 // ResolveImageOrVersion returns installSpec, tag name or version, runSpec, and error
 func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion, architecture string) (string, string, string, error) {
 	if len(strings.TrimSpace(imageOrVersion)) == 0 {
@@ -1325,37 +1332,37 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		if m := reMajorMinorVersion.FindStringSubmatch(unresolved); m != nil {
 			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.nightly%s", unresolved, archSuffix)); tag != nil {
 				klog.Infof("Resolved major.minor %s to nightly tag %s", imageOrVersion, tag.Name)
-				installSpec := buildPullSpec(ns, tag.Name, isName)
+				installSpec := pullSpecForTagRef(tag, ns, isName)
 				runSpec := ""
 				if architecture == "amd64" || architecture == "multi" {
 					runSpec = installSpec
 				} else {
 					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("%s.0-0.nightly", unresolved))
-					runSpec = buildPullSpec("ocp", runTag.Name, "release")
+					runSpec = pullSpecForTagRef(runTag, "ocp", "release")
 				}
 				return installSpec, tag.Name, runSpec, nil
 			}
 			if tag := findNewestImageSpecTagWithStream(is, fmt.Sprintf("%s.0-0.ci%s", unresolved, archSuffix)); tag != nil {
 				klog.Infof("Resolved major.minor %s to ci tag %s", imageOrVersion, tag.Name)
-				installSpec := buildPullSpec(ns, tag.Name, isName)
+				installSpec := pullSpecForTagRef(tag, ns, isName)
 				runSpec := ""
 				if architecture == "amd64" || architecture == "multi" {
 					runSpec = installSpec
 				} else {
 					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("%s.0-0.ci", unresolved))
-					runSpec = buildPullSpec("ocp", runTag.Name, "release")
+					runSpec = pullSpecForTagRef(runTag, "ocp", "release")
 				}
 				return installSpec, tag.Name, runSpec, nil
 			}
 			if tag := findNewestStableImageSpecTagBySemanticMajor(is, unresolved, architecture); tag != nil {
 				klog.Infof("Resolved major.minor %s to semver tag %s", imageOrVersion, tag.Name)
-				installSpec := buildPullSpec(ns, tag.Name, isName)
+				installSpec := pullSpecForTagRef(tag, ns, isName)
 				runSpec := ""
 				if architecture == "amd64" || architecture == "multi" {
 					runSpec = installSpec
 				} else {
 					runTag := findNewestImageSpecTagWithStream(amd64IS, unresolved)
-					runSpec = buildPullSpec("ocp", runTag.Name, "release")
+					runSpec = pullSpecForTagRef(runTag, "ocp", "release")
 				}
 				return installSpec, tag.Name, runSpec, nil
 			}
@@ -1384,7 +1391,7 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 						return "", "", "", fmt.Errorf("failed to identify semver for image %s: %w", tag.Image, err)
 					}
 					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("%d.%d.0-0.nightly", ver.Major, ver.Minor))
-					runSpec = buildPullSpec("ocp", runTag.Name, "release")
+					runSpec = pullSpecForTagRef(runTag, "ocp", "release")
 				} else {
 					runTag, _ := findImageStatusTag(amd64IS, unresolved)
 					runSpec = buildPullSpec("ocp", runTag.Image, "release")
@@ -1396,7 +1403,7 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		if tag := findNewestImageSpecTagWithStream(is, unresolved); tag != nil {
 			klog.Infof("Resolved %s to tag %s", imageOrVersion, tag.Name)
 			// identify nightly stream for runspec if not amd64
-			installSpec := buildPullSpec(ns, tag.Name, isName)
+			installSpec := pullSpecForTagRef(tag, ns, isName)
 			runSpec := ""
 			if architecture == "amd64" || architecture == "multi" {
 				runSpec = installSpec
@@ -1409,10 +1416,26 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 						return "", "", "", fmt.Errorf("failed to identify semver for image %s: %w", tag.Name, err)
 					}
 					runTag := findNewestImageSpecTagWithStream(amd64IS, fmt.Sprintf("%d.%d.0-0.nightly", ver.Major, ver.Minor))
-					runSpec = buildPullSpec("ocp", runTag.Name, "release")
+					runSpec = pullSpecForTagRef(runTag, "ocp", "release")
 				} else {
 					runTag := findNewestImageSpecTagWithStream(amd64IS, unresolved)
-					runSpec = buildPullSpec("ocp", runTag.Name, "release")
+					runSpec = pullSpecForTagRef(runTag, "ocp", "release")
+				}
+			}
+			return installSpec, tag.Name, runSpec, nil
+		}
+
+		if tag := findSpecTagByName(is, unresolved); tag != nil {
+			klog.Infof("Resolved %s to spec tag %s", imageOrVersion, tag.Name)
+			installSpec := pullSpecForTagRef(tag, ns, isName)
+			runSpec := ""
+			if architecture == "amd64" || architecture == "multi" {
+				runSpec = installSpec
+			} else {
+				if runTag := findSpecTagByName(amd64IS, unresolved); runTag != nil {
+					runSpec = pullSpecForTagRef(runTag, "ocp", "release")
+				} else {
+					runSpec = installSpec
 				}
 			}
 			return installSpec, tag.Name, runSpec, nil
@@ -1492,6 +1515,15 @@ func findImageStatusTag(is *imagev1.ImageStream, name string) (*imagev1.TagEvent
 		}
 	}
 	return nil, ""
+}
+
+func findSpecTagByName(is *imagev1.ImageStream, name string) *imagev1.TagReference {
+	for i := range is.Spec.Tags {
+		if is.Spec.Tags[i].Name == name {
+			return &is.Spec.Tags[i]
+		}
+	}
+	return nil
 }
 
 func (m *jobManager) GetWorkflowConfig() *WorkflowConfig {

@@ -380,6 +380,11 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			targetRelease = m[1]
 		}
 	}
+	// make sure a reasonable current release is set as BRANCH to avoid issues with
+	// the BRANCH defined in the prowjob being too old
+	if len(targetRelease) == 0 {
+		targetRelease = fmt.Sprintf("%d.%d", CurrentRelease.Major, CurrentRelease.Minor)
+	}
 
 	// Identify the images to be placed in RELEASE_IMAGE_INITIAL and RELEASE_IMAGE_LATEST,
 	// depending on whether this is an upgrade job or not. Create env var definitions for
