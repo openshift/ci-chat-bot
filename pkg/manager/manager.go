@@ -2599,8 +2599,26 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 	return msg, nil
 }
 
+func formatMCEReleaseDisplay(architecture string, jobInput JobInput) string {
+	var inputParts []string
+	switch {
+	case len(jobInput.Version) > 0:
+		inputParts = append(inputParts, fmt.Sprintf("<https://%s.ocp.releases.ci.openshift.org/releasetag/%s|%s>", architecture, url.PathEscape(jobInput.Version), jobInput.Version))
+	case len(jobInput.Image) > 0:
+		inputParts = append(inputParts, "(image)")
+	}
+	for _, ref := range jobInput.Refs {
+		for _, pull := range ref.Pulls {
+			inputParts = append(inputParts, fmt.Sprintf(" <https://github.com/%s/%s/pull/%d|%s/%s#%d>", url.PathEscape(ref.Org), url.PathEscape(ref.Repo), pull.Number, ref.Org, ref.Repo, pull.Number))
+		}
+	}
+	return strings.Join(inputParts, ",")
+}
+
 func (m *jobManager) GetMceCustomVersion(cluster *clusterv1.ManagedCluster) string {
-	var version string
+	if display := cluster.Annotations[utils.RequestedReleaseDisplayTag]; display != "" {
+		return display
+	}
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	var job *Job
@@ -2611,27 +2629,16 @@ func (m *jobManager) GetMceCustomVersion(cluster *clusterv1.ManagedCluster) stri
 		}
 	}
 	if job == nil {
-		version = "unspecified version"
-	} else {
-		var jobInput JobInput
-		if len(job.Inputs) > 0 {
-			jobInput = job.Inputs[0]
-		}
-		var inputParts []string
-		switch {
-		case len(jobInput.Version) > 0:
-			inputParts = append(inputParts, fmt.Sprintf("<https://%s.ocp.releases.ci.openshift.org/releasetag/%s|%s>", job.Architecture, url.PathEscape(jobInput.Version), jobInput.Version))
-		case len(jobInput.Image) > 0:
-			inputParts = append(inputParts, "(image)")
-		}
-		for _, ref := range jobInput.Refs {
-			for _, pull := range ref.Pulls {
-				inputParts = append(inputParts, fmt.Sprintf(" <https://github.com/%s/%s/pull/%d|%s/%s#%d>", url.PathEscape(ref.Org), url.PathEscape(ref.Repo), pull.Number, ref.Org, ref.Repo, pull.Number))
-			}
-		}
-		version = strings.Join(inputParts, ",")
+		return "unspecified version"
 	}
-	return version
+	var jobInput JobInput
+	if len(job.Inputs) > 0 {
+		jobInput = job.Inputs[0]
+	}
+	if version := formatMCEReleaseDisplay(job.Architecture, jobInput); version != "" {
+		return version
+	}
+	return "unspecified version"
 }
 
 func (m *jobManager) DeleteMceCluster(user, clusterName string) (string, error) {
