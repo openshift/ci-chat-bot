@@ -322,6 +322,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			"ci-chat-bot.openshift.io/platform":        job.Platform,
 			"ci-chat-bot.openshift.io/jobInputs":       string(jobInputData),
 			"ci-chat-bot.openshift.io/buildCluster":    job.BuildCluster,
+			"ci-chat-bot.openshift.io/requesterUserID": job.RequesterUserID,
 
 			"prow.k8s.io/job": pj.Spec.Job,
 
@@ -1072,6 +1073,10 @@ func createAccessRBAC(namespace string, user string, client ctrlruntimeclient.Cl
 }
 
 func (m *jobManager) setupAccessRBAC(job *Job, namespace string) {
+	if job.RequesterUserID == "" {
+		klog.Warningf("Skipping RBAC setup for %s: RequesterUserID is not set", job.RequestedBy)
+		return
+	}
 	err := wait.ExponentialBackoff(wait.Backoff{Steps: 10, Duration: 2 * time.Second, Factor: 2}, func() (bool, error) {
 		if job.Complete {
 			return true, nil
@@ -1080,21 +1085,16 @@ func (m *jobManager) setupAccessRBAC(job *Job, namespace string) {
 		if err != nil {
 			return false, err
 		}
-		if job.RequesterUserID != "" {
-			client, err := ctrlruntimeclient.New(clusterClient.CoreConfig, ctrlruntimeclient.Options{})
-			if err != nil {
-				return false, err
-			}
-			if err := createAccessRBAC(namespace, job.RequesterUserID, client); err != nil {
-				klog.Errorf("could not create role binding for %s: %v", job.RequestedBy, err)
-				// the namespace might not yet exist when this step is executed
-				// we want to retry if this step fails, hence the nil return
-				return false, nil
-			}
-			klog.Infof("created the access RoleBinding for %s:", job.RequestedBy)
-			return true, nil
+		client, err := ctrlruntimeclient.New(clusterClient.CoreConfig, ctrlruntimeclient.Options{})
+		if err != nil {
+			return false, err
 		}
-		return false, fmt.Errorf("failed to parse the RequesterUserID for %s", job.RequestedBy)
+		if err := createAccessRBAC(namespace, job.RequesterUserID, client); err != nil {
+			klog.Errorf("could not create role binding for %s: %v", job.RequestedBy, err)
+			return false, nil
+		}
+		klog.Infof("created the access RoleBinding for %s:", job.RequestedBy)
+		return true, nil
 	})
 	if err != nil {
 		klog.Errorf("Failed to create the access role binding for %s: %v", job.RequestedBy, err)

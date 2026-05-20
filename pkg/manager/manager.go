@@ -754,6 +754,7 @@ func (m *jobManager) sync() error {
 			RequestedBy:      job.Annotations["ci-chat-bot.openshift.io/user"],
 			RequestedChannel: job.Annotations["ci-chat-bot.openshift.io/channel"],
 			RequestedAt:      job.CreationTimestamp.Time,
+			RequesterUserID:  job.Annotations["ci-chat-bot.openshift.io/requesterUserID"],
 			Architecture:     architecture,
 			BuildCluster:     buildCluster,
 			Operator: OperatorInfo{
