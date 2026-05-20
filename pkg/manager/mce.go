@@ -254,6 +254,13 @@ func (m *jobManager) createManagedCluster(imageSet, platform, user, slackChannel
 	}
 	if req != nil {
 		managedCluster.Annotations[utils.CustomImageTag] = "true"
+		if jobInputs, _, err := m.lookupInputs(req.Inputs, req.Architecture); err != nil {
+			klog.Warningf("Failed to resolve MCE release display for cluster %s: %v", clusterName, err)
+		} else if len(jobInputs) > 0 {
+			if display := formatMCEReleaseDisplay(req.Architecture, jobInputs[0]); display != "" {
+				managedCluster.Annotations[utils.RequestedReleaseDisplayTag] = display
+			}
+		}
 	}
 
 	switch platform {
