@@ -1527,6 +1527,38 @@ func findSpecTagByName(is *imagev1.ImageStream, name string) *imagev1.TagReferen
 	return nil
 }
 
+func registryHostFromPullSpec(pullSpec string) (string, error) {
+	named, err := reference.ParseNormalizedNamed(pullSpec)
+	if err != nil {
+		return "", fmt.Errorf("unable to parse pull spec %q: %w", pullSpec, err)
+	}
+	return reference.Domain(named), nil
+}
+
+func registryHostFromStatusRepo(repo string) string {
+	if repo == "" {
+		return ""
+	}
+	return strings.SplitN(repo, "/", 2)[0]
+}
+
+// registryHostFromCLIImageStream returns the promotion registry host advertised by openshift/cli.
+// Reference-based clusters encode the remote registry on the spec cli tag; traditional clusters use status repos.
+func registryHostFromCLIImageStream(is *imagev1.ImageStream) (string, error) {
+	if tag := findSpecTagByName(is, "cli"); tag != nil {
+		if tag.Reference && tag.From != nil && tag.From.Kind == "DockerImage" && tag.From.Name != "" {
+			return registryHostFromPullSpec(tag.From.Name)
+		}
+	}
+	if host := registryHostFromStatusRepo(is.Status.PublicDockerImageRepository); host != "" {
+		return host, nil
+	}
+	if host := registryHostFromStatusRepo(is.Status.DockerImageRepository); host != "" {
+		return host, nil
+	}
+	return "", fmt.Errorf("unable to resolve registry host from openshift/cli imagestream")
+}
+
 func (m *jobManager) GetWorkflowConfig() *WorkflowConfig {
 	return m.workflowConfig
 }

@@ -639,7 +639,10 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("unable to lookup registry URL for job")
 		}
-		registryHost := strings.SplitN(is.Status.PublicDockerImageRepository, "/", 2)[0]
+		registryHost, err := registryHostFromCLIImageStream(is)
+		if err != nil {
+			return "", fmt.Errorf("unable to lookup registry URL for job: %w", err)
+		}
 
 		// NAMESPACE must be set for this job, and be in the first position, so remove it if set
 		prow.RemoveJobEnvVar(&pj.Spec, "NAMESPACE")

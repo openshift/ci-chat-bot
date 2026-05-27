@@ -1,6 +1,139 @@
 package manager
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	imagev1 "github.com/openshift/api/image/v1"
+	corev1 "k8s.io/api/core/v1"
+)
+
+func Test_registryHostFromPullSpec(t *testing.T) {
+	tests := []struct {
+		name     string
+		pullSpec string
+		want     string
+		wantErr  bool
+	}{
+		{
+			name:     "ci registry cli image",
+			pullSpec: "registry.ci.openshift.org/ocp/cli:4.20",
+			want:     "registry.ci.openshift.org",
+		},
+		{
+			name:     "quay proxy",
+			pullSpec: "quay-proxy.ci.openshift.org/openshift/cli:4.20",
+			want:     "quay-proxy.ci.openshift.org",
+		},
+		{
+			name:     "invalid pull spec",
+			pullSpec: "not a valid reference",
+			wantErr:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := registryHostFromPullSpec(tt.pullSpec)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("registryHostFromPullSpec() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("registryHostFromPullSpec() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_registryHostFromCLIImageStream(t *testing.T) {
+	referenceCLITag := imagev1.TagReference{
+		Name:      "cli",
+		Reference: true,
+		From: &corev1.ObjectReference{
+			Kind: "DockerImage",
+			Name: "registry.ci.openshift.org/ocp/cli:4.20",
+		},
+	}
+	quayProxyCLITag := imagev1.TagReference{
+		Name:      "cli",
+		Reference: true,
+		From: &corev1.ObjectReference{
+			Kind: "DockerImage",
+			Name: "quay-proxy.ci.openshift.org/openshift/cli:4.20",
+		},
+	}
+
+	tests := []struct {
+		name    string
+		is      *imagev1.ImageStream
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "reference cli ignores local public repo",
+			is: &imagev1.ImageStream{
+				Spec: imagev1.ImageStreamSpec{
+					Tags: []imagev1.TagReference{referenceCLITag},
+				},
+				Status: imagev1.ImageStreamStatus{
+					PublicDockerImageRepository: "registry.build01.ci.openshift.org/openshift",
+				},
+			},
+			want: "registry.ci.openshift.org",
+		},
+		{
+			name: "quay proxy reference cli",
+			is: &imagev1.ImageStream{
+				Spec: imagev1.ImageStreamSpec{
+					Tags: []imagev1.TagReference{quayProxyCLITag},
+				},
+				Status: imagev1.ImageStreamStatus{
+					PublicDockerImageRepository: "registry.build01.ci.openshift.org/openshift",
+				},
+			},
+			want: "quay-proxy.ci.openshift.org",
+		},
+		{
+			name: "traditional public docker image repository",
+			is: &imagev1.ImageStream{
+				Status: imagev1.ImageStreamStatus{
+					PublicDockerImageRepository: "registry.build01.ci.openshift.org/openshift",
+				},
+			},
+			want: "registry.build01.ci.openshift.org",
+		},
+		{
+			name: "traditional docker image repository fallback",
+			is: &imagev1.ImageStream{
+				Status: imagev1.ImageStreamStatus{
+					DockerImageRepository: "registry.build02.ci.openshift.org/openshift",
+				},
+			},
+			want: "registry.build02.ci.openshift.org",
+		},
+		{
+			name:    "missing registry information",
+			is:      &imagev1.ImageStream{},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := registryHostFromCLIImageStream(tt.is)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("registryHostFromCLIImageStream() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "unable to resolve registry host") {
+					t.Errorf("registryHostFromCLIImageStream() error = %v, want resolution error", err)
+				}
+				return
+			}
+			if got != tt.want {
+				t.Errorf("registryHostFromCLIImageStream() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
 
 func Test_containsValidVersion(t *testing.T) {
 	type args struct {
