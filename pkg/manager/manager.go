@@ -142,8 +142,9 @@ var platformQuotaSlices = map[string][]CloudAccountProfile{
 
 // selectCloudAccountProfile queries Boskos metrics for each quota-slice
 // candidate for the given platform and returns the profile with the most free
-// resources. Returns nil if the platform has no configured accounts or if the
-// primary (index 0) has the most free resources (no conversion needed).
+// resources. Returns nil if the platform has no configured accounts, if the
+// primary (index 0) has the most free resources (no conversion needed), or if
+// Boskos metrics are unavailable (falls back to the default account).
 func selectCloudAccountProfile(platform string, lClient LeaseClient) (*CloudAccountProfile, error) {
 	accounts, ok := platformQuotaSlices[platform]
 	if !ok || len(accounts) < 2 {
@@ -154,7 +155,8 @@ func selectCloudAccountProfile(platform string, lClient LeaseClient) (*CloudAcco
 	for i := range accounts {
 		metrics, err := lClient.Metrics(accounts[i].QuotaSlice)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get metrics for %q leases: %v", accounts[i].QuotaSlice, err)
+			klog.Warningf("Failed to get metrics for %q leases, falling back to default account: %v", accounts[i].QuotaSlice, err)
+			return nil, nil
 		}
 		if metrics.Free > bestFree {
 			bestIdx = i
