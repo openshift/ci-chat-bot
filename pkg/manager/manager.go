@@ -55,7 +55,7 @@ import (
 	"slices"
 
 	"github.com/blang/semver"
-	reference "github.com/containers/image/v5/docker/reference"
+	reference "go.podman.io/image/v5/docker/reference"
 	"gopkg.in/yaml.v2"
 	prowInformer "sigs.k8s.io/prow/pkg/client/informers/externalversions/prowjobs/v1"
 )
