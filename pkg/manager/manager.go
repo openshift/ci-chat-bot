@@ -100,7 +100,7 @@ const (
 
 var CurrentRelease = semver.Version{
 	Major: 4,
-	Minor: 21,
+	Minor: 23,
 }
 
 var HypershiftSupportedVersions = HypershiftSupportedVersionsType{}
@@ -1367,7 +1367,9 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 				}
 				return installSpec, tag.Name, runSpec, nil
 			}
-			return "", "", "", fmt.Errorf("no stable, official prerelease, or nightly version published yet for %s", imageOrVersion)
+			// Now that we have more than 1 release stream (release & release-5), we need to continue processing
+			// for major.minor matches across both streams...
+			continue
 		} else if unresolved == "nightly" {
 			unresolved = fmt.Sprintf("%s.0-0.nightly%s", currentReleasePrefix, archSuffix)
 		} else if unresolved == "ci" {
