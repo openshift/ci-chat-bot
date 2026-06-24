@@ -67,6 +67,8 @@ type OrganizationClient interface {
 	GetOrg(name string) (*Organization, error)
 	EditOrg(name string, config Organization) (*Organization, error)
 	ListOrgInvitations(org string) ([]OrgInvitation, error)
+	ListFailedOrgInvitations(org string) ([]OrgInvitation, error)
+	DeleteOrgInvitation(org string, invitationID int) error
 	ListOrgMembers(org, role string) ([]TeamMember, error)
 	HasPermission(org, repo, user string, roles ...string) (bool, error)
 	GetUserPermission(org, repo, user string) (string, error)
@@ -156,6 +158,11 @@ type CommitClient interface {
 	GetCombinedStatus(org, repo, ref string) (*CombinedStatus, error)
 	ListCheckRuns(org, repo, ref string) (*CheckRunList, error)
 	GetRef(org, repo, ref string) (string, error)
+	GetRefWithContext(ctx context.Context, org, repo, ref string) (string, error)
+	CreateRef(org, repo, ref, sha string) error
+	CreateRefWithContext(ctx context.Context, org, repo, ref, sha string) error
+	UpdateRef(org, repo, ref, sha string, force bool) error
+	UpdateRefWithContext(ctx context.Context, org, repo, ref, sha string, force bool) error
 	DeleteRef(org, repo, ref string) error
 	ListFileCommits(org, repo, path string) ([]RepositoryCommit, error)
 	CreateCheckRun(org, repo string, checkRun CheckRun) (int64, error)
@@ -824,6 +831,12 @@ type request struct {
 	org         string
 	requestBody interface{}
 	exitCodes   []int
+	// allowInDryRun allows this request even in dry-run mode.
+	// WARNING: This should ONLY be used for read-only operations that enable other reads,
+	// such as GitHub App installation token acquisition. NEVER use this for actual mutations
+	// (creating/updating/deleting org members, teams, repos, etc.) as it would defeat the
+	// purpose of dry-run mode. Currently only used for: /app/installations/{id}/access_tokens
+	allowInDryRun bool
 }
 
 type requestError struct {
@@ -883,6 +896,21 @@ func IsNotFound(err error) bool {
 	return false
 }
 
+// IsUnprocessableEntity reports whether GitHub rejected a semantically invalid
+// request, such as a non-fast-forward ref update.
+func IsUnprocessableEntity(err error) bool {
+	if err == nil {
+		return false
+	}
+	var requestErr requestError
+	return errors.As(err, &requestErr) && requestErr.StatusCode == http.StatusUnprocessableEntity
+}
+
+// NewUnprocessableEntity returns an unprocessable-entity error for tests.
+func NewUnprocessableEntity() error {
+	return requestError{StatusCode: http.StatusUnprocessableEntity}
+}
+
 // NewForbidden returns a forbiddenError which may be useful for tests
 func NewForbidden() error {
 	return forbiddenError{}
@@ -923,6 +951,32 @@ func (c *client) requestWithContext(ctx context.Context, r *request, ret interfa
 	return statusCode, nil
 }
 
+// isDryRunAllowed returns true if this request should be allowed in dry-run mode.
+// GET requests are always allowed. Non-GET requests are only allowed if they match
+// a hardcoded allowlist (currently only GitHub App token acquisition).
+func isDryRunAllowed(r *request) bool {
+	if r.method == http.MethodGet {
+		return true
+	}
+
+	if !r.allowInDryRun {
+		return false
+	}
+
+	// Hardcoded allowlist: ONLY allow GitHub App token acquisition
+	// Pattern: POST /app/installations/{installation_id}/access_tokens
+	if r.method == http.MethodPost &&
+		strings.Contains(r.path, "/app/installations/") &&
+		strings.HasSuffix(r.path, "/access_tokens") {
+		return true
+	}
+
+	// If allowInDryRun is set but doesn't match the allowlist, this is a bug
+	// Log an error to catch misuse during development
+	logrus.Errorf("SECURITY: allowInDryRun=true set for non-allowed endpoint: %s %s. This is a bug - allowInDryRun should ONLY be used for GitHub App token acquisition.", r.method, r.path)
+	return false
+}
+
 // requestRaw makes a request with retries and returns the response body.
 // Returns an error if the exit code is not one of the provided codes.
 func (c *client) requestRaw(r *request) (int, []byte, error) {
@@ -930,7 +984,7 @@ func (c *client) requestRaw(r *request) (int, []byte, error) {
 }
 
 func (c *client) requestRawWithContext(ctx context.Context, r *request) (int, []byte, error) {
-	if c.fake || (c.dry && r.method != http.MethodGet) {
+	if c.fake || (c.dry && !isDryRunAllowed(r)) {
 		return r.exitCodes[0], nil, nil
 	}
 	resp, err := c.requestRetryWithContext(ctx, r.method, r.path, r.accept, r.org, r.requestBody)
@@ -1522,6 +1576,50 @@ func (c *client) ListOrgInvitations(org string) ([]OrgInvitation, error) {
 	return ret, nil
 }
 
+// ListFailedOrgInvitations lists failed invitations to the org.
+//
+// https://docs.github.com/en/rest/orgs/members#list-failed-organization-invitations
+func (c *client) ListFailedOrgInvitations(org string) ([]OrgInvitation, error) {
+	c.log("ListFailedOrgInvitations", org)
+	if c.fake {
+		return nil, nil
+	}
+	path := fmt.Sprintf("/orgs/%s/failed_invitations", org)
+	var ret []OrgInvitation
+	err := c.readPaginatedResults(
+		path,
+		acceptNone,
+		org,
+		func() interface{} {
+			return &[]OrgInvitation{}
+		},
+		func(obj interface{}) {
+			ret = append(ret, *(obj.(*[]OrgInvitation))...)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return ret, nil
+}
+
+// DeleteOrgInvitation deletes a pending or failed organization invitation.
+//
+// https://docs.github.com/en/rest/orgs/members#cancel-an-organization-invitation
+func (c *client) DeleteOrgInvitation(org string, invitationID int) error {
+	c.log("DeleteOrgInvitation", org, invitationID)
+	if c.dry {
+		return nil
+	}
+	_, err := c.request(&request{
+		method:    http.MethodDelete,
+		path:      fmt.Sprintf("/orgs/%s/invitations/%d", org, invitationID),
+		org:       org,
+		exitCodes: []int{204, 404},
+	}, nil)
+	return err
+}
+
 // ListCurrentUserRepoInvitations lists pending invitations for the authenticated user.
 //
 // https://docs.github.com/en/rest/reference/repos#list-repository-invitations-for-the-authenticated-user
@@ -1947,20 +2045,30 @@ func (c *client) readPaginatedResultsWithValuesWithContext(ctx context.Context, 
 		// * c.bases[0]: api.github.com
 		// * initial call: api.github.com/repos/kubernetes/kubernetes/pulls?per_page=100
 		// * next: api.github.com/repositories/22/pulls?per_page=100&page=2
-		// * in this case prefix will be empty and we're just calling the path returned by next
+		// * prefix will be empty; we call the path returned by next as-is
 		// Example for github enterprise:
 		// * c.bases[0]: <ghe-url>/api/v3
 		// * initial call: <ghe-url>/api/v3/repos/kubernetes/kubernetes/pulls?per_page=100
 		// * next: <ghe-url>/api/v3/repositories/22/pulls?per_page=100&page=2
-		// * in this case prefix will be "/api/v3" and we will strip the prefix. If we don't do that,
-		//   the next call will go to <ghe-url>/api/v3/api/v3/repositories/22/pulls?per_page=100&page=2
-		prefix := strings.TrimSuffix(resp.Request.URL.RequestURI(), pagedPath)
+		// * prefix will be "/api/v3" and we strip it so we don't duplicate it
+		//   when prepending c.bases[hostIndex]
+		// Example for a redirect (e.g. repo rename):
+		// * initial call: api.github.com/repos/old-org/old-repo/pulls?per_page=100
+		// * resp.Request.URL (after redirect): api.github.com/repos/new-org/new-repo/pulls?per_page=100
+		// * next: api.github.com/repos/new-org/new-repo/pulls?per_page=100&page=2
+		// * prefix will be empty; we compare only Path (not full RequestURI) so
+		//   the differing response URL doesn't break the suffix match
+		pathOnly := strings.SplitN(pagedPath, "?", 2)[0]
+		prefix := strings.TrimSuffix(resp.Request.URL.Path, pathOnly)
 
 		u, err := url.Parse(link)
 		if err != nil {
 			return fmt.Errorf("failed to parse 'next' link: %w", err)
 		}
 		pagedPath = strings.TrimPrefix(u.RequestURI(), prefix)
+		if len(pagedPath) == 0 || pagedPath[0] != '/' {
+			pagedPath = u.RequestURI()
+		}
 	}
 	return nil
 }
@@ -3398,11 +3506,16 @@ func (c *client) ReopenPullRequest(org, repo string, number int) error {
 // The gitbub api does prefix matching and might return multiple results,
 // in which case we will return a GetRefTooManyResultsError
 func (c *client) GetRef(org, repo, ref string) (string, error) {
+	return c.GetRefWithContext(context.Background(), org, repo, ref)
+}
+
+// GetRefWithContext returns the SHA of the given ref, such as "heads/master".
+func (c *client) GetRefWithContext(ctx context.Context, org, repo, ref string) (string, error) {
 	durationLogger := c.log("GetRef", org, repo, ref)
 	defer durationLogger()
 
 	res := GetRefResponse{}
-	_, err := c.request(&request{
+	_, err := c.requestWithContext(ctx, &request{
 		method:    http.MethodGet,
 		path:      fmt.Sprintf("/repos/%s/%s/git/refs/%s", org, repo, ref),
 		org:       org,
@@ -3422,6 +3535,53 @@ func (c *client) GetRef(org, repo, ref string) (string, error) {
 		return "", GetRefTooManyResultsError{org: org, repo: repo, ref: ref, resultsRefs: res.RefNames()}
 	}
 	return res[0].Object.SHA, nil
+}
+
+// CreateRef creates a ref at the given SHA. The ref must include its namespace,
+// for example "refs/heads/my-branch".
+func (c *client) CreateRef(org, repo, ref, sha string) error {
+	return c.CreateRefWithContext(context.Background(), org, repo, ref, sha)
+}
+
+// CreateRefWithContext creates a ref at the given SHA.
+func (c *client) CreateRefWithContext(ctx context.Context, org, repo, ref, sha string) error {
+	durationLogger := c.log("CreateRef", org, repo, ref, sha)
+	defer durationLogger()
+
+	_, err := c.requestWithContext(ctx, &request{
+		method: http.MethodPost,
+		path:   fmt.Sprintf("/repos/%s/%s/git/refs", org, repo),
+		org:    org,
+		requestBody: map[string]string{
+			"ref": ref,
+			"sha": sha,
+		},
+		exitCodes: []int{http.StatusCreated},
+	}, nil)
+	return err
+}
+
+// UpdateRef updates a ref to the given SHA.
+func (c *client) UpdateRef(org, repo, ref, sha string, force bool) error {
+	return c.UpdateRefWithContext(context.Background(), org, repo, ref, sha, force)
+}
+
+// UpdateRefWithContext updates a ref to the given SHA.
+func (c *client) UpdateRefWithContext(ctx context.Context, org, repo, ref, sha string, force bool) error {
+	durationLogger := c.log("UpdateRef", org, repo, ref, sha, force)
+	defer durationLogger()
+
+	_, err := c.requestWithContext(ctx, &request{
+		method: http.MethodPatch,
+		path:   fmt.Sprintf("/repos/%s/%s/git/refs/%s", org, repo, ref),
+		org:    org,
+		requestBody: map[string]interface{}{
+			"sha":   sha,
+			"force": force,
+		},
+		exitCodes: []int{http.StatusOK},
+	}, nil)
+	return err
 }
 
 type GetRefTooManyResultsError struct {
@@ -5038,9 +5198,6 @@ func (c *client) IsAppInstalled(org, repo string) (bool, error) {
 	durationLogger := c.log("IsAppInstalled", org, repo)
 	defer durationLogger()
 
-	if c.dry {
-		return false, fmt.Errorf("not getting AppInstallation in dry-run mode")
-	}
 	if !c.usesAppsAuth {
 		return false, fmt.Errorf("IsAppInstalled was called when not using appsAuth")
 	}
@@ -5087,15 +5244,21 @@ func (c *client) getAppInstallationToken(installationId int64) (*AppInstallation
 	durationLogger := c.log("AppInstallationToken")
 	defer durationLogger()
 
-	if c.dry {
-		return nil, fmt.Errorf("not requesting GitHub App access_token in dry-run mode")
-	}
+	// Note: We allow token fetching even in dry-run mode because:
+	// 1. Fetching a token is effectively a read-only operation - it has no side effects on the org/repos
+	// 2. The token is required to make any subsequent API calls (even GET requests)
+	// 3. All actual mutations (POST/PUT/PATCH/DELETE to org/repo resources) are still blocked by dry-run mode
+	// 4. This allows tools to run in dry-run mode with GitHub Apps
 
 	var token AppInstallationToken
 	if _, err := c.request(&request{
 		method:    http.MethodPost,
 		path:      fmt.Sprintf("/app/installations/%d/access_tokens", installationId),
 		exitCodes: []int{201},
+		// allowInDryRun: This is the ONLY place this flag should be set to true.
+		// Token acquisition is read-only and enables subsequent reads. Do not use
+		// this flag for actual mutations to org/repo resources.
+		allowInDryRun: true,
 	}, &token); err != nil {
 		return nil, err
 	}

@@ -42,9 +42,9 @@ import (
 	gitignore "github.com/denormal/go-gitignore"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/robfig/cron/v3"
 	"github.com/sirupsen/logrus"
 	pipelinev1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
-	"gopkg.in/robfig/cron.v2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -61,6 +61,10 @@ import (
 	"sigs.k8s.io/prow/pkg/kube"
 	"sigs.k8s.io/prow/pkg/pod-utils/decorate"
 	"sigs.k8s.io/prow/pkg/pod-utils/downwardapi"
+)
+
+var cronParser = cron.NewParser(
+	cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 )
 
 const (
@@ -2435,7 +2439,7 @@ func (c Config) validatePeriodics(periodics []Periodic) error {
 		}
 
 		if p.Cron != "" {
-			if _, err := cron.Parse(p.Cron); err != nil {
+			if _, err := cronParser.Parse(p.Cron); err != nil {
 				errs = append(errs, fmt.Errorf("invalid cron string %s in periodic %s: %w", p.Cron, p.Name, err))
 			}
 		}
@@ -2770,6 +2774,14 @@ func parseProwConfig(c *Config) error {
 	for i, tq := range c.Tide.Queries {
 		if err := tq.Validate(); err != nil {
 			return fmt.Errorf("tide query (index %d) is invalid: %w", i, err)
+		}
+	}
+
+	for key, policy := range c.Tide.GitHubMergeBlocksPolicyMap {
+		switch policy {
+		case GitHubMergeBlocksIgnore, GitHubMergeBlocksPermit, GitHubMergeBlocksBlock:
+		default:
+			return fmt.Errorf("tide.github_merge_blocks_policy[%q] has invalid value %q, must be one of: ignore, permit, block", key, policy)
 		}
 	}
 

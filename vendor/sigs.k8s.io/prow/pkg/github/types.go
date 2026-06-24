@@ -211,7 +211,7 @@ const (
 
 // GenericEvent is a lightweight struct containing just Sender, Organization and Repo as
 // they are allWebhook payload object common properties:
-// https://developer.github.com/webhooks/event-payloads/#webhook-payload-object-common-properties
+// https://docs.github.com/en/webhooks/webhook-events-and-payloads#webhook-payload-object-common-properties
 type GenericEvent struct {
 	Sender User         `json:"sender"`
 	Org    Organization `json:"organization"`
@@ -1109,6 +1109,9 @@ const (
 	PrivacySecret = "secret"
 	// PrivacyClosed memberships are visible to org members.
 	PrivacyClosed = "closed"
+
+	// TeamTypeEnterprise identifies teams managed at the enterprise level.
+	TeamTypeEnterprise = "enterprise"
 )
 
 // Team is a github organizational team
@@ -1118,6 +1121,7 @@ type Team struct {
 	Slug         string         `json:"slug"`
 	Description  string         `json:"description,omitempty"`
 	Privacy      string         `json:"privacy,omitempty"`
+	Type         string         `json:"type,omitempty"`
 	Parent       *Team          `json:"parent,omitempty"`         // Only present in responses
 	ParentTeamID *int           `json:"parent_team_id,omitempty"` // Only valid in creates/edits
 	Permission   TeamPermission `json:"permission,omitempty"`
@@ -1191,8 +1195,11 @@ type TeamMembership struct {
 // OrgInvitation contains Login and other details about the invitation.
 type OrgInvitation struct {
 	TeamMember
-	Email   string     `json:"email"`
-	Inviter TeamMember `json:"inviter"`
+	ID           int        `json:"id"`
+	Email        string     `json:"email"`
+	Inviter      TeamMember `json:"inviter"`
+	FailedAt     time.Time  `json:"failed_at,omitempty"`
+	FailedReason string     `json:"failed_reason,omitempty"`
 }
 
 // UserRepoInvitation is returned by repo invitation obtained by user.
