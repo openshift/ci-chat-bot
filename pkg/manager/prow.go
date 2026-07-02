@@ -181,6 +181,32 @@ var (
 	reVersion = regexp.MustCompile(`^(\d+\.\d+)`)
 )
 
+func mceReleaseName(job *Job) string {
+	if len(job.Inputs) == 0 {
+		return ""
+	}
+	input := job.Inputs[len(job.Inputs)-1]
+	if len(input.Version) > 0 {
+		return input.Version
+	}
+	for _, image := range []string{input.RunImage, input.Image} {
+		if strings.Contains(image, "@") {
+			continue
+		}
+		if i := strings.LastIndex(image, ":"); i >= 0 {
+			if j := strings.LastIndex(image, "/"); j >= 0 && i > j {
+				return image[i+1:]
+			}
+		}
+	}
+	return ""
+}
+
+// ocClientVersion is the oc CLI used for permissionsScript and MCE release rewrite.
+// Once Openshift 5.0 is GA and CurrentRelease is updated to 5.0, this can be updated to
+// fmt.Sprintf("%d.%d.0", CurrentRelease.Major, CurrentRelease.Minor - 1).
+const ocClientVersion = "4.22.0"
+
 func testStepForPlatform(platform string) string {
 	switch platform {
 	case "aws", "aws-2", "gcp", "azure", "vsphere", "ovirt", "openstack", "nutanix", "alibaba":
@@ -548,8 +574,8 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 				return "", fmt.Errorf("unknown test type %s", job.JobParams["test"])
 			}
 		}
-		if job.Mode == JobTypeMCECustomImage {
-			// only run the rbac configuration step for mce custom images
+		if job.Mode == JobTypeMCECustomImage || job.Mode == JobTypeBuild {
+			// only run the rbac configuration step for custom images
 			installRBACStep := "ipi-install-rbac"
 			matchedTarget.MultiStageTestConfiguration.Test = []citools.TestStep{{
 				Reference: &installRBACStep,
@@ -623,6 +649,13 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			hasRefs = true
 		}
 	}
+	var mceReleaseVersion string
+	if job.Mode == JobTypeMCECustomImage {
+		mceReleaseVersion = mceReleaseName(job)
+		if len(mceReleaseVersion) == 0 {
+			return "", fmt.Errorf("unable to determine release version for MCE custom image job")
+		}
+	}
 	if hasRefs {
 		launchDeadline += 30 * time.Minute
 
@@ -658,9 +691,12 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 			envPrefix := strings.Join(restoreImageVariableScript, " ")
 			container.Command = []string{"/bin/bash", "-c"}
-			if job.Mode == "build" {
-				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n\n%s\n%s exec ci-operator $@", registryHost, script, permissionsScript, envPrefix), "")
-			} else {
+			switch job.Mode {
+			case JobTypeBuild:
+				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\noc_client_version=%s\n%s\n\n%s exec ci-operator $@", registryHost, ocClientVersion, script, envPrefix), "")
+			case JobTypeMCECustomImage:
+				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\nrelease_name=%s\noc_client_version=%s\n%s\n\n%sci-operator $@\n%s", registryHost, mceReleaseVersion, ocClientVersion, script, envPrefix, mceReleaseRewriteScript), "")
+			default:
 				container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\n%s\n%s exec ci-operator $@", registryHost, script, envPrefix), "")
 			}
 			container.Args = args
@@ -853,14 +889,37 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 	// build jobs do not launch contents
 	switch job.Mode {
-	case JobTypeBuild:
-		if err := replaceTargetArgument(pj.Spec.PodSpec, "launch", "[release:latest]"); err != nil {
-			return "", fmt.Errorf("unable to configure pod spec to alter launch target: %v", err)
-		}
 	case JobTypeCatalog:
 		if err := replaceTargetArgument(pj.Spec.PodSpec, "launch", job.JobParams["bundle"]); err != nil {
 			return "", fmt.Errorf("unable to configure pod spec to alter launch target: %v", err)
 		}
+	}
+
+	if job.Mode == JobTypeMCECustomImage && !hasRefs {
+		container := &pj.Spec.PodSpec.Containers[0]
+		if !reflect.DeepEqual(container.Command, []string{"ci-operator"}) {
+			return "", fmt.Errorf("the prow job %s does not have a recognizable command/args setup and cannot be used with MCE custom image builds", job.JobName)
+		}
+
+		registryHost := fmt.Sprintf("registry.%s.ci.openshift.org", job.BuildCluster)
+
+		// NAMESPACE must be set for this job, and be in the first position, so remove it if set
+		prow.RemoveJobEnvVar(&pj.Spec, "NAMESPACE")
+		prow.SetJobEnvVar(&pj.Spec, "NAMESPACE", namespace)
+
+		var args []string
+		for _, arg := range container.Args {
+			if strings.HasPrefix(arg, "--namespace") {
+				continue
+			}
+			args = append(args, arg)
+		}
+		args = append(args, `--namespace=$(NAMESPACE)`)
+
+		envPrefix := strings.Join(restoreImageVariableScript, " ")
+		container.Command = []string{"/bin/bash", "-c"}
+		container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\nrelease_name=%s\noc_client_version=%s\n%sci-operator $@\n%s", registryHost, mceReleaseVersion, ocClientVersion, envPrefix, mceReleaseRewriteScript), "")
+		container.Args = args
 	}
 
 	data, _ := json.MarshalIndent(sourceConfig, "", "  ")
@@ -1562,16 +1621,29 @@ if [ -n "${OPERATOR_REFS-}" ]; then
 fi
 `
 
-const permissionsScript = `
+const mceReleaseRewriteScript = `
 # prow doesn't allow init containers or a second container
 export PATH=$PATH:/tmp/bin
 mkdir /tmp/bin
-curl -sL https://mirror.openshift.com/pub/openshift-v4/$(uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/')/clients/ocp/4.18.1/openshift-client-linux.tar.gz | tar xvzf - -C /tmp/bin/ oc
+curl -sL https://mirror.openshift.com/pub/openshift-v4/$(uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/')/clients/ocp/${oc_client_version}/openshift-client-linux.tar.gz | tar xvzf - -C /tmp/bin/ oc
 chmod ug+x /tmp/bin/oc
 
-# grant all authenticated users access to the images in this namespace
-oc policy add-role-to-group system:image-puller -n $(NAMESPACE) system:authenticated
-oc policy add-role-to-group system:image-puller -n $(NAMESPACE) system:unauthenticated
+# rewrite the release image to point to the stable imagestream images
+# so MCE clusters can pull without upstream credentials
+if [ ! -f /tmp/push-auth ]; then
+  encoded_token="$( echo -n "serviceaccount:$( cat /var/run/secrets/kubernetes.io/serviceaccount/token )" | base64 -w 0 - )"
+  echo "{\"auths\":{\"${registry_host}\":{\"auth\":\"${encoded_token}\"}}}" > /tmp/push-auth
+fi
+export REGISTRY_AUTH_FILE=/tmp/push-auth
+# extract the release name from the job inputs, falling back to the built release image
+if [ -z "${release_name}" ]; then
+  release_name=$(oc adm release info "${registry_host}/${NAMESPACE}/release:latest" -o jsonpath='{.metadata.version}' --registry-config=/tmp/push-auth 2>/dev/null)
+fi
+if [ -z "${release_name}" ]; then
+  echo "error: unable to determine release version for oc adm release new --name" >&2
+  exit 1
+fi
+oc adm release new --name="${release_name}" --from-image-stream=stable --namespace=${NAMESPACE} --to-image=${registry_host}/${NAMESPACE}/release:latest --registry-config=/tmp/push-auth
 `
 
 type JobSpec struct {
