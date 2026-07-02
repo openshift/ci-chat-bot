@@ -29,3 +29,15 @@ ignored_vulnerabilities:
   - id: GO-2026-4730
     module: github.com/tektoncd/pipeline
     reason: "No fix available - Tekton Pipelines controller panic via long resolver name in TaskRun/PipelineRun in github.com/tektoncd/pipeline (CVE-2026-33022)"
+
+  - id: GO-2026-5064
+    module: github.com/containerd/containerd
+    reason: "No fix available - containerd CRI checkpoint restore CDI annotation smuggling in github.com/containerd/containerd (CVE-2026-53492)"
+
+  - id: GO-2026-5338
+    module: github.com/containerd/containerd
+    reason: "No fix available - containerd CRI checkpoint import allows local image tag poisoning in github.com/containerd/containerd (CVE-2026-50195)"
+
+  - id: GO-2026-5622
+    module: github.com/containerd/containerd
+    reason: "No fix available - Arbitrary host CRI log file read via symlink following in CRI checkpoint restore in github.com/containerd/containerd (CVE-2026-53489)"
