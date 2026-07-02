@@ -918,7 +918,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 		envPrefix := strings.Join(restoreImageVariableScript, " ")
 		container.Command = []string{"/bin/bash", "-c"}
-		container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\nrelease_name=%s\noc_client_version=%s\n%sci-operator $@\n%s", registryHost, mceReleaseVersion, ocClientVersion, envPrefix, mceReleaseRewriteScript), "")
+		container.Command = append(container.Command, fmt.Sprintf("registry_host=%s\nrelease_name=%s\noc_client_version=%s\nset -euo pipefail\n\n%s ci-operator $@\n%s", registryHost, mceReleaseVersion, ocClientVersion, envPrefix, mceReleaseRewriteScript), "")
 		container.Args = args
 	}
 
@@ -1624,7 +1624,7 @@ fi
 const mceReleaseRewriteScript = `
 # prow doesn't allow init containers or a second container
 export PATH=$PATH:/tmp/bin
-mkdir /tmp/bin
+mkdir -p /tmp/bin
 curl -sL https://mirror.openshift.com/pub/openshift-v4/$(uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/')/clients/ocp/${oc_client_version}/openshift-client-linux.tar.gz | tar xvzf - -C /tmp/bin/ oc
 chmod ug+x /tmp/bin/oc
 
