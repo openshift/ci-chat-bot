@@ -470,6 +470,26 @@ func (m *validateOpDeleteBucketWebsite) HandleInitialize(ctx context.Context, in
 	return next.HandleInitialize(ctx, in)
 }
 
+type validateOpDeleteObjectAnnotation struct {
+}
+
+func (*validateOpDeleteObjectAnnotation) ID() string {
+	return "OperationInputValidation"
+}
+
+func (m *validateOpDeleteObjectAnnotation) HandleInitialize(ctx context.Context, in middleware.InitializeInput, next middleware.InitializeHandler) (
+	out middleware.InitializeOutput, metadata middleware.Metadata, err error,
+) {
+	input, ok := in.Parameters.(*DeleteObjectAnnotationInput)
+	if !ok {
+		return out, metadata, fmt.Errorf("unknown input parameters type %T", in.Parameters)
+	}
+	if err := validateOpDeleteObjectAnnotationInput(input); err != nil {
+		return out, metadata, err
+	}
+	return next.HandleInitialize(ctx, in)
+}
+
 type validateOpDeleteObject struct {
 }
 
@@ -545,6 +565,26 @@ func (m *validateOpDeletePublicAccessBlock) HandleInitialize(ctx context.Context
 		return out, metadata, fmt.Errorf("unknown input parameters type %T", in.Parameters)
 	}
 	if err := validateOpDeletePublicAccessBlockInput(input); err != nil {
+		return out, metadata, err
+	}
+	return next.HandleInitialize(ctx, in)
+}
+
+type validateOpGetBucketAbac struct {
+}
+
+func (*validateOpGetBucketAbac) ID() string {
+	return "OperationInputValidation"
+}
+
+func (m *validateOpGetBucketAbac) HandleInitialize(ctx context.Context, in middleware.InitializeInput, next middleware.InitializeHandler) (
+	out middleware.InitializeOutput, metadata middleware.Metadata, err error,
+) {
+	input, ok := in.Parameters.(*GetBucketAbacInput)
+	if !ok {
+		return out, metadata, fmt.Errorf("unknown input parameters type %T", in.Parameters)
+	}
+	if err := validateOpGetBucketAbacInput(input); err != nil {
 		return out, metadata, err
 	}
 	return next.HandleInitialize(ctx, in)
@@ -1010,6 +1050,26 @@ func (m *validateOpGetObjectAcl) HandleInitialize(ctx context.Context, in middle
 	return next.HandleInitialize(ctx, in)
 }
 
+type validateOpGetObjectAnnotation struct {
+}
+
+func (*validateOpGetObjectAnnotation) ID() string {
+	return "OperationInputValidation"
+}
+
+func (m *validateOpGetObjectAnnotation) HandleInitialize(ctx context.Context, in middleware.InitializeInput, next middleware.InitializeHandler) (
+	out middleware.InitializeOutput, metadata middleware.Metadata, err error,
+) {
+	input, ok := in.Parameters.(*GetObjectAnnotationInput)
+	if !ok {
+		return out, metadata, fmt.Errorf("unknown input parameters type %T", in.Parameters)
+	}
+	if err := validateOpGetObjectAnnotationInput(input); err != nil {
+		return out, metadata, err
+	}
+	return next.HandleInitialize(ctx, in)
+}
+
 type validateOpGetObjectAttributes struct {
 }
 
@@ -1310,6 +1370,26 @@ func (m *validateOpListMultipartUploads) HandleInitialize(ctx context.Context, i
 	return next.HandleInitialize(ctx, in)
 }
 
+type validateOpListObjectAnnotations struct {
+}
+
+func (*validateOpListObjectAnnotations) ID() string {
+	return "OperationInputValidation"
+}
+
+func (m *validateOpListObjectAnnotations) HandleInitialize(ctx context.Context, in middleware.InitializeInput, next middleware.InitializeHandler) (
+	out middleware.InitializeOutput, metadata middleware.Metadata, err error,
+) {
+	input, ok := in.Parameters.(*ListObjectAnnotationsInput)
+	if !ok {
+		return out, metadata, fmt.Errorf("unknown input parameters type %T", in.Parameters)
+	}
+	if err := validateOpListObjectAnnotationsInput(input); err != nil {
+		return out, metadata, err
+	}
+	return next.HandleInitialize(ctx, in)
+}
+
 type validateOpListObjects struct {
 }
 
@@ -1385,6 +1465,26 @@ func (m *validateOpListParts) HandleInitialize(ctx context.Context, in middlewar
 		return out, metadata, fmt.Errorf("unknown input parameters type %T", in.Parameters)
 	}
 	if err := validateOpListPartsInput(input); err != nil {
+		return out, metadata, err
+	}
+	return next.HandleInitialize(ctx, in)
+}
+
+type validateOpPutBucketAbac struct {
+}
+
+func (*validateOpPutBucketAbac) ID() string {
+	return "OperationInputValidation"
+}
+
+func (m *validateOpPutBucketAbac) HandleInitialize(ctx context.Context, in middleware.InitializeInput, next middleware.InitializeHandler) (
+	out middleware.InitializeOutput, metadata middleware.Metadata, err error,
+) {
+	input, ok := in.Parameters.(*PutBucketAbacInput)
+	if !ok {
+		return out, metadata, fmt.Errorf("unknown input parameters type %T", in.Parameters)
+	}
+	if err := validateOpPutBucketAbacInput(input); err != nil {
 		return out, metadata, err
 	}
 	return next.HandleInitialize(ctx, in)
@@ -1770,6 +1870,26 @@ func (m *validateOpPutObjectAcl) HandleInitialize(ctx context.Context, in middle
 	return next.HandleInitialize(ctx, in)
 }
 
+type validateOpPutObjectAnnotation struct {
+}
+
+func (*validateOpPutObjectAnnotation) ID() string {
+	return "OperationInputValidation"
+}
+
+func (m *validateOpPutObjectAnnotation) HandleInitialize(ctx context.Context, in middleware.InitializeInput, next middleware.InitializeHandler) (
+	out middleware.InitializeOutput, metadata middleware.Metadata, err error,
+) {
+	input, ok := in.Parameters.(*PutObjectAnnotationInput)
+	if !ok {
+		return out, metadata, fmt.Errorf("unknown input parameters type %T", in.Parameters)
+	}
+	if err := validateOpPutObjectAnnotationInput(input); err != nil {
+		return out, metadata, err
+	}
+	return next.HandleInitialize(ctx, in)
+}
+
 type validateOpPutObject struct {
 }
 
@@ -1950,6 +2070,26 @@ func (m *validateOpSelectObjectContent) HandleInitialize(ctx context.Context, in
 	return next.HandleInitialize(ctx, in)
 }
 
+type validateOpUpdateBucketMetadataAnnotationTableConfiguration struct {
+}
+
+func (*validateOpUpdateBucketMetadataAnnotationTableConfiguration) ID() string {
+	return "OperationInputValidation"
+}
+
+func (m *validateOpUpdateBucketMetadataAnnotationTableConfiguration) HandleInitialize(ctx context.Context, in middleware.InitializeInput, next middleware.InitializeHandler) (
+	out middleware.InitializeOutput, metadata middleware.Metadata, err error,
+) {
+	input, ok := in.Parameters.(*UpdateBucketMetadataAnnotationTableConfigurationInput)
+	if !ok {
+		return out, metadata, fmt.Errorf("unknown input parameters type %T", in.Parameters)
+	}
+	if err := validateOpUpdateBucketMetadataAnnotationTableConfigurationInput(input); err != nil {
+		return out, metadata, err
+	}
+	return next.HandleInitialize(ctx, in)
+}
+
 type validateOpUpdateBucketMetadataInventoryTableConfiguration struct {
 }
 
@@ -1985,6 +2125,26 @@ func (m *validateOpUpdateBucketMetadataJournalTableConfiguration) HandleInitiali
 		return out, metadata, fmt.Errorf("unknown input parameters type %T", in.Parameters)
 	}
 	if err := validateOpUpdateBucketMetadataJournalTableConfigurationInput(input); err != nil {
+		return out, metadata, err
+	}
+	return next.HandleInitialize(ctx, in)
+}
+
+type validateOpUpdateObjectEncryption struct {
+}
+
+func (*validateOpUpdateObjectEncryption) ID() string {
+	return "OperationInputValidation"
+}
+
+func (m *validateOpUpdateObjectEncryption) HandleInitialize(ctx context.Context, in middleware.InitializeInput, next middleware.InitializeHandler) (
+	out middleware.InitializeOutput, metadata middleware.Metadata, err error,
+) {
+	input, ok := in.Parameters.(*UpdateObjectEncryptionInput)
+	if !ok {
+		return out, metadata, fmt.Errorf("unknown input parameters type %T", in.Parameters)
+	}
+	if err := validateOpUpdateObjectEncryptionInput(input); err != nil {
 		return out, metadata, err
 	}
 	return next.HandleInitialize(ctx, in)
@@ -2142,6 +2302,10 @@ func addOpDeleteBucketWebsiteValidationMiddleware(stack *middleware.Stack) error
 	return stack.Initialize.Add(&validateOpDeleteBucketWebsite{}, middleware.After)
 }
 
+func addOpDeleteObjectAnnotationValidationMiddleware(stack *middleware.Stack) error {
+	return stack.Initialize.Add(&validateOpDeleteObjectAnnotation{}, middleware.After)
+}
+
 func addOpDeleteObjectValidationMiddleware(stack *middleware.Stack) error {
 	return stack.Initialize.Add(&validateOpDeleteObject{}, middleware.After)
 }
@@ -2156,6 +2320,10 @@ func addOpDeleteObjectTaggingValidationMiddleware(stack *middleware.Stack) error
 
 func addOpDeletePublicAccessBlockValidationMiddleware(stack *middleware.Stack) error {
 	return stack.Initialize.Add(&validateOpDeletePublicAccessBlock{}, middleware.After)
+}
+
+func addOpGetBucketAbacValidationMiddleware(stack *middleware.Stack) error {
+	return stack.Initialize.Add(&validateOpGetBucketAbac{}, middleware.After)
 }
 
 func addOpGetBucketAccelerateConfigurationValidationMiddleware(stack *middleware.Stack) error {
@@ -2250,6 +2418,10 @@ func addOpGetObjectAclValidationMiddleware(stack *middleware.Stack) error {
 	return stack.Initialize.Add(&validateOpGetObjectAcl{}, middleware.After)
 }
 
+func addOpGetObjectAnnotationValidationMiddleware(stack *middleware.Stack) error {
+	return stack.Initialize.Add(&validateOpGetObjectAnnotation{}, middleware.After)
+}
+
 func addOpGetObjectAttributesValidationMiddleware(stack *middleware.Stack) error {
 	return stack.Initialize.Add(&validateOpGetObjectAttributes{}, middleware.After)
 }
@@ -2310,6 +2482,10 @@ func addOpListMultipartUploadsValidationMiddleware(stack *middleware.Stack) erro
 	return stack.Initialize.Add(&validateOpListMultipartUploads{}, middleware.After)
 }
 
+func addOpListObjectAnnotationsValidationMiddleware(stack *middleware.Stack) error {
+	return stack.Initialize.Add(&validateOpListObjectAnnotations{}, middleware.After)
+}
+
 func addOpListObjectsValidationMiddleware(stack *middleware.Stack) error {
 	return stack.Initialize.Add(&validateOpListObjects{}, middleware.After)
 }
@@ -2324,6 +2500,10 @@ func addOpListObjectVersionsValidationMiddleware(stack *middleware.Stack) error 
 
 func addOpListPartsValidationMiddleware(stack *middleware.Stack) error {
 	return stack.Initialize.Add(&validateOpListParts{}, middleware.After)
+}
+
+func addOpPutBucketAbacValidationMiddleware(stack *middleware.Stack) error {
+	return stack.Initialize.Add(&validateOpPutBucketAbac{}, middleware.After)
 }
 
 func addOpPutBucketAccelerateConfigurationValidationMiddleware(stack *middleware.Stack) error {
@@ -2402,6 +2582,10 @@ func addOpPutObjectAclValidationMiddleware(stack *middleware.Stack) error {
 	return stack.Initialize.Add(&validateOpPutObjectAcl{}, middleware.After)
 }
 
+func addOpPutObjectAnnotationValidationMiddleware(stack *middleware.Stack) error {
+	return stack.Initialize.Add(&validateOpPutObjectAnnotation{}, middleware.After)
+}
+
 func addOpPutObjectValidationMiddleware(stack *middleware.Stack) error {
 	return stack.Initialize.Add(&validateOpPutObject{}, middleware.After)
 }
@@ -2438,12 +2622,20 @@ func addOpSelectObjectContentValidationMiddleware(stack *middleware.Stack) error
 	return stack.Initialize.Add(&validateOpSelectObjectContent{}, middleware.After)
 }
 
+func addOpUpdateBucketMetadataAnnotationTableConfigurationValidationMiddleware(stack *middleware.Stack) error {
+	return stack.Initialize.Add(&validateOpUpdateBucketMetadataAnnotationTableConfiguration{}, middleware.After)
+}
+
 func addOpUpdateBucketMetadataInventoryTableConfigurationValidationMiddleware(stack *middleware.Stack) error {
 	return stack.Initialize.Add(&validateOpUpdateBucketMetadataInventoryTableConfiguration{}, middleware.After)
 }
 
 func addOpUpdateBucketMetadataJournalTableConfigurationValidationMiddleware(stack *middleware.Stack) error {
 	return stack.Initialize.Add(&validateOpUpdateBucketMetadataJournalTableConfiguration{}, middleware.After)
+}
+
+func addOpUpdateObjectEncryptionValidationMiddleware(stack *middleware.Stack) error {
+	return stack.Initialize.Add(&validateOpUpdateObjectEncryption{}, middleware.After)
 }
 
 func addOpUploadPartCopyValidationMiddleware(stack *middleware.Stack) error {
@@ -2587,6 +2779,46 @@ func validateAnalyticsS3BucketDestination(v *types.AnalyticsS3BucketDestination)
 	}
 	if v.Bucket == nil {
 		invalidParams.Add(smithy.NewErrParamRequired("Bucket"))
+	}
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	} else {
+		return nil
+	}
+}
+
+func validateAnnotationTableConfiguration(v *types.AnnotationTableConfiguration) error {
+	if v == nil {
+		return nil
+	}
+	invalidParams := smithy.InvalidParamsError{Context: "AnnotationTableConfiguration"}
+	if len(v.ConfigurationState) == 0 {
+		invalidParams.Add(smithy.NewErrParamRequired("ConfigurationState"))
+	}
+	if v.EncryptionConfiguration != nil {
+		if err := validateMetadataTableEncryptionConfiguration(v.EncryptionConfiguration); err != nil {
+			invalidParams.AddNested("EncryptionConfiguration", err.(smithy.InvalidParamsError))
+		}
+	}
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	} else {
+		return nil
+	}
+}
+
+func validateAnnotationTableConfigurationUpdates(v *types.AnnotationTableConfigurationUpdates) error {
+	if v == nil {
+		return nil
+	}
+	invalidParams := smithy.InvalidParamsError{Context: "AnnotationTableConfigurationUpdates"}
+	if len(v.ConfigurationState) == 0 {
+		invalidParams.Add(smithy.NewErrParamRequired("ConfigurationState"))
+	}
+	if v.EncryptionConfiguration != nil {
+		if err := validateMetadataTableEncryptionConfiguration(v.EncryptionConfiguration); err != nil {
+			invalidParams.AddNested("EncryptionConfiguration", err.(smithy.InvalidParamsError))
+		}
 	}
 	if invalidParams.Len() > 0 {
 		return invalidParams
@@ -3307,6 +3539,11 @@ func validateMetadataConfiguration(v *types.MetadataConfiguration) error {
 			invalidParams.AddNested("InventoryTableConfiguration", err.(smithy.InvalidParamsError))
 		}
 	}
+	if v.AnnotationTableConfiguration != nil {
+		if err := validateAnnotationTableConfiguration(v.AnnotationTableConfiguration); err != nil {
+			invalidParams.AddNested("AnnotationTableConfiguration", err.(smithy.InvalidParamsError))
+		}
+	}
 	if invalidParams.Len() > 0 {
 		return invalidParams
 	} else {
@@ -3443,6 +3680,25 @@ func validateNotificationConfiguration(v *types.NotificationConfiguration) error
 		if err := validateLambdaFunctionConfigurationList(v.LambdaFunctionConfigurations); err != nil {
 			invalidParams.AddNested("LambdaFunctionConfigurations", err.(smithy.InvalidParamsError))
 		}
+	}
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	} else {
+		return nil
+	}
+}
+
+func validateObjectEncryption(v types.ObjectEncryption) error {
+	if v == nil {
+		return nil
+	}
+	invalidParams := smithy.InvalidParamsError{Context: "ObjectEncryption"}
+	switch uv := v.(type) {
+	case *types.ObjectEncryptionMemberSSEKMS:
+		if err := validateSSEKMSEncryption(&uv.Value); err != nil {
+			invalidParams.AddNested("[SSEKMS]", err.(smithy.InvalidParamsError))
+		}
+
 	}
 	if invalidParams.Len() > 0 {
 		return invalidParams
@@ -4025,6 +4281,21 @@ func validateSseKmsEncryptedObjects(v *types.SseKmsEncryptedObjects) error {
 	invalidParams := smithy.InvalidParamsError{Context: "SseKmsEncryptedObjects"}
 	if len(v.Status) == 0 {
 		invalidParams.Add(smithy.NewErrParamRequired("Status"))
+	}
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	} else {
+		return nil
+	}
+}
+
+func validateSSEKMSEncryption(v *types.SSEKMSEncryption) error {
+	if v == nil {
+		return nil
+	}
+	invalidParams := smithy.InvalidParamsError{Context: "SSEKMSEncryption"}
+	if v.KMSKeyArn == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("KMSKeyArn"))
 	}
 	if invalidParams.Len() > 0 {
 		return invalidParams
@@ -4659,6 +4930,27 @@ func validateOpDeleteBucketWebsiteInput(v *DeleteBucketWebsiteInput) error {
 	}
 }
 
+func validateOpDeleteObjectAnnotationInput(v *DeleteObjectAnnotationInput) error {
+	if v == nil {
+		return nil
+	}
+	invalidParams := smithy.InvalidParamsError{Context: "DeleteObjectAnnotationInput"}
+	if v.Bucket == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("Bucket"))
+	}
+	if v.Key == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("Key"))
+	}
+	if v.AnnotationName == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("AnnotationName"))
+	}
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	} else {
+		return nil
+	}
+}
+
 func validateOpDeleteObjectInput(v *DeleteObjectInput) error {
 	if v == nil {
 		return nil
@@ -4722,6 +5014,21 @@ func validateOpDeletePublicAccessBlockInput(v *DeletePublicAccessBlockInput) err
 		return nil
 	}
 	invalidParams := smithy.InvalidParamsError{Context: "DeletePublicAccessBlockInput"}
+	if v.Bucket == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("Bucket"))
+	}
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	} else {
+		return nil
+	}
+}
+
+func validateOpGetBucketAbacInput(v *GetBucketAbacInput) error {
+	if v == nil {
+		return nil
+	}
+	invalidParams := smithy.InvalidParamsError{Context: "GetBucketAbacInput"}
 	if v.Bucket == nil {
 		invalidParams.Add(smithy.NewErrParamRequired("Bucket"))
 	}
@@ -5092,6 +5399,27 @@ func validateOpGetObjectAclInput(v *GetObjectAclInput) error {
 	}
 }
 
+func validateOpGetObjectAnnotationInput(v *GetObjectAnnotationInput) error {
+	if v == nil {
+		return nil
+	}
+	invalidParams := smithy.InvalidParamsError{Context: "GetObjectAnnotationInput"}
+	if v.Bucket == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("Bucket"))
+	}
+	if v.Key == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("Key"))
+	}
+	if v.AnnotationName == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("AnnotationName"))
+	}
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	} else {
+		return nil
+	}
+}
+
 func validateOpGetObjectAttributesInput(v *GetObjectAttributesInput) error {
 	if v == nil {
 		return nil
@@ -5341,6 +5669,24 @@ func validateOpListMultipartUploadsInput(v *ListMultipartUploadsInput) error {
 	}
 }
 
+func validateOpListObjectAnnotationsInput(v *ListObjectAnnotationsInput) error {
+	if v == nil {
+		return nil
+	}
+	invalidParams := smithy.InvalidParamsError{Context: "ListObjectAnnotationsInput"}
+	if v.Bucket == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("Bucket"))
+	}
+	if v.Key == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("Key"))
+	}
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	} else {
+		return nil
+	}
+}
+
 func validateOpListObjectsInput(v *ListObjectsInput) error {
 	if v == nil {
 		return nil
@@ -5399,6 +5745,24 @@ func validateOpListPartsInput(v *ListPartsInput) error {
 	}
 	if v.UploadId == nil {
 		invalidParams.Add(smithy.NewErrParamRequired("UploadId"))
+	}
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	} else {
+		return nil
+	}
+}
+
+func validateOpPutBucketAbacInput(v *PutBucketAbacInput) error {
+	if v == nil {
+		return nil
+	}
+	invalidParams := smithy.InvalidParamsError{Context: "PutBucketAbacInput"}
+	if v.Bucket == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("Bucket"))
+	}
+	if v.AbacStatus == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("AbacStatus"))
 	}
 	if invalidParams.Len() > 0 {
 		return invalidParams
@@ -5822,6 +6186,30 @@ func validateOpPutObjectAclInput(v *PutObjectAclInput) error {
 	}
 }
 
+func validateOpPutObjectAnnotationInput(v *PutObjectAnnotationInput) error {
+	if v == nil {
+		return nil
+	}
+	invalidParams := smithy.InvalidParamsError{Context: "PutObjectAnnotationInput"}
+	if v.Bucket == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("Bucket"))
+	}
+	if v.Key == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("Key"))
+	}
+	if v.AnnotationName == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("AnnotationName"))
+	}
+	if v.AnnotationPayload == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("AnnotationPayload"))
+	}
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	} else {
+		return nil
+	}
+}
+
 func validateOpPutObjectInput(v *PutObjectInput) error {
 	if v == nil {
 		return nil
@@ -6008,6 +6396,28 @@ func validateOpSelectObjectContentInput(v *SelectObjectContentInput) error {
 	}
 }
 
+func validateOpUpdateBucketMetadataAnnotationTableConfigurationInput(v *UpdateBucketMetadataAnnotationTableConfigurationInput) error {
+	if v == nil {
+		return nil
+	}
+	invalidParams := smithy.InvalidParamsError{Context: "UpdateBucketMetadataAnnotationTableConfigurationInput"}
+	if v.Bucket == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("Bucket"))
+	}
+	if v.AnnotationTableConfiguration == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("AnnotationTableConfiguration"))
+	} else if v.AnnotationTableConfiguration != nil {
+		if err := validateAnnotationTableConfigurationUpdates(v.AnnotationTableConfiguration); err != nil {
+			invalidParams.AddNested("AnnotationTableConfiguration", err.(smithy.InvalidParamsError))
+		}
+	}
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	} else {
+		return nil
+	}
+}
+
 func validateOpUpdateBucketMetadataInventoryTableConfigurationInput(v *UpdateBucketMetadataInventoryTableConfigurationInput) error {
 	if v == nil {
 		return nil
@@ -6043,6 +6453,31 @@ func validateOpUpdateBucketMetadataJournalTableConfigurationInput(v *UpdateBucke
 	} else if v.JournalTableConfiguration != nil {
 		if err := validateJournalTableConfigurationUpdates(v.JournalTableConfiguration); err != nil {
 			invalidParams.AddNested("JournalTableConfiguration", err.(smithy.InvalidParamsError))
+		}
+	}
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	} else {
+		return nil
+	}
+}
+
+func validateOpUpdateObjectEncryptionInput(v *UpdateObjectEncryptionInput) error {
+	if v == nil {
+		return nil
+	}
+	invalidParams := smithy.InvalidParamsError{Context: "UpdateObjectEncryptionInput"}
+	if v.Bucket == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("Bucket"))
+	}
+	if v.Key == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("Key"))
+	}
+	if v.ObjectEncryption == nil {
+		invalidParams.Add(smithy.NewErrParamRequired("ObjectEncryption"))
+	} else if v.ObjectEncryption != nil {
+		if err := validateObjectEncryption(v.ObjectEncryption); err != nil {
+			invalidParams.AddNested("ObjectEncryption", err.(smithy.InvalidParamsError))
 		}
 	}
 	if invalidParams.Len() > 0 {
