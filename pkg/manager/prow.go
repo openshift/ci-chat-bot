@@ -909,12 +909,14 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 		var args []string
 		for _, arg := range container.Args {
-			if strings.HasPrefix(arg, "--namespace") {
+			if strings.HasPrefix(arg, "--namespace") || strings.HasPrefix(arg, "--delete-when-idle") || strings.HasPrefix(arg, "--delete-after") {
 				continue
 			}
 			args = append(args, arg)
 		}
-		args = append(args, `--namespace=$(NAMESPACE)`)
+		// Keep the namespace around for a week like build jobs; without these flags
+		// ci-operator defaults to a 1h soft TTL and the images disappear while the MCE cluster is still up.
+		args = append(args, `--namespace=$(NAMESPACE)`, `--delete-when-idle=$(PRESERVE_DURATION)`, `--delete-after=$(DELETE_AFTER)`)
 
 		envPrefix := strings.Join(restoreImageVariableScript, " ")
 		container.Command = []string{"/bin/bash", "-c"}
