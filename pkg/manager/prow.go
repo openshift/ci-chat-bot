@@ -1227,6 +1227,9 @@ func (m *jobManager) waitForJob(job *Job) error {
 	} else if job.Operator.Is {
 		setupContainerTimeout = 105 * time.Minute
 	}
+	if jobHasRefs(job) {
+		setupContainerTimeout += 30 * time.Minute
+	}
 
 	if job.Mode != JobTypeLaunch && job.Mode != JobTypeWorkflowLaunch {
 		klog.Infof("Job %s will report results at %s (to %s / %s)", job.Name, job.URL, job.RequestedBy, job.RequestedChannel)
