@@ -2475,6 +2475,7 @@ func (m *jobManager) handleJobStartup(job Job, source string) {
 				klog.Errorf("Job %q timed out waiting for prowjob to start (%s): %v", job.Name, source, err)
 			} else if strings.HasPrefix(err.Error(), "cluster never became available") && m.prowJobIsStillRunning(job.Name) {
 				klog.Warningf("Job %q monitoring window expired but prowjob is still running (%s): %v -- deferring to sync loop", job.Name, source, err)
+				return
 			} else {
 				klog.Errorf("Job %q failed to launch (%s): %v", job.Name, source, err)
 				job.Failure = err.Error()
