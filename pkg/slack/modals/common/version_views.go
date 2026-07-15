@@ -107,7 +107,7 @@ func BuildFilterVersionView(config FilterVersionViewConfig) slackClient.ModalVie
 				Text: &slackClient.TextBlockObject{
 					Type:     slackClient.PlainTextType,
 					Text:     "Version Specifications",
-					Emoji:    false,
+					Emoji:    new(bool),
 					Verbatim: false,
 				},
 			},
@@ -163,7 +163,7 @@ func BuildFilterVersionView(config FilterVersionViewConfig) slackClient.ModalVie
 					&slackClient.TextBlockObject{
 						Type:     slackClient.PlainTextType,
 						Text:     config.ContextMetadata,
-						Emoji:    false,
+						Emoji:    new(bool),
 						Verbatim: false,
 					},
 				}},
@@ -241,7 +241,7 @@ func BuildSelectVersionView(config SelectVersionViewConfig) slackClient.ModalVie
 				Text: &slackClient.TextBlockObject{
 					Type:     slackClient.PlainTextType,
 					Text:     "Select a Version",
-					Emoji:    false,
+					Emoji:    new(bool),
 					Verbatim: false,
 				},
 			},
@@ -270,7 +270,7 @@ func BuildSelectVersionView(config SelectVersionViewConfig) slackClient.ModalVie
 					&slackClient.TextBlockObject{
 						Type:     slackClient.PlainTextType,
 						Text:     config.ContextMetadata,
-						Emoji:    false,
+						Emoji:    new(bool),
 						Verbatim: false,
 					},
 				}},
@@ -344,7 +344,7 @@ func BuildSelectMinorMajorView(config ReleaseViewConfig) slackClient.ModalViewRe
 				Text: &slackClient.TextBlockObject{
 					Type:     slackClient.PlainTextType,
 					Text:     "There are too many results from the selected Stream. Select a Major.Minor as well",
-					Emoji:    false,
+					Emoji:    new(bool),
 					Verbatim: false,
 				},
 			},
@@ -373,7 +373,7 @@ func BuildSelectMinorMajorView(config ReleaseViewConfig) slackClient.ModalViewRe
 					&slackClient.TextBlockObject{
 						Type:     slackClient.PlainTextType,
 						Text:     config.ContextMetadata,
-						Emoji:    false,
+						Emoji:    new(bool),
 						Verbatim: false,
 					},
 				}},
@@ -404,7 +404,7 @@ func BuildPRInputView(config BaseViewConfig) slackClient.ModalViewRequest {
 				Text: &slackClient.TextBlockObject{
 					Type:     slackClient.PlainTextType,
 					Text:     "Enter A PR",
-					Emoji:    false,
+					Emoji:    new(bool),
 					Verbatim: false,
 				},
 			},
@@ -428,7 +428,7 @@ func BuildPRInputView(config BaseViewConfig) slackClient.ModalViewRequest {
 					&slackClient.TextBlockObject{
 						Type:     slackClient.PlainTextType,
 						Text:     config.ContextMetadata,
-						Emoji:    false,
+						Emoji:    new(bool),
 						Verbatim: false,
 					},
 				}},
@@ -496,7 +496,7 @@ func BuildSelectModeView(config SelectModeViewConfig) slackClient.ModalViewReque
 				Text: &slackClient.TextBlockObject{
 					Type:     slackClient.PlainTextType,
 					Text:     "Do you want to launch from a PR?",
-					Emoji:    false,
+					Emoji:    new(bool),
 					Verbatim: false,
 				},
 			},
@@ -522,7 +522,7 @@ func BuildSelectModeView(config SelectModeViewConfig) slackClient.ModalViewReque
 					&slackClient.TextBlockObject{
 						Type:     slackClient.PlainTextType,
 						Text:     config.ContextMetadata,
-						Emoji:    false,
+						Emoji:    new(bool),
 						Verbatim: false,
 					},
 				}},

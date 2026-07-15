@@ -1,12 +1,13 @@
 package stepsFromApp
 
 import (
+	"github.com/openshift/ci-chat-bot/pkg/slack/events/workflowSubmissionEvents"
 	"github.com/slack-go/slack"
 )
 
-func StepFromAppSubmit(callback *slack.InteractionCallback) (slack.WorkflowStepInputs, []slack.WorkflowStepOutput) {
-	inputMap := make(slack.WorkflowStepInputs)
-	outputMap := []slack.WorkflowStepOutput{
+func StepFromAppSubmit(callback *slack.InteractionCallback) (workflowSubmissionEvents.WorkflowStepInputs, []workflowSubmissionEvents.WorkflowStepOutput) {
+	inputMap := make(workflowSubmissionEvents.WorkflowStepInputs)
+	outputMap := []workflowSubmissionEvents.WorkflowStepOutput{
 		{
 			Name:  "issue.key",
 			Type:  "text",
@@ -24,7 +25,7 @@ func StepFromAppSubmit(callback *slack.InteractionCallback) (slack.WorkflowStepI
 		},
 	}
 	for key, text := range callback.View.State.Values {
-		var input slack.WorkflowStepInputElement
+		var input workflowSubmissionEvents.WorkflowStepInputElement
 		for _, subInput := range text {
 			// we expect a single value here. If the array has multiple arrays, the last element proceeds.
 			input.Value = subInput.Value

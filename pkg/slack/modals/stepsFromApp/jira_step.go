@@ -16,7 +16,7 @@ const (
 
 func WorkflowStepEditView(callback *slack.InteractionCallback) slack.ModalViewRequest {
 	return slack.ModalViewRequest{
-		Type:            slack.VTWorkflowStep,
+		Type:            "workflow_step",
 		PrivateMetadata: string(Identifier),
 		CallbackID:      callback.CallbackID,
 		Blocks: slack.Blocks{BlockSet: []slack.Block{

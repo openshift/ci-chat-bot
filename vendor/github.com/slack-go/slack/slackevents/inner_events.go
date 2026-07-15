@@ -3,6 +3,8 @@
 package slackevents
 
 import (
+	"encoding/json"
+
 	"github.com/slack-go/slack"
 )
 
@@ -10,6 +12,40 @@ import (
 type EventsAPIInnerEvent struct {
 	Type string `json:"type"`
 	Data interface{}
+}
+
+// AssistantThreadMessageEvent is an (inner) EventsAPI subscribable event.
+type AssistantThreadStartedEvent struct {
+	Type            string          `json:"type"`
+	AssistantThread AssistantThread `json:"assistant_thread"`
+	EventTimestamp  string          `json:"event_ts"`
+}
+
+// AssistantThreadChangedEvent is an (inner) EventsAPI subscribable event.
+type AssistantThreadContextChangedEvent struct {
+	Type            string          `json:"type"`
+	AssistantThread AssistantThread `json:"assistant_thread"`
+	EventTimestamp  string          `json:"event_ts"`
+}
+
+// AssistantThread is an object that represents a thread of messages between a user and an assistant.
+type AssistantThread struct {
+	UserID          string                 `json:"user_id"`
+	Context         AssistantThreadContext `json:"context"`
+	ChannelID       string                 `json:"channel_id"`
+	ThreadTimeStamp string                 `json:"thread_ts"`
+}
+
+// AssistantThreadActionToken contains the action token for Data Access API queries
+type AssistantThreadActionToken struct {
+	ActionToken string `json:"action_token"`
+}
+
+// AssistantThreadContext is an object that represents the context of an assistant thread.
+type AssistantThreadContext struct {
+	ChannelID    string `json:"channel_id"`
+	TeamID       string `json:"team_id"`
+	EnterpriseID string `json:"enterprise_id"`
 }
 
 // AppMentionEvent is an (inner) EventsAPI subscribable event.
@@ -29,18 +65,27 @@ type AppMentionEvent struct {
 	// BotID is filled out when a bot triggers the app_mention event
 	BotID string `json:"bot_id,omitempty"`
 
+	// Fields shared with message events
+	Blocks      slack.Blocks       `json:"blocks,omitempty"`
+	Attachments []slack.Attachment `json:"attachments,omitempty"`
+	Files       []slack.File       `json:"files,omitempty"`
+	Upload      bool               `json:"upload,omitempty"`
+
 	// When the app is mentioned in the edited message
 	Edited *Edited `json:"edited,omitempty"`
+
+	// AssistantThread contains action token for Data Access API queries when app is mentioned
+	AssistantThread *AssistantThreadActionToken `json:"assistant_thread,omitempty"`
 }
 
 // AppHomeOpenedEvent Your Slack app home was opened.
 type AppHomeOpenedEvent struct {
-	Type           string     `json:"type"`
-	User           string     `json:"user"`
-	Channel        string     `json:"channel"`
-	EventTimeStamp string     `json:"event_ts"`
-	Tab            string     `json:"tab"`
-	View           slack.View `json:"view"`
+	Type           string      `json:"type"`
+	User           string      `json:"user"`
+	Channel        string      `json:"channel"`
+	EventTimeStamp string      `json:"event_ts"`
+	Tab            string      `json:"tab"`
+	View           *slack.View `json:"view,omitempty"`
 }
 
 // AppUninstalledEvent Your Slack app was uninstalled.
@@ -114,6 +159,15 @@ type ChannelRenameInfo struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Created int    `json:"created"`
+}
+
+// ChannelUnsharedEvent represents a channel has been unshared with an external workspace event
+type ChannelUnsharedEvent struct {
+	Type                      string `json:"type"`
+	PreviouslyConnectedTeamID string `json:"previously_connected_team_id"`
+	Channel                   string `json:"channel"`
+	IsExtShared               bool   `json:"is_ext_shared"`
+	EventTimestamp            string `json:"event_ts"`
 }
 
 // GroupDeletedEvent represents the Group deleted event
@@ -231,33 +285,46 @@ type SharedLinks struct {
 	URL    string `json:"url"`
 }
 
+const (
+	ChannelTypeChannel = "channel" // Public channel message
+	ChannelTypeGroup   = "group"   // Private channel message
+	ChannelTypeIM      = "im"      // Direct message
+	ChannelTypeMPIM    = "mpim"    // Multiparty direct message
+)
+
 // MessageEvent occurs when a variety of types of messages has been posted.
 // Parse ChannelType to see which
 // if ChannelType = "group", this is a private channel message
 // if ChannelType = "channel", this message was sent to a channel
 // if ChannelType = "im", this is a private message
-// if ChannelType = "mim", A message was posted in a multiparty direct message channel
-// TODO: Improve this so that it is not required to manually parse ChannelType
+// if ChannelType = "mpim", A message was posted in a multiparty direct message channel
 type MessageEvent struct {
 	// Basic Message Event - https://api.slack.com/events/message
-	ClientMsgID     string `json:"client_msg_id"`
-	Type            string `json:"type"`
-	User            string `json:"user"`
-	Text            string `json:"text"`
-	ThreadTimeStamp string `json:"thread_ts"`
-	TimeStamp       string `json:"ts"`
-	Channel         string `json:"channel"`
-	ChannelType     string `json:"channel_type"`
-	EventTimeStamp  string `json:"event_ts"`
+	ClientMsgID     string       `json:"client_msg_id"`
+	Type            string       `json:"type"`
+	User            string       `json:"user"`
+	Text            string       `json:"text"`
+	Blocks          slack.Blocks `json:"blocks,omitempty"`
+	ThreadTimeStamp string       `json:"thread_ts"`
+	TimeStamp       string       `json:"ts"`
+	Channel         string       `json:"channel"`
+	ChannelType     string       `json:"channel_type"`
+	EventTimeStamp  string       `json:"event_ts"`
 
 	// When Message comes from a channel that is shared between workspaces
 	UserTeam   string `json:"user_team,omitempty"`
 	SourceTeam string `json:"source_team,omitempty"`
 
+	// When we get a 'message' event with no subtype, i.e. telling us about a new
+	// message, the message information is stored at the top level. But when we get
+	// a 'message_changed' event, the message information is stored in
+	// the Message property. This is really hard to represent nicely in Go, so we use
+	// a custom JSON unmarshaller to populate the Message field in both cases.
+	Message *slack.Msg `json:"message,omitempty"`
+	// Root is set if the SubType is `thread_broadcast`.
+	Root *slack.Msg `json:"root,omitempty"`
 	// Edited Message
-	Message         *MessageEvent `json:"message,omitempty"`
-	PreviousMessage *MessageEvent `json:"previous_message,omitempty"`
-	Edited          *Edited       `json:"edited,omitempty"`
+	PreviousMessage *slack.Msg `json:"previous_message,omitempty"`
 
 	// Deleted Message
 	DeletedTimeStamp string `json:"deleted_ts,omitempty"`
@@ -266,22 +333,57 @@ type MessageEvent struct {
 	SubType string `json:"subtype,omitempty"`
 
 	// bot_message (https://api.slack.com/events/message/bot_message)
-	BotID    string `json:"bot_id,omitempty"`
-	Username string `json:"username,omitempty"`
-	Icons    *Icon  `json:"icons,omitempty"`
+	BotID      string `json:"bot_id,omitempty"`
+	Username   string `json:"username,omitempty"`
+	Icons      *Icon  `json:"icons,omitempty"`
+	WorkflowID string `json:"workflow_id,omitempty"`
 
-	Upload bool   `json:"upload"`
-	Files  []File `json:"files"`
+	// AssistantThread contains action token for Data Access API queries in message events
+	AssistantThread *AssistantThreadActionToken `json:"assistant_thread,omitempty"`
 
-	Blocks      slack.Blocks       `json:"blocks,omitempty"`
-	Attachments []slack.Attachment `json:"attachments,omitempty"`
+	// Huddle-related fields (subtype "huddle_thread")
+	Room            *slack.HuddleRoom `json:"room,omitempty"`
+	NoNotifications bool              `json:"no_notifications,omitempty"`
+	Permalink       string            `json:"permalink,omitempty"`
+}
 
-	Metadata slack.SlackMetadata `json:"metadata,omitempty"`
+func (e *MessageEvent) IsIM() bool      { return e.ChannelType == ChannelTypeIM }
+func (e *MessageEvent) IsChannel() bool { return e.ChannelType == ChannelTypeChannel }
+func (e *MessageEvent) IsGroup() bool   { return e.ChannelType == ChannelTypeGroup }
+func (e *MessageEvent) IsMpIM() bool    { return e.ChannelType == ChannelTypeMPIM }
 
-	// Root is the message that was broadcast to the channel when the SubType is
-	// thread_broadcast. If this is not a thread_broadcast message event, this
-	// value is nil.
-	Root *MessageEvent `json:"root"`
+// UnmarshalJSON implements the json.Unmarshaler interface for MessageEvent.
+// This custom unmarshaler handles both regular messages and message_changed events
+// by normalizing the message data into the Message field.
+func (e *MessageEvent) UnmarshalJSON(data []byte) error {
+	// First, unmarshal into an anonymous struct to avoid infinite recursion
+	// when calling json.Unmarshal on the MessageEvent type itself
+	type MessageEventAlias MessageEvent
+	alias := struct {
+		MessageEventAlias
+	}{}
+
+	if err := json.Unmarshal(data, &alias.MessageEventAlias); err != nil {
+		return err
+	}
+
+	// Copy all fields from alias to the original struct
+	*e = MessageEvent(alias.MessageEventAlias)
+
+	// Now check if there's no Message field (which would happen for regular messages)
+	if e.Message == nil {
+		// For regular messages, the message content is at the top level,
+		// so we need to unmarshal the data again into a slack.Msg
+		msg := &slack.Msg{}
+		if err := json.Unmarshal(data, msg); err != nil {
+			return err
+		}
+
+		// Set the Message field to the unmarshaled msg
+		e.Message = msg
+	}
+
+	return nil
 }
 
 // MemberJoinedChannelEvent A member joined a public or private channel
@@ -374,14 +476,6 @@ type EmojiChangedEvent struct {
 	Value string `json:"value,omitempty"`
 }
 
-// WorkflowStepExecuteEvent is fired, if a workflow step of your app is invoked
-type WorkflowStepExecuteEvent struct {
-	Type           string            `json:"type"`
-	CallbackID     string            `json:"callback_id"`
-	WorkflowStep   EventWorkflowStep `json:"workflow_step"`
-	EventTimestamp string            `json:"event_ts"`
-}
-
 // MessageMetadataPostedEvent is sent, if a message with metadata is posted
 type MessageMetadataPostedEvent struct {
 	Type             string               `json:"type"`
@@ -421,15 +515,6 @@ type MessageMetadataDeletedEvent struct {
 	TeamId           string               `json:"team_id"`
 	MessageTimestamp string               `json:"message_ts"`
 	DeletedTimestamp string               `json:"deleted_ts"`
-}
-
-type EventWorkflowStep struct {
-	WorkflowStepExecuteID string                      `json:"workflow_step_execute_id"`
-	WorkflowID            string                      `json:"workflow_id"`
-	WorkflowInstanceID    string                      `json:"workflow_instance_id"`
-	StepID                string                      `json:"step_id"`
-	Inputs                *slack.WorkflowStepInputs   `json:"inputs,omitempty"`
-	Outputs               *[]slack.WorkflowStepOutput `json:"outputs,omitempty"`
 }
 
 // JSONTime exists so that we can have a String method converting the date
@@ -773,9 +858,9 @@ type SubteamMembersChangedEvent struct {
 	DatePreviousUpdate int      `json:"date_previous_update"`
 	DateUpdate         int64    `json:"date_update"`
 	AddedUsers         []string `json:"added_users"`
-	AddedUsersCount    string   `json:"added_users_count"`
+	AddedUsersCount    int      `json:"added_users_count"`
 	RemovedUsers       []string `json:"removed_users"`
-	RemovedUsersCount  string   `json:"removed_users_count"`
+	RemovedUsersCount  int      `json:"removed_users_count"`
 }
 
 type SubteamSelfAddedEvent struct {
@@ -957,11 +1042,11 @@ type FunctionExecutedEvent struct {
 		DateUpdated int64  `json:"date_updated"`
 		DateDeleted int64  `json:"date_deleted"`
 	} `json:"function"`
-	Inputs              map[string]string `json:"inputs"`
-	FunctionExecutionID string            `json:"function_execution_id"`
-	WorkflowExecutionID string            `json:"workflow_execution_id"`
-	EventTs             string            `json:"event_ts"`
-	BotAccessToken      string            `json:"bot_access_token"`
+	Inputs              map[string]interface{} `json:"inputs"`
+	FunctionExecutionID string                 `json:"function_execution_id"`
+	WorkflowExecutionID string                 `json:"workflow_execution_id"`
+	EventTs             string                 `json:"event_ts"`
+	BotAccessToken      string                 `json:"bot_access_token"`
 }
 
 type InviteRequestedEvent struct {
@@ -1064,6 +1149,36 @@ type UserStatusChangedEvent struct {
 	EventTS string `json:"event_ts"`
 }
 
+// EntityDetailsRequestedEvent is sent when entity details are requested
+// This event is fired when a user clicks on a Work Object link and Slack requests
+// details about the entity from your app.
+type EntityDetailsRequestedEvent struct {
+	Type         string                            `json:"type"`
+	User         string                            `json:"user"`
+	ExternalRef  EntityDetailsRequestedExternalRef `json:"external_ref"`
+	EntityURL    string                            `json:"entity_url"`
+	Link         EntityDetailsRequestedLink        `json:"link"`
+	AppUnfurlURL string                            `json:"app_unfurl_url"`
+	EventTS      string                            `json:"event_ts"`
+	TriggerID    string                            `json:"trigger_id"`
+	UserLocale   string                            `json:"user_locale"`
+	Channel      string                            `json:"channel,omitempty"`
+	MessageTs    string                            `json:"message_ts,omitempty"`
+	ThreadTs     string                            `json:"thread_ts,omitempty"`
+}
+
+// EntityDetailsRequestedExternalRef represents the external reference in entity_details_requested event
+type EntityDetailsRequestedExternalRef struct {
+	ID   string `json:"id"`
+	Type string `json:"type,omitempty"`
+}
+
+// EntityDetailsRequestedLink represents the link information in entity_details_requested event
+type EntityDetailsRequestedLink struct {
+	URL    string `json:"url"`
+	Domain string `json:"domain"`
+}
+
 type Actor struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -1111,94 +1226,46 @@ type SharedChannelInviteRequestedEvent struct {
 type EventsAPIType string
 
 const (
-	// AppMention is an Events API subscribable event
-	AppMention = EventsAPIType("app_mention")
+	// AppDeleted is an event when an app is deleted from a workspace
+	AppDeleted = EventsAPIType("app_deleted")
 	// AppHomeOpened Your Slack app home was opened
 	AppHomeOpened = EventsAPIType("app_home_opened")
+	// AppInstalled is an event when an app is installed to a workspace
+	AppInstalled = EventsAPIType("app_installed")
+	// AppMention is an Events API subscribable event
+	AppMention = EventsAPIType("app_mention")
+	// AppRequested is an event when a user requests to install an app to a workspace
+	AppRequested = EventsAPIType("app_requested")
 	// AppUninstalled Your Slack app was uninstalled.
 	AppUninstalled = EventsAPIType("app_uninstalled")
+	// AppUninstalledTeam is an event when an app is uninstalled from a team
+	AppUninstalledTeam = EventsAPIType("app_uninstalled_team")
+	// AssistantThreadContextChanged Your Slack AI Assistant has changed the context of a thread
+	AssistantThreadContextChanged = EventsAPIType("assistant_thread_context_changed")
+	// AssistantThreadStarted Your Slack AI Assistant has started a new thread
+	AssistantThreadStarted = EventsAPIType("assistant_thread_started")
+	// CallRejected is an event when a Slack call is rejected
+	CallRejected = EventsAPIType("call_rejected")
+	// ChannelArchive is sent when a channel is archived.
+	ChannelArchive = EventsAPIType("channel_archive")
 	// ChannelCreated is sent when a new channel is created.
 	ChannelCreated = EventsAPIType("channel_created")
 	// ChannelDeleted is sent when a channel is deleted.
 	ChannelDeleted = EventsAPIType("channel_deleted")
-	// ChannelArchive is sent when a channel is archived.
-	ChannelArchive = EventsAPIType("channel_archive")
-	// ChannelUnarchive is sent when a channel is unarchived.
-	ChannelUnarchive = EventsAPIType("channel_unarchive")
+	// ChannelHistoryChanged The history of a channel changed
+	ChannelHistoryChanged = EventsAPIType("channel_history_changed")
+	// ChannelIDChanged is sent when a channel identifier is changed.
+	ChannelIDChanged = EventsAPIType("channel_id_changed")
 	// ChannelLeft is sent when a channel is left.
 	ChannelLeft = EventsAPIType("channel_left")
 	// ChannelRename is sent when a channel is rename.
 	ChannelRename = EventsAPIType("channel_rename")
-	// ChannelIDChanged is sent when a channel identifier is changed.
-	ChannelIDChanged = EventsAPIType("channel_id_changed")
-	// GroupDeleted is sent when a group is deleted.
-	GroupDeleted = EventsAPIType("group_deleted")
-	// GroupArchive is sent when a group is archived.
-	GroupArchive = EventsAPIType("group_archive")
-	// GroupUnarchive is sent when a group is unarchived.
-	GroupUnarchive = EventsAPIType("group_unarchive")
-	// GroupLeft is sent when a group is left.
-	GroupLeft = EventsAPIType("group_left")
-	// GroupRename is sent when a group is renamed.
-	GroupRename = EventsAPIType("group_rename")
-	// FileChange is sent when a file is changed.
-	FileChange = EventsAPIType("file_change")
-	// FileDeleted is sent when a file is deleted.
-	FileDeleted = EventsAPIType("file_deleted")
-	// FileShared is sent when a file is shared.
-	FileShared = EventsAPIType("file_shared")
-	// FileUnshared is sent when a file is unshared.
-	FileUnshared = EventsAPIType("file_unshared")
-	// GridMigrationFinished An enterprise grid migration has finished on this workspace.
-	GridMigrationFinished = EventsAPIType("grid_migration_finished")
-	// GridMigrationStarted An enterprise grid migration has started on this workspace.
-	GridMigrationStarted = EventsAPIType("grid_migration_started")
-	// LinkShared A message was posted containing one or more links relevant to your application
-	LinkShared = EventsAPIType("link_shared")
-	// Message A message was posted to a channel, private channel (group), im, or mim
-	Message = EventsAPIType("message")
-	// MemberJoinedChannel is sent if a member joined a channel.
-	MemberJoinedChannel = EventsAPIType("member_joined_channel")
-	// MemberLeftChannel is sent if a member left a channel.
-	MemberLeftChannel = EventsAPIType("member_left_channel")
-	// PinAdded An item was pinned to a channel
-	PinAdded = EventsAPIType("pin_added")
-	// PinRemoved An item was unpinned from a channel
-	PinRemoved = EventsAPIType("pin_removed")
-	// ReactionAdded An reaction was added to a message
-	ReactionAdded = EventsAPIType("reaction_added")
-	// ReactionRemoved An reaction was removed from a message
-	ReactionRemoved = EventsAPIType("reaction_removed")
-	// TeamJoin A new user joined the workspace
-	TeamJoin = EventsAPIType("team_join")
-	// Slack connect app or bot invite received
-	SharedChannelInviteReceived = EventsAPIType("shared_channel_invite_received")
-	// Slack connect channel invite approved
-	SharedChannelInviteApproved = EventsAPIType("shared_channel_invite_approved")
-	// Slack connect channel invite declined
-	SharedChannelInviteDeclined = EventsAPIType("shared_channel_invite_declined")
-	// Slack connect channel invite accepted by an end user
-	SharedChannelInviteAccepted = EventsAPIType("shared_channel_invite_accepted")
-	// TokensRevoked APP's API tokes are revoked
-	TokensRevoked = EventsAPIType("tokens_revoked")
-	// EmojiChanged A custom emoji has been added or changed
-	EmojiChanged = EventsAPIType("emoji_changed")
-	// WorkflowStepExecute Happens, if a workflow step of your app is invoked
-	WorkflowStepExecute = EventsAPIType("workflow_step_execute")
-	// MessageMetadataPosted A message with metadata was posted
-	MessageMetadataPosted = EventsAPIType("message_metadata_posted")
-	// MessageMetadataUpdated A message with metadata was updated
-	MessageMetadataUpdated = EventsAPIType("message_metadata_updated")
-	// MessageMetadataDeleted A message with metadata was deleted
-	MessageMetadataDeleted = EventsAPIType("message_metadata_deleted")
-	// TeamAccessGranted is sent if access to teams was granted for your org-wide app.
-	TeamAccessGranted = EventsAPIType("team_access_granted")
-	// TeamAccessRevoked is sent if access to teams was revoked for your org-wide app.
-	TeamAccessRevoked = EventsAPIType("team_access_revoked")
-	// UserProfileChanged is sent if a user's profile information has changed.
-	UserProfileChanged = EventsAPIType("user_profile_changed")
-	// ChannelHistoryChanged The history of a channel changed
-	ChannelHistoryChanged = EventsAPIType("channel_history_changed")
+	// ChannelShared is an event when a channel is shared with another workspace
+	ChannelShared = EventsAPIType("channel_shared")
+	// ChannelUnarchive is sent when a channel is unarchived.
+	ChannelUnarchive = EventsAPIType("channel_unarchive")
+	// ChannelUnshared is sent when a channel is unshared.
+	ChannelUnshared = EventsAPIType("channel_unshared")
 	// CommandsChanged A command was changed
 	CommandsChanged = EventsAPIType("commands_changed")
 	// DndUpdated Do Not Disturb settings were updated
@@ -1207,12 +1274,42 @@ const (
 	DndUpdatedUser = EventsAPIType("dnd_updated_user")
 	// EmailDomainChanged The email domain changed
 	EmailDomainChanged = EventsAPIType("email_domain_changed")
+	// EmojiChanged A custom emoji has been added or changed
+	EmojiChanged = EventsAPIType("emoji_changed")
+	// FileChange is sent when a file is changed.
+	FileChange = EventsAPIType("file_change")
+	// FileCreated is an event when a file is created in a workspace
+	FileCreated = EventsAPIType("file_created")
+	// FileDeleted is sent when a file is deleted.
+	FileDeleted = EventsAPIType("file_deleted")
+	// FilePublic is an event when a file is made public in a workspace
+	FilePublic = EventsAPIType("file_public")
+	// FileShared is sent when a file is shared.
+	FileShared = EventsAPIType("file_shared")
+	// FileUnshared is sent when a file is unshared.
+	FileUnshared = EventsAPIType("file_unshared")
+	// FunctionExecuted is an event when a Slack function is executed
+	FunctionExecuted = EventsAPIType("function_executed")
+	// GridMigrationFinished An enterprise grid migration has finished on this workspace.
+	GridMigrationFinished = EventsAPIType("grid_migration_finished")
+	// GridMigrationStarted An enterprise grid migration has started on this workspace.
+	GridMigrationStarted = EventsAPIType("grid_migration_started")
+	// GroupArchive is sent when a group is archived.
+	GroupArchive = EventsAPIType("group_archive")
 	// GroupClose A group was closed
 	GroupClose = EventsAPIType("group_close")
+	// GroupDeleted is sent when a group is deleted.
+	GroupDeleted = EventsAPIType("group_deleted")
 	// GroupHistoryChanged The history of a group changed
 	GroupHistoryChanged = EventsAPIType("group_history_changed")
+	// GroupLeft is sent when a group is left.
+	GroupLeft = EventsAPIType("group_left")
 	// GroupOpen A group was opened
 	GroupOpen = EventsAPIType("group_open")
+	// GroupRename is sent when a group is renamed.
+	GroupRename = EventsAPIType("group_rename")
+	// GroupUnarchive is sent when a group is unarchived.
+	GroupUnarchive = EventsAPIType("group_unarchive")
 	// ImClose An instant message channel was closed
 	ImClose = EventsAPIType("im_close")
 	// ImCreated An instant message channel was created
@@ -1221,6 +1318,44 @@ const (
 	ImHistoryChanged = EventsAPIType("im_history_changed")
 	// ImOpen An instant message channel was opened
 	ImOpen = EventsAPIType("im_open")
+	// InviteRequested is an event when a user requests an invite to a workspace
+	InviteRequested = EventsAPIType("invite_requested")
+	// LinkShared A message was posted containing one or more links relevant to your application
+	LinkShared = EventsAPIType("link_shared")
+	// MemberJoinedChannel is sent if a member joined a channel.
+	MemberJoinedChannel = EventsAPIType("member_joined_channel")
+	// MemberLeftChannel is sent if a member left a channel.
+	MemberLeftChannel = EventsAPIType("member_left_channel")
+	// Message A message was posted to a channel, private channel (group), im, or mim
+	Message = EventsAPIType("message")
+	// MessageMetadataDeleted A message with metadata was deleted
+	MessageMetadataDeleted = EventsAPIType("message_metadata_deleted")
+	// MessageMetadataPosted A message with metadata was posted
+	MessageMetadataPosted = EventsAPIType("message_metadata_posted")
+	// MessageMetadataUpdated A message with metadata was updated
+	MessageMetadataUpdated = EventsAPIType("message_metadata_updated")
+	// PinAdded An item was pinned to a channel
+	PinAdded = EventsAPIType("pin_added")
+	// PinRemoved An item was unpinned from a channel
+	PinRemoved = EventsAPIType("pin_removed")
+	// ReactionAdded An reaction was added to a message
+	ReactionAdded = EventsAPIType("reaction_added")
+	// ReactionRemoved An reaction was removed from a message
+	ReactionRemoved = EventsAPIType("reaction_removed")
+	// SharedChannelInviteAccepted Slack connect channel invite accepted by an end user
+	SharedChannelInviteAccepted = EventsAPIType("shared_channel_invite_accepted")
+	// SharedChannelInviteApproved Slack connect channel invite approved
+	SharedChannelInviteApproved = EventsAPIType("shared_channel_invite_approved")
+	// SharedChannelInviteDeclined Slack connect channel invite declined
+	SharedChannelInviteDeclined = EventsAPIType("shared_channel_invite_declined")
+	// SharedChannelInviteReceived Slack connect app or bot invite received
+	SharedChannelInviteReceived = EventsAPIType("shared_channel_invite_received")
+	// SharedChannelInviteRequested is an event when an invitation to share a channel is requested
+	SharedChannelInviteRequested = EventsAPIType("shared_channel_invite_requested")
+	// StarAdded is an event when a star is added to a message or file
+	StarAdded = EventsAPIType("star_added")
+	// StarRemoved is an event when a star is removed from a message or file
+	StarRemoved = EventsAPIType("star_removed")
 	// SubteamCreated A subteam was created
 	SubteamCreated = EventsAPIType("subteam_created")
 	// SubteamMembersChanged The members of a subteam changed
@@ -1231,123 +1366,115 @@ const (
 	SubteamSelfRemoved = EventsAPIType("subteam_self_removed")
 	// SubteamUpdated A subteam was updated
 	SubteamUpdated = EventsAPIType("subteam_updated")
+	// TeamAccessGranted is sent if access to teams was granted for your org-wide app.
+	TeamAccessGranted = EventsAPIType("team_access_granted")
+	// TeamAccessRevoked is sent if access to teams was revoked for your org-wide app.
+	TeamAccessRevoked = EventsAPIType("team_access_revoked")
 	// TeamDomainChange The team's domain changed
 	TeamDomainChange = EventsAPIType("team_domain_change")
+	// TeamJoin A new user joined the workspace
+	TeamJoin = EventsAPIType("team_join")
 	// TeamRename The team was renamed
 	TeamRename = EventsAPIType("team_rename")
+	// TokensRevoked APP's API tokes are revoked
+	TokensRevoked = EventsAPIType("tokens_revoked")
 	// UserChange A user object has changed
 	UserChange = EventsAPIType("user_change")
-	// AppDeleted is an event when an app is deleted from a workspace
-	AppDeleted = EventsAPIType("app_deleted")
-	// AppInstalled is an event when an app is installed to a workspace
-	AppInstalled = EventsAPIType("app_installed")
-	// AppRequested is an event when a user requests to install an app to a workspace
-	AppRequested = EventsAPIType("app_requested")
-	// AppUninstalledTeam is an event when an app is uninstalled from a team
-	AppUninstalledTeam = EventsAPIType("app_uninstalled_team")
-	// CallRejected is an event when a Slack call is rejected
-	CallRejected = EventsAPIType("call_rejected")
-	// ChannelShared is an event when a channel is shared with another workspace
-	ChannelShared = EventsAPIType("channel_shared")
-	// FileCreated is an event when a file is created in a workspace
-	FileCreated = EventsAPIType("file_created")
-	// FilePublic is an event when a file is made public in a workspace
-	FilePublic = EventsAPIType("file_public")
-	// FunctionExecuted is an event when a Slack function is executed
-	FunctionExecuted = EventsAPIType("function_executed")
-	// InviteRequested is an event when a user requests an invite to a workspace
-	InviteRequested = EventsAPIType("invite_requested")
-	// SharedChannelInviteRequested is an event when an invitation to share a channel is requested
-	SharedChannelInviteRequested = EventsAPIType("shared_channel_invite_requested")
-	// StarAdded is an event when a star is added to a message or file
-	StarAdded = EventsAPIType("star_added")
-	// StarRemoved is an event when a star is removed from a message or file
-	StarRemoved = EventsAPIType("star_removed")
 	// UserHuddleChanged is an event when a user's huddle status changes
 	UserHuddleChanged = EventsAPIType("user_huddle_changed")
+	// UserProfileChanged is sent if a user's profile information has changed.
+	UserProfileChanged = EventsAPIType("user_profile_changed")
 	// UserStatusChanged is an event when a user's status changes
 	UserStatusChanged = EventsAPIType("user_status_changed")
+	// WorkflowStepExecute Happens, if a workflow step of your app is invoked
+	WorkflowStepExecute = EventsAPIType("workflow_step_execute")
+	// EntityDetailsRequested is sent when entity details are requested
+	EntityDetailsRequested = EventsAPIType("entity_details_requested")
 )
 
 // EventsAPIInnerEventMapping maps INNER Event API events to their corresponding struct
 // implementations. The structs should be instances of the unmarshalling
 // target for the matching event type.
 var EventsAPIInnerEventMapping = map[EventsAPIType]interface{}{
-	AppMention:                   AppMentionEvent{},
-	AppHomeOpened:                AppHomeOpenedEvent{},
-	AppUninstalled:               AppUninstalledEvent{},
-	ChannelCreated:               ChannelCreatedEvent{},
-	ChannelDeleted:               ChannelDeletedEvent{},
-	ChannelArchive:               ChannelArchiveEvent{},
-	ChannelUnarchive:             ChannelUnarchiveEvent{},
-	ChannelLeft:                  ChannelLeftEvent{},
-	ChannelRename:                ChannelRenameEvent{},
-	ChannelIDChanged:             ChannelIDChangedEvent{},
-	FileChange:                   FileChangeEvent{},
-	FileDeleted:                  FileDeletedEvent{},
-	FileShared:                   FileSharedEvent{},
-	FileUnshared:                 FileUnsharedEvent{},
-	GroupDeleted:                 GroupDeletedEvent{},
-	GroupArchive:                 GroupArchiveEvent{},
-	GroupUnarchive:               GroupUnarchiveEvent{},
-	GroupLeft:                    GroupLeftEvent{},
-	GroupRename:                  GroupRenameEvent{},
-	GridMigrationFinished:        GridMigrationFinishedEvent{},
-	GridMigrationStarted:         GridMigrationStartedEvent{},
-	LinkShared:                   LinkSharedEvent{},
-	Message:                      MessageEvent{},
-	MemberJoinedChannel:          MemberJoinedChannelEvent{},
-	MemberLeftChannel:            MemberLeftChannelEvent{},
-	PinAdded:                     PinAddedEvent{},
-	PinRemoved:                   PinRemovedEvent{},
-	ReactionAdded:                ReactionAddedEvent{},
-	ReactionRemoved:              ReactionRemovedEvent{},
-	SharedChannelInviteApproved:  SharedChannelInviteApprovedEvent{},
-	SharedChannelInviteAccepted:  SharedChannelInviteAcceptedEvent{},
-	SharedChannelInviteDeclined:  SharedChannelInviteDeclinedEvent{},
-	SharedChannelInviteReceived:  SharedChannelInviteReceivedEvent{},
-	TeamJoin:                     TeamJoinEvent{},
-	TokensRevoked:                TokensRevokedEvent{},
-	EmojiChanged:                 EmojiChangedEvent{},
-	WorkflowStepExecute:          WorkflowStepExecuteEvent{},
-	MessageMetadataPosted:        MessageMetadataPostedEvent{},
-	MessageMetadataUpdated:       MessageMetadataUpdatedEvent{},
-	MessageMetadataDeleted:       MessageMetadataDeletedEvent{},
-	TeamAccessGranted:            TeamAccessGrantedEvent{},
-	TeamAccessRevoked:            TeamAccessRevokedEvent{},
-	UserProfileChanged:           UserProfileChangedEvent{},
-	ChannelHistoryChanged:        ChannelHistoryChangedEvent{},
-	DndUpdated:                   DndUpdatedEvent{},
-	DndUpdatedUser:               DndUpdatedUserEvent{},
-	EmailDomainChanged:           EmailDomainChangedEvent{},
-	GroupClose:                   GroupCloseEvent{},
-	GroupHistoryChanged:          GroupHistoryChangedEvent{},
-	GroupOpen:                    GroupOpenEvent{},
-	ImClose:                      ImCloseEvent{},
-	ImCreated:                    ImCreatedEvent{},
-	ImHistoryChanged:             ImHistoryChangedEvent{},
-	ImOpen:                       ImOpenEvent{},
-	SubteamCreated:               SubteamCreatedEvent{},
-	SubteamMembersChanged:        SubteamMembersChangedEvent{},
-	SubteamSelfAdded:             SubteamSelfAddedEvent{},
-	SubteamSelfRemoved:           SubteamSelfRemovedEvent{},
-	SubteamUpdated:               SubteamUpdatedEvent{},
-	TeamDomainChange:             TeamDomainChangeEvent{},
-	TeamRename:                   TeamRenameEvent{},
-	UserChange:                   UserChangeEvent{},
-	AppDeleted:                   AppDeletedEvent{},
-	AppInstalled:                 AppInstalledEvent{},
-	AppRequested:                 AppRequestedEvent{},
-	AppUninstalledTeam:           AppUninstalledTeamEvent{},
-	CallRejected:                 CallRejectedEvent{},
-	ChannelShared:                ChannelSharedEvent{},
-	FileCreated:                  FileCreatedEvent{},
-	FilePublic:                   FilePublicEvent{},
-	FunctionExecuted:             FunctionExecutedEvent{},
-	InviteRequested:              InviteRequestedEvent{},
-	SharedChannelInviteRequested: SharedChannelInviteRequestedEvent{},
-	StarAdded:                    StarAddedEvent{},
-	StarRemoved:                  StarRemovedEvent{},
-	UserHuddleChanged:            UserHuddleChangedEvent{},
-	UserStatusChanged:            UserStatusChangedEvent{},
+	AppDeleted:                    AppDeletedEvent{},
+	AppHomeOpened:                 AppHomeOpenedEvent{},
+	AppInstalled:                  AppInstalledEvent{},
+	AppMention:                    AppMentionEvent{},
+	AppRequested:                  AppRequestedEvent{},
+	AppUninstalled:                AppUninstalledEvent{},
+	AppUninstalledTeam:            AppUninstalledTeamEvent{},
+	AssistantThreadContextChanged: AssistantThreadContextChangedEvent{},
+	AssistantThreadStarted:        AssistantThreadStartedEvent{},
+	CallRejected:                  CallRejectedEvent{},
+	ChannelArchive:                ChannelArchiveEvent{},
+	ChannelCreated:                ChannelCreatedEvent{},
+	ChannelDeleted:                ChannelDeletedEvent{},
+	ChannelHistoryChanged:         ChannelHistoryChangedEvent{},
+	ChannelIDChanged:              ChannelIDChangedEvent{},
+	ChannelLeft:                   ChannelLeftEvent{},
+	ChannelRename:                 ChannelRenameEvent{},
+	ChannelShared:                 ChannelSharedEvent{},
+	ChannelUnarchive:              ChannelUnarchiveEvent{},
+	ChannelUnshared:               ChannelUnsharedEvent{},
+	CommandsChanged:               CommandsChangedEvent{},
+	DndUpdated:                    DndUpdatedEvent{},
+	DndUpdatedUser:                DndUpdatedUserEvent{},
+	EmailDomainChanged:            EmailDomainChangedEvent{},
+	EmojiChanged:                  EmojiChangedEvent{},
+	FileChange:                    FileChangeEvent{},
+	FileCreated:                   FileCreatedEvent{},
+	FileDeleted:                   FileDeletedEvent{},
+	FilePublic:                    FilePublicEvent{},
+	FileShared:                    FileSharedEvent{},
+	FileUnshared:                  FileUnsharedEvent{},
+	FunctionExecuted:              FunctionExecutedEvent{},
+	GridMigrationFinished:         GridMigrationFinishedEvent{},
+	GridMigrationStarted:          GridMigrationStartedEvent{},
+	GroupArchive:                  GroupArchiveEvent{},
+	GroupClose:                    GroupCloseEvent{},
+	GroupDeleted:                  GroupDeletedEvent{},
+	GroupHistoryChanged:           GroupHistoryChangedEvent{},
+	GroupLeft:                     GroupLeftEvent{},
+	GroupOpen:                     GroupOpenEvent{},
+	GroupRename:                   GroupRenameEvent{},
+	GroupUnarchive:                GroupUnarchiveEvent{},
+	ImClose:                       ImCloseEvent{},
+	ImCreated:                     ImCreatedEvent{},
+	ImHistoryChanged:              ImHistoryChangedEvent{},
+	ImOpen:                        ImOpenEvent{},
+	InviteRequested:               InviteRequestedEvent{},
+	LinkShared:                    LinkSharedEvent{},
+	MemberJoinedChannel:           MemberJoinedChannelEvent{},
+	MemberLeftChannel:             MemberLeftChannelEvent{},
+	Message:                       MessageEvent{},
+	MessageMetadataDeleted:        MessageMetadataDeletedEvent{},
+	MessageMetadataPosted:         MessageMetadataPostedEvent{},
+	MessageMetadataUpdated:        MessageMetadataUpdatedEvent{},
+	PinAdded:                      PinAddedEvent{},
+	PinRemoved:                    PinRemovedEvent{},
+	ReactionAdded:                 ReactionAddedEvent{},
+	ReactionRemoved:               ReactionRemovedEvent{},
+	SharedChannelInviteAccepted:   SharedChannelInviteAcceptedEvent{},
+	SharedChannelInviteApproved:   SharedChannelInviteApprovedEvent{},
+	SharedChannelInviteDeclined:   SharedChannelInviteDeclinedEvent{},
+	SharedChannelInviteReceived:   SharedChannelInviteReceivedEvent{},
+	SharedChannelInviteRequested:  SharedChannelInviteRequestedEvent{},
+	StarAdded:                     StarAddedEvent{},
+	StarRemoved:                   StarRemovedEvent{},
+	SubteamCreated:                SubteamCreatedEvent{},
+	SubteamMembersChanged:         SubteamMembersChangedEvent{},
+	SubteamSelfAdded:              SubteamSelfAddedEvent{},
+	SubteamSelfRemoved:            SubteamSelfRemovedEvent{},
+	SubteamUpdated:                SubteamUpdatedEvent{},
+	TeamAccessGranted:             TeamAccessGrantedEvent{},
+	TeamAccessRevoked:             TeamAccessRevokedEvent{},
+	TeamDomainChange:              TeamDomainChangeEvent{},
+	TeamJoin:                      TeamJoinEvent{},
+	TeamRename:                    TeamRenameEvent{},
+	TokensRevoked:                 TokensRevokedEvent{},
+	UserChange:                    UserChangeEvent{},
+	UserHuddleChanged:             UserHuddleChangedEvent{},
+	UserProfileChanged:            UserProfileChangedEvent{},
+	UserStatusChanged:             UserStatusChangedEvent{},
+	EntityDetailsRequested:        EntityDetailsRequestedEvent{},
 }

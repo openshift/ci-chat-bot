@@ -19,8 +19,8 @@ import (
 
 // mockSlackClient is a mock implementation of the Slack client for testing
 type mockSlackClient struct {
-	getUserInfoFunc  func(userID string) (*slack.User, error)
-	uploadFileV2Func func(params slack.UploadFileV2Parameters) (*slack.FileSummary, error)
+	getUserInfoFunc func(userID string) (*slack.User, error)
+	uploadFileFunc  func(params slack.UploadFileParameters) (*slack.FileSummary, error)
 }
 
 func (m *mockSlackClient) GetUserInfo(userID string) (*slack.User, error) {
@@ -30,11 +30,11 @@ func (m *mockSlackClient) GetUserInfo(userID string) (*slack.User, error) {
 	return nil, fmt.Errorf("mock GetUserInfo not implemented")
 }
 
-func (m *mockSlackClient) UploadFileV2(params slack.UploadFileV2Parameters) (*slack.FileSummary, error) {
-	if m.uploadFileV2Func != nil {
-		return m.uploadFileV2Func(params)
+func (m *mockSlackClient) UploadFile(params slack.UploadFileParameters) (*slack.FileSummary, error) {
+	if m.uploadFileFunc != nil {
+		return m.uploadFileFunc(params)
 	}
-	return nil, fmt.Errorf("mock UploadFileV2 not implemented")
+	return nil, fmt.Errorf("mock UploadFile not implemented")
 }
 
 func (m *mockSlackClient) PostMessage(channelID string, options ...slack.MsgOption) (string, string, error) {
@@ -303,7 +303,7 @@ func TestRequest(t *testing.T) {
 						},
 					}, nil
 				},
-				uploadFileV2Func: func(params slack.UploadFileV2Parameters) (*slack.FileSummary, error) {
+				uploadFileFunc: func(params slack.UploadFileParameters) (*slack.FileSummary, error) {
 					if tc.uploadFileError != nil {
 						return nil, tc.uploadFileError
 					}

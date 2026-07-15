@@ -2,13 +2,13 @@ package workflowSubmissionEvents
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 
 	jiraClient "github.com/andygrunwald/go-jira"
 	"github.com/openshift/ci-chat-bot/pkg/jira"
 	"github.com/openshift/ci-chat-bot/pkg/slack/events"
 	"github.com/sirupsen/logrus"
-	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 )
 
@@ -23,20 +23,28 @@ const (
 	UserDetails = "user_details"
 )
 
-func Handler(client workflowSubmit, filer jira.IssueFiler) events.PartialHandler {
+func Handler(token string, filer jira.IssueFiler) events.PartialHandler {
+	wc := NewSlackWorkflowClient(token)
 	return events.PartialHandlerFunc("workflow-execution-event", func(callback *slackevents.EventsAPIEvent, logger *logrus.Entry) (handled bool, err error) {
 		if callback.Type != slackevents.CallbackEvent {
 			return false, nil
 		}
-		event, ok := callback.InnerEvent.Data.(*slackevents.WorkflowStepExecuteEvent)
-		if !ok {
+		raw, err := json.Marshal(callback.InnerEvent.Data)
+		if err != nil {
+			return false, nil
+		}
+		var event workflowStepExecuteEvent
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return false, nil
+		}
+		if event.Type != "workflow_step_execute" {
 			return false, nil
 		}
 		switch event.CallbackID {
 		case "jira_ticket":
-			err := handleJiraStep(client, event, filer)
+			err := handleJiraStep(wc, &event, filer)
 			if err != nil {
-				error := client.WorkflowStepFailed(event.WorkflowStep.WorkflowStepExecuteID, err.Error())
+				error := wc.WorkflowStepFailed(event.WorkflowStep.WorkflowStepExecuteID, err.Error())
 				if error != nil {
 					return false, error
 				}
@@ -47,7 +55,7 @@ func Handler(client workflowSubmit, filer jira.IssueFiler) events.PartialHandler
 	})
 }
 
-func checkTicketType(event *slackevents.WorkflowStepExecuteEvent) (ticketType string, supported bool) {
+func checkTicketType(event *workflowStepExecuteEvent) (ticketType string, supported bool) {
 	for key, output := range *event.WorkflowStep.Inputs {
 		if key == "ticket_type" {
 			switch output.Value {
@@ -65,7 +73,7 @@ func checkTicketType(event *slackevents.WorkflowStepExecuteEvent) (ticketType st
 	return "unsupported_ticket_type", false
 }
 
-func handleJiraStep(client workflowSubmit, event *slackevents.WorkflowStepExecuteEvent, filer jira.IssueFiler) error {
+func handleJiraStep(client workflowSubmit, event *workflowStepExecuteEvent, filer jira.IssueFiler) error {
 	ticketType, isSupported := checkTicketType(event)
 
 	if !isSupported {
@@ -100,15 +108,14 @@ func handleJiraStep(client workflowSubmit, event *slackevents.WorkflowStepExecut
 			outgoingOutputs[incomingOutputs.Name] = fmt.Sprintf("https://issues.redhat.com/browse/%s", issue.Key)
 		}
 	}
-	options := slack.WorkflowStepCompletedRequestOptionOutput(outgoingOutputs)
-	err = client.WorkflowStepCompleted(event.WorkflowStep.WorkflowStepExecuteID, options)
+	err = client.WorkflowStepCompleted(event.WorkflowStep.WorkflowStepExecuteID, outgoingOutputs)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func fileTicket(event *slackevents.WorkflowStepExecuteEvent, parameters JiraIssueParameters, filer jira.IssueFiler) (*jiraClient.Issue, error) {
+func fileTicket(event *workflowStepExecuteEvent, parameters JiraIssueParameters, filer jira.IssueFiler) (*jiraClient.Issue, error) {
 	title := "not_defined"
 	reporter := "not_defined"
 	data := make(map[string]string)

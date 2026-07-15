@@ -10,23 +10,16 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// eventsMap checks both slack.EventsMapping and
-// and slackevents.EventsAPIInnerEventMapping. If the event
-// exists, returns the unmarshalled struct instance of
-// target for the matching event type.
-// TODO: Consider moving all events into its own package?
+// eventsMap checks both slackevents.EventsAPIInnerEventMapping and slack.EventMapping
+// (RTM). EventsAPI mapping is checked first because both define a "message" type, and
+// EventsAPI's MessageEvent is the correct choice for Events API payloads.
 func eventsMap(t string) (interface{}, bool) {
-	// Must parse EventsAPI FIRST as both RTM and EventsAPI
-	// have a type: "Message" event.
-	// TODO: Handle these cases more explicitly.
+	// EventsAPI mapping takes precedence over RTM mapping.
 	v, exists := EventsAPIInnerEventMapping[EventsAPIType(t)]
 	if exists {
 		return v, exists
 	}
 	v, exists = slack.EventMapping[t]
-	if exists {
-		return v, exists
-	}
 	return v, exists
 }
 
@@ -262,6 +255,22 @@ func ParseEvent(rawEvent json.RawMessage, opts ...Option) (EventsAPIEvent, error
 	}, nil
 }
 
+// Deprecated: ParseActionEvent cannot parse block_actions payloads and will return an
+// unmarshalling error for them. Use [slack.InteractionCallback] with [json.Unmarshal]
+// instead, or [slack.InteractionCallbackParse] to parse directly from an HTTP request.
+// InteractionCallback handles all interaction types (block_actions, interactive_message,
+// view_submission, etc.).
+//
+// Migration example:
+//
+//	// Before (broken for block_actions):
+//	action, err := slackevents.ParseActionEvent(payload, slackevents.OptionNoVerifyToken())
+//
+//	// After (handles all interaction types):
+//	var ic slack.InteractionCallback
+//	err := json.Unmarshal([]byte(payload), &ic)
+//	// Use ic.ActionCallback.BlockActions for block actions
+//	// Use ic.ActionCallback.AttachmentActions for legacy attachment actions
 func ParseActionEvent(payloadString string, opts ...Option) (MessageAction, error) {
 	byteString := []byte(payloadString)
 	action := MessageAction{}
