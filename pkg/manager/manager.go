@@ -2329,6 +2329,9 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		} else {
 			msg = fmt.Sprintf("%s - I'll send you the credentials when the cluster is ready.", msg)
 		}
+		if jobHasRefs(job) {
+			msg = fmt.Sprintf("%s\n\nNote: your launch includes custom PR builds, which typically add 20-40 minutes to launch time. Total estimated time is up to ~90 minutes.", msg)
+		}
 		return "", errors.New(msg)
 	}
 	return "", fmt.Errorf("%s<%s|job> started, you will be notified on completion", msg, prowJobUrl)
