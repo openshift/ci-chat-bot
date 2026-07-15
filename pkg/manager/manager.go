@@ -2446,6 +2446,20 @@ func (m *jobManager) jobIsComplete(job *Job) bool {
 	return false
 }
 
+func (m *jobManager) prowJobIsStillRunning(name string) bool {
+	pj, err := m.prowClient.ProwJobs(m.prowNamespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		klog.Warningf("Unable to check ProwJob %q state: %v", name, err)
+		return false
+	}
+	switch pj.Status.State {
+	case prowapiv1.AbortedState, prowapiv1.ErrorState, prowapiv1.FailureState, prowapiv1.SuccessState:
+		return false
+	default:
+		return true
+	}
+}
+
 func (m *jobManager) handleJobStartup(job Job, source string) {
 	if !m.tryJob(job.Name) {
 		klog.Infof("Job %q already has a worker (%s)", job.Name, source)
@@ -2459,6 +2473,8 @@ func (m *jobManager) handleJobStartup(job Job, source string) {
 		} else {
 			if strings.HasPrefix(err.Error(), "timed out waiting for your prowjob") {
 				klog.Errorf("Job %q timed out waiting for prowjob to start (%s): %v", job.Name, source, err)
+			} else if strings.HasPrefix(err.Error(), "cluster never became available") && m.prowJobIsStillRunning(job.Name) {
+				klog.Warningf("Job %q monitoring window expired but prowjob is still running (%s): %v -- deferring to sync loop", job.Name, source, err)
 			} else {
 				klog.Errorf("Job %q failed to launch (%s): %v", job.Name, source, err)
 				job.Failure = err.Error()
