@@ -1379,9 +1379,16 @@ func (m *jobManager) ResolveImageOrVersion(imageOrVersion, defaultImageOrVersion
 		}
 
 		if tag, name := findImageStatusTag(is, unresolved); tag != nil {
-			klog.Infof("Resolved %s to image %s", imageOrVersion, tag.Image)
+			// CI releases are now all references to QCI, which means they don't have a value for the "Image" field
+			var installSpec string
+			if len(tag.Image) == 0 {
+				installSpec = tag.DockerImageReference
+				klog.Infof("Resolved %s to QCI image %s", imageOrVersion, installSpec)
+			} else {
+				klog.Infof("Resolved %s to image %q", imageOrVersion, tag.Image)
+				installSpec = buildPullSpec(ns, tag.Image, isName)
+			}
 			// identify nightly stream for runspec if not amd64
-			installSpec := buildPullSpec(ns, tag.Image, isName)
 			runSpec := ""
 			if architecture == "amd64" || architecture == "multi" || strings.Contains(unresolved, "konflux") {
 				runSpec = installSpec
