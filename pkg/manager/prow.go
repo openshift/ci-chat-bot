@@ -181,6 +181,15 @@ var (
 	reVersion = regexp.MustCompile(`^(\d+\.\d+)`)
 )
 
+func jobHasRefs(job *Job) bool {
+	for _, input := range job.Inputs {
+		if len(input.Refs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func mceReleaseName(job *Job) string {
 	if len(job.Inputs) == 0 {
 		return ""
@@ -643,12 +652,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	}
 	sourceConfig.ReleaseTagConfiguration = nil
 
-	var hasRefs bool
-	for _, input := range job.Inputs {
-		if len(input.Refs) > 0 {
-			hasRefs = true
-		}
-	}
+	hasRefs := jobHasRefs(job)
 	var mceReleaseVersion string
 	if job.Mode == JobTypeMCECustomImage {
 		mceReleaseVersion = mceReleaseName(job)
@@ -1222,6 +1226,9 @@ func (m *jobManager) waitForJob(job *Job) error {
 		setupContainerTimeout = 90 * time.Minute
 	} else if job.Operator.Is {
 		setupContainerTimeout = 105 * time.Minute
+	}
+	if jobHasRefs(job) {
+		setupContainerTimeout += 30 * time.Minute
 	}
 
 	if job.Mode != JobTypeLaunch && job.Mode != JobTypeWorkflowLaunch {
