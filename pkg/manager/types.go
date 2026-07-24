@@ -449,6 +449,15 @@ type JobInput struct {
 	Refs     []prowapiv1.Refs
 }
 
+// CloudAccountProfile holds the parameters needed to redirect a ProwJob to an
+// alternate cloud account (e.g. aws-2 instead of the default aws account).
+type CloudAccountProfile struct {
+	QuotaSlice    string // boskos resource type, e.g. "aws-2-quota-slice"
+	ProfileName   string // cluster profile name, e.g. "aws-2"
+	ProfileSecret string // k8s secret name, e.g. "cluster-secrets-aws-2"
+	AccountDomain string // base domain override (optional), e.g. "aws-2.ci.openshift.org"
+}
+
 // Job responds to user requests and tracks the state of the launched
 // jobs. This object must be recreatable from a ProwJob, but the RequestedChannel
 // field may be empty to indicate the user has already been notified.
@@ -486,7 +495,7 @@ type Job struct {
 
 	WorkflowName string
 
-	UseSecondaryAccount bool
+	CloudAccountProfile *CloudAccountProfile
 
 	Operator        OperatorInfo
 	CatalogComplete bool
