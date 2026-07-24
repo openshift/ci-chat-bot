@@ -514,14 +514,14 @@ func NotifyJob(client parser.SlackClient, job *manager.Job, postMessage bool) (s
 }
 
 func SendKubeConfig(client parser.SlackClient, channel, contents, comment, identifier string) string {
-	params := slack.UploadFileV2Parameters{
+	params := slack.UploadFileParameters{
 		Content:        contents,
 		FileSize:       len(contents),
 		Channel:        channel,
 		Filename:       fmt.Sprintf("cluster-bot-%s.kubeconfig", identifier),
 		InitialComment: comment,
 	}
-	summary, err := client.UploadFileV2(params)
+	summary, err := client.UploadFile(params)
 	if err != nil {
 		klog.Errorf("error: unable to send attachment with message: %v", err)
 		return ""
@@ -532,14 +532,14 @@ func SendKubeConfig(client parser.SlackClient, channel, contents, comment, ident
 
 func SendGCPServiceAccountKey(client parser.SlackClient, channel, keyJSON, email string) error {
 	sanitized := strings.ReplaceAll(strings.ReplaceAll(email, "@", "-"), ".", "-")
-	params := slack.UploadFileV2Parameters{
+	params := slack.UploadFileParameters{
 		Content:        keyJSON,
 		FileSize:       len(keyJSON),
 		Channel:        channel,
 		Filename:       fmt.Sprintf("gcp-access-%s.json", sanitized),
 		InitialComment: "⚠️  Service Account Key - Keep secure and do not share!",
 	}
-	_, err := client.UploadFileV2(params)
+	_, err := client.UploadFile(params)
 	if err != nil {
 		klog.Errorf("error: unable to upload GCP service account key: %v", err)
 		return err
@@ -749,14 +749,14 @@ func NotifyMce(client parser.SlackClient, cluster *clusterv1.ManagedCluster, clu
 			}
 			return message, ""
 		}
-		params := slack.UploadFileV2Parameters{
+		params := slack.UploadFileParameters{
 			Content:        *clusterProvision.Spec.InstallLog,
 			FileSize:       len(*clusterProvision.Spec.InstallLog),
 			Channel:        channel,
 			Filename:       fmt.Sprintf("%s-error.txt", cluster.Name),
 			InitialComment: message,
 		}
-		_, err := client.UploadFileV2(params)
+		_, err := client.UploadFile(params)
 		if err != nil {
 			klog.Errorf("error: unable to send attachment with message: %v", err)
 			return message, ""

@@ -18,8 +18,8 @@ type SlackClient interface {
 	// PostMessage posts a message to a Slack channel
 	PostMessage(channelID string, options ...slack.MsgOption) (string, string, error)
 
-	// UploadFileV2 uploads a file to Slack
-	UploadFileV2(params slack.UploadFileV2Parameters) (*slack.FileSummary, error)
+	// UploadFile uploads a file to Slack
+	UploadFile(params slack.UploadFileParameters) (*slack.FileSummary, error)
 }
 
 type Command struct {

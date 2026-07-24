@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	"github.com/openshift/ci-chat-bot/pkg/slack/events/workflowSubmissionEvents"
 	"github.com/openshift/ci-chat-bot/pkg/slack/interactions"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals"
 	"github.com/openshift/ci-chat-bot/pkg/slack/modals/auth"
@@ -24,9 +25,12 @@ import (
 
 // ForModals returns a Handler that appropriately routes
 // interaction callbacks for the modals we know about
-func ForModals(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client) interactions.Handler {
+func ForModals(client *slack.Client, jobmanager manager.JobManager, httpclient *http.Client, botToken string) interactions.Handler {
 	router := &modalRouter{
-		slackClient:         client,
+		slackClient: &combinedSlackClient{
+			Client:              client,
+			SlackWorkflowClient: workflowSubmissionEvents.NewSlackWorkflowClient(botToken),
+		},
 		viewsByID:           map[modals.Identifier]slack.ModalViewRequest{},
 		handlersByIDAndType: map[modals.Identifier]map[slack.InteractionType]interactions.Handler{},
 	}
@@ -92,7 +96,7 @@ func (r *modalRouter) Handle(callback *slack.InteractionCallback, logger *logrus
 	case slack.InteractionTypeViewSubmission:
 		if metadataToIdentifier(callback.View.PrivateMetadata, logger) == string(slack.InteractionTypeWorkflowStepEdit) {
 			input, output := stepsFromApp.StepFromAppSubmit(callback)
-			return nil, r.slackClient.SaveWorkflowStepConfiguration(callback.WorkflowStep.WorkflowStepEditID, &input, &output)
+			return nil, r.slackClient.SaveWorkflowStepConfiguration(callback.Value, &input, &output)
 		}
 		return r.delegate(callback, logger)
 	default:
@@ -119,7 +123,12 @@ func isMessageButtonPress(callback *slack.InteractionCallback) bool {
 
 type slackClient interface {
 	OpenView(triggerID string, view slack.ModalViewRequest) (*slack.ViewResponse, error)
-	SaveWorkflowStepConfiguration(workflowStepEditID string, inputs *slack.WorkflowStepInputs, outputs *[]slack.WorkflowStepOutput) error
+	SaveWorkflowStepConfiguration(workflowStepEditID string, inputs *workflowSubmissionEvents.WorkflowStepInputs, outputs *[]workflowSubmissionEvents.WorkflowStepOutput) error
+}
+
+type combinedSlackClient struct {
+	*slack.Client
+	*workflowSubmissionEvents.SlackWorkflowClient
 }
 
 // viewForShortcut reacts to the original shortcut action from the user

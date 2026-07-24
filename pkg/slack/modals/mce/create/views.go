@@ -51,7 +51,7 @@ func FirstStepViewWithData(data modals.CallbackData) slackClient.ModalViewReques
 				Text: &slackClient.TextBlockObject{
 					Type:     "plain_text",
 					Text:     "Select the Launch Platform and Duration",
-					Emoji:    false,
+					Emoji:    new(bool),
 					Verbatim: false,
 				},
 			},
@@ -117,7 +117,7 @@ func ThirdStepView(callback *slackClient.InteractionCallback, jobmanager manager
 					&slackClient.TextBlockObject{
 						Type:     slackClient.PlainTextType,
 						Text:     context,
-						Emoji:    false,
+						Emoji:    new(bool),
 						Verbatim: false,
 					},
 				}},

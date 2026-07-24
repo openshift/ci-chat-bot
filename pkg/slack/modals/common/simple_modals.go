@@ -87,11 +87,9 @@ func AppendKubeconfigBlock(view *slack.ModalViewRequest, kubeconfig, headerText 
 		slack.NewDividerBlock(),
 		slack.NewHeaderBlock(slack.NewTextBlockObject(slack.PlainTextType, headerText, true, false)),
 		slack.NewRichTextBlock("kubeconfig", &slack.RichTextPreformatted{
-			RichTextSection: slack.RichTextSection{
-				Type: slack.RTEPreformatted,
-				Elements: []slack.RichTextSectionElement{
-					slack.NewRichTextSectionTextElement(kubeconfig, &slack.RichTextSectionTextStyle{Code: false}),
-				},
+			Type: slack.RTEPreformatted,
+			Elements: []slack.RichTextSectionElement{
+				slack.NewRichTextSectionTextElement(kubeconfig, &slack.RichTextSectionTextStyle{Code: false}),
 			},
 		}))
 }

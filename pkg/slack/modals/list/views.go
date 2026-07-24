@@ -20,7 +20,7 @@ func View() slackClient.ModalViewRequest {
 				Text: &slackClient.TextBlockObject{
 					Type:     "plain_text",
 					Text:     "See who is hogging all the clusters",
-					Emoji:    false,
+					Emoji:    new(bool),
 					Verbatim: false,
 				},
 			},

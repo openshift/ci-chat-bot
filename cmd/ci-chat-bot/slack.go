@@ -61,8 +61,8 @@ func Start(bot *slack.Bot, jiraclient *jiraClient.Client, jobManager manager.Job
 	// handle the root to allow for a simple uptime probe
 	mux.Handle("/", handler(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) { writer.WriteHeader(http.StatusOK) })))
 	mux.Handle("/readyz", handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))) // report ready once the server is up and responding
-	mux.Handle("/slack/events-endpoint", handler(handleEvent(bot.BotSigningSecret, eventrouter.ForEvents(slackclient, jobManager, bot.SupportedCommands(), issueFiler))))
-	mux.Handle("/slack/interactive-endpoint", handler(handleInteraction(bot.BotSigningSecret, interactionrouter.ForModals(slackclient, jobManager, httpclient))))
+	mux.Handle("/slack/events-endpoint", handler(handleEvent(bot.BotSigningSecret, eventrouter.ForEvents(slackclient, jobManager, bot.SupportedCommands(), issueFiler, bot.BotToken))))
+	mux.Handle("/slack/interactive-endpoint", handler(handleInteraction(bot.BotSigningSecret, interactionrouter.ForModals(slackclient, jobManager, httpclient, bot.BotToken))))
 	server := &http.Server{Addr: ":" + strconv.Itoa(bot.Port), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	health.ServeReady(func() bool {
 		resp, err := http.DefaultClient.Get("http://127.0.0.1:" + strconv.Itoa(bot.Port) + "/readyz")
@@ -132,6 +132,17 @@ func handleInteraction(signingSecret string, handler interactionhandler.Handler)
 			writer.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		// Extract workflow_step_edit_id from raw JSON for deprecated Steps from Apps.
+		// The WorkflowStep field was removed from InteractionCallback in slack-go v0.23.
+		var wsData struct {
+			WorkflowStep struct {
+				WorkflowStepEditID string `json:"workflow_step_edit_id"`
+			} `json:"workflow_step"`
+		}
+		if err := json.Unmarshal([]byte(payload), &wsData); err == nil && wsData.WorkflowStep.WorkflowStepEditID != "" {
+			callback.Value = wsData.WorkflowStep.WorkflowStepEditID
+		}
+
 		logger.WithField("interaction", callback).Trace("Read an interaction payload.")
 		logger = logger.WithFields(fieldsFor(&callback))
 		response, err := handler.Handle(&callback, logger)
