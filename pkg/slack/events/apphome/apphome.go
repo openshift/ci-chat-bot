@@ -79,10 +79,16 @@ func View(jobManager manager.JobManager, user string) slack.HomeTabViewRequest {
 			slack.NewAccessory(slack.NewButtonBlockElement("refresh", "refresh", slack.NewTextBlockObject(slack.PlainTextType, "Refresh", true, false)).WithStyle(slack.StylePrimary)),
 		))
 		// Auth
-		addBlockToView(view, slack.NewSectionBlock(
-			slack.NewTextBlockObject(slack.MarkdownType, "Send the credentials for the cluster you most recently requested", false, false), nil,
-			slack.NewAccessory(slack.NewButtonBlockElement("auth", "auth", slack.NewTextBlockObject(slack.PlainTextType, "Auth", true, false)).WithStyle(slack.StylePrimary)),
-		))
+		if userJob.Mode == manager.JobTypeAroHcp {
+			addBlockToView(view, slack.NewSectionBlock(
+				slack.NewTextBlockObject(slack.MarkdownType, "To retrieve both ARO-HCP kubeconfigs, type `aro-hcp auth` in the Messages tab.", false, false), nil, nil,
+			))
+		} else {
+			addBlockToView(view, slack.NewSectionBlock(
+				slack.NewTextBlockObject(slack.MarkdownType, "Send the credentials for the cluster you most recently requested", false, false), nil,
+				slack.NewAccessory(slack.NewButtonBlockElement("auth", "auth", slack.NewTextBlockObject(slack.PlainTextType, "Auth", true, false)).WithStyle(slack.StylePrimary)),
+			))
+		}
 	}
 	// List
 	addBlockToView(view, slack.NewSectionBlock(

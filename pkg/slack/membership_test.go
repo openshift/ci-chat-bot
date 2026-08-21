@@ -12,6 +12,7 @@ type membershipOrgDataService struct {
 	employeeBySlackID *orgdatacore.Employee
 	employeeByEmail   *orgdatacore.Employee
 	employeeInOrg     bool
+	memberships       []orgdatacore.MembershipInfo
 	emailLookups      int
 	employeeLookups   int
 }
@@ -28,6 +29,10 @@ func (m *membershipOrgDataService) IsSlackUserInOrg(string, string) bool {
 func (m *membershipOrgDataService) GetEmployeeByEmail(string) *orgdatacore.Employee {
 	m.emailLookups++
 	return m.employeeByEmail
+}
+
+func (m *membershipOrgDataService) GetUserMemberships(string) []orgdatacore.MembershipInfo {
+	return m.memberships
 }
 
 func (m *membershipOrgDataService) IsEmployeeInOrg(string, string) bool {

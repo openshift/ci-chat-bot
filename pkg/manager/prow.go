@@ -320,6 +320,9 @@ func (m *jobManager) stopJob(name, cluster string) error {
 
 // newJob creates a ProwJob for running the provided job and exits.
 func (m *jobManager) newJob(job *Job) (string, error) {
+	if job.Mode == JobTypeAroHcp && !validRequesterEmail(job.RequesterEmail) {
+		return "", fmt.Errorf("aro-hcp jobs require a valid requester email")
+	}
 	if !m.tryJob(job.Name) {
 		klog.Infof("Job %q already has a worker", job.Name)
 		return "", nil
@@ -358,6 +361,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 			"ci-chat-bot.openshift.io/jobInputs":       string(jobInputData),
 			"ci-chat-bot.openshift.io/buildCluster":    job.BuildCluster,
 			"ci-chat-bot.openshift.io/requesterUserID": job.RequesterUserID,
+			"ci-chat-bot.openshift.io/requesterEmail":  job.RequesterEmail,
 
 			"prow.k8s.io/job": pj.Spec.Job,
 
@@ -446,6 +450,10 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		prow.OverrideJobEnvironment(&pj.Spec, image, initialImage, targetRelease, namespace, variants)
 	} else {
 		prow.OverrideJobEnvironment(&pj.Spec, runImage, initialImage, targetRelease, namespace, variants)
+	}
+	// ARO-HCP prow jobs may not define BRANCH; the PR child-build path needs it for the INITIAL release import.
+	if job.Mode == JobTypeAroHcp {
+		prow.SetJobEnvVar(&pj.Spec, "BRANCH", targetRelease)
 	}
 
 	if job.Architecture == "arm64" {
@@ -554,6 +562,12 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 				matchedTarget.MultiStageTestConfiguration.Environment[envForParam.name] = envForParam.value
 			}
 		}
+		if job.Mode == JobTypeAroHcp {
+			if matchedTarget.MultiStageTestConfiguration.Environment == nil {
+				matchedTarget.MultiStageTestConfiguration.Environment = citools.TestEnvironment{}
+			}
+			matchedTarget.MultiStageTestConfiguration.Environment["REQUESTER_EMAIL"] = job.RequesterEmail
+		}
 		if job.Mode == JobTypeTest {
 			if strings.HasPrefix(targetName, "launch") {
 				testStep := testStepForPlatform(job.Platform)
@@ -651,8 +665,6 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		}
 	}
 	if hasRefs {
-		launchDeadline += 30 * time.Minute
-
 		// in order to build repos, we need to clone all the refs
 		boolFalse := false
 		pj.Spec.DecorationConfig.SkipCloning = &boolFalse
@@ -785,14 +797,9 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 
 				// delete sections we don't need
 				targetConfig.Tests = nil
-				// since this run of ci-operator is being run separate of the run doing the install, it does not
-				// have a full graph of dependencies. This can cause optional images that are needed to not be built.
-				// This simplest way to handle this is to just override the optional field for all images
 				updatedImageList := []citools.ProjectDirectoryImageBuildStepConfiguration{}
 				for _, image := range targetConfig.Images.Items {
-					newImage := image
-					newImage.Optional = false
-					updatedImageList = append(updatedImageList, newImage)
+					updatedImageList = append(updatedImageList, childImageConfiguration(image, job.Mode))
 					// if a job is building an operator, images built from other repos may be an operand,
 					// and thus need to be accessible as a pipeline image for the bundle build
 					sourceConfig.BaseImages[string(image.To)] = citools.ImageStreamTagReference{
@@ -980,6 +987,25 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	}
 
 	return prowJobURL, nil
+}
+
+func childImageConfiguration(image citools.ProjectDirectoryImageBuildStepConfiguration, mode string) citools.ProjectDirectoryImageBuildStepConfiguration {
+	// Child builds run separately from the install and lack its dependency graph,
+	// so all images must be non-optional to ensure they are built.
+	image.Optional = false
+	if mode == JobTypeAroHcp {
+		// ARO-HCP child images use ci-operator's default amd64 architecture.
+		image.AdditionalArchitectures = nil
+		image.MultiArch = false
+		var capabilities []string
+		for _, capability := range image.Capabilities {
+			if !citools.ValidArchitectures.Has(capability) {
+				capabilities = append(capabilities, capability)
+			}
+		}
+		image.Capabilities = capabilities
+	}
+	return image
 }
 
 func processOperatorPR(oldOperatorRepo string, sourceConfig, targetConfig *citools.ReleaseBuildConfiguration, job *Job, ref *prowapiv1.Refs, pj *prowapiv1.ProwJob) (string, error) {
@@ -1244,7 +1270,7 @@ func (m *jobManager) waitForJob(job *Job) error {
 		setupContainerTimeout += 30 * time.Minute
 	}
 
-	if job.Mode != JobTypeLaunch && job.Mode != JobTypeWorkflowLaunch {
+	if !isClusterLaunchMode(job.Mode) {
 		klog.Infof("Job %s will report results at %s (to %s / %s)", job.Name, job.URL, job.RequestedBy, job.RequestedChannel)
 
 		// loop waiting for job to complete
@@ -1389,6 +1415,11 @@ func (m *jobManager) waitForJob(job *Job) error {
 				return true, nil
 			}
 		}
+		if job.Mode == JobTypeAroHcp {
+			if _, ok := secretDir.Data["kubeconfig.svc"]; ok { // if one kubeconfig exists, both will as they are generated in the same step
+				return true, nil
+			}
+		}
 		return false, nil
 	})
 	if err != nil {
@@ -1396,6 +1427,34 @@ func (m *jobManager) waitForJob(job *Job) error {
 			return err
 		}
 		return fmt.Errorf("cluster never became available: %v", err)
+	}
+
+	if job.Mode == JobTypeAroHcp {
+		clusterClient, err := getClusterClient(m, job)
+		if err != nil {
+			return err
+		}
+		secretDir, err := clusterClient.CoreClient.CoreV1().Secrets(namespace).Get(context.TODO(), targetName, metav1.GetOptions{})
+		if err != nil {
+			klog.Errorf("job %q unable to access step secret in %s/%s", job.Name, namespace, targetName)
+			return fmt.Errorf("could not retrieve kubeconfig.svc and kubeconfig.mgmt from secret %s/%s: %v", namespace, targetName, err)
+		}
+		svc, ok := secretDir.Data["kubeconfig.svc"]
+		if !ok {
+			klog.Errorf("job %q unable to find kubeconfig.svc entry in step secret in %s/%s", job.Name, namespace, targetName)
+			return fmt.Errorf("could not retrieve kubeconfig.svc from pod %s/%s", namespace, targetName)
+		}
+		mgmt, ok := secretDir.Data["kubeconfig.mgmt"]
+		if !ok {
+			klog.Errorf("job %q unable to find kubeconfig.mgmt entry in step secret in %s/%s", job.Name, namespace, targetName)
+			return fmt.Errorf("could not retrieve kubeconfig.mgmt from pod %s/%s", namespace, targetName)
+		}
+		job.Credentials = string(svc)
+		job.Credentials2 = string(mgmt)
+		created := len(pj.Annotations["ci-chat-bot.openshift.io/expires"]) == 0
+		startDuration := time.Since(started)
+		m.clearNotificationAnnotations(job, created, startDuration)
+		return nil
 	}
 
 	var kubeconfig string
@@ -1620,7 +1679,9 @@ for var in "${!CONFIG_SPEC_@}"; do
     set +e
     echo "Starting $suffix:${srcpath} ..."
     if [[ -d "${srcpath}" ]]; then pushd "${srcpath}" >/dev/null; else echo "does not have a source directory ${srcpath}"; fi
-    JOB_SPEC="${!jobvar}" ARTIFACTS=$(ARTIFACTS)/$suffix UNRESOLVED_CONFIG="${!var}" ci-operator \
+    # Image-only children do not need the lease proxy. Disable their HTTP servers
+    # to avoid binding the same pod IP and port in parallel; keep it for the final launch.
+    HTTP_SERVER_IP= JOB_SPEC="${!jobvar}" ARTIFACTS=$(ARTIFACTS)/$suffix UNRESOLVED_CONFIG="${!var}" ci-operator \
       --image-import-pull-secret=/etc/pull-secret/.dockerconfigjson \
       --image-mirror-push-secret=/tmp/push-auth \
       --gcs-upload-secret=/secrets/gcs/service-account.json \

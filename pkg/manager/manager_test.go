@@ -1,9 +1,17 @@
 package manager
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openshift/ci-chat-bot/pkg/utils"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
+	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
+	prowjobLister "sigs.k8s.io/prow/pkg/client/listers/prowjobs/v1"
+	"sigs.k8s.io/prow/pkg/github"
 )
 
 func TestDefaultMceUserConfigDuration(t *testing.T) {
@@ -18,6 +26,20 @@ func TestDefaultMceUserConfigDuration(t *testing.T) {
 	if got := defaultMceDuration(config.MaxClusterAge); got != MaxMCEDuration {
 		t.Errorf("defaultMceDuration() = %s, want %s", got, MaxMCEDuration)
 	}
+}
+
+type lookupGitHubClient struct{ github.Client }
+
+func (*lookupGitHubClient) GetPullRequest(_, _ string, number int) (*github.PullRequest, error) {
+	return &github.PullRequest{
+		User: github.User{Login: "test-user"},
+		Base: github.PullRequestBranch{Ref: "main"},
+		Head: github.PullRequestBranch{SHA: fmt.Sprintf("pull-%d", number)},
+	}, nil
+}
+
+func (*lookupGitHubClient) GetRef(_, _, ref string) (string, error) {
+	return "sha-" + ref, nil
 }
 
 func Test_platformProfileSets(t *testing.T) {
@@ -370,5 +392,204 @@ func TestResolveToJobRejectsBuildWithBundle(t *testing.T) {
 				t.Fatalf("expected bundle name in error, got: %v", err)
 			}
 		})
+	}
+}
+
+func TestCheckAroHcpLimits(t *testing.T) {
+	t.Parallel()
+
+	jobs := make(map[string]*Job)
+	for i := range maxTotalAroHcpClusters {
+		user := fmt.Sprintf("user-%d", i)
+		if err := checkAroHcpLimits(jobs, user); err != nil {
+			t.Fatalf("checkAroHcpLimits() rejected active environment %d: %v", i+1, err)
+		}
+		jobs[fmt.Sprintf("aro-%d", i)] = &Job{
+			Mode:        JobTypeAroHcp,
+			RequestedBy: user,
+		}
+	}
+
+	if err := checkAroHcpLimits(jobs, "new-user"); err == nil {
+		t.Fatal("checkAroHcpLimits() allowed a sixth active ARO-HCP environment")
+	}
+	if err := checkAroHcpLimits(jobs, "user-0"); err == nil {
+		t.Fatal("checkAroHcpLimits() allowed a second active ARO-HCP environment for a user")
+	}
+}
+
+func TestCheckAroHcpLimitsIgnoresInactiveAndOtherJobs(t *testing.T) {
+	t.Parallel()
+
+	jobs := map[string]*Job{
+		"active-1": {
+			Mode:        JobTypeAroHcp,
+			RequestedBy: "user-1",
+		},
+		"active-2": {
+			Mode:        JobTypeAroHcp,
+			RequestedBy: "user-2",
+		},
+		"active-3": {
+			Mode:        JobTypeAroHcp,
+			RequestedBy: "user-3",
+		},
+		"active-4": {
+			Mode:        JobTypeAroHcp,
+			RequestedBy: "user-4",
+		},
+		"complete": {
+			Mode:        JobTypeAroHcp,
+			Complete:    true,
+			RequestedBy: "user-5",
+		},
+		"failed": {
+			Mode:        JobTypeAroHcp,
+			Failure:     "job failed",
+			RequestedBy: "user-6",
+		},
+		"other-mode": {
+			Mode:        JobTypeLaunch,
+			RequestedBy: "user-7",
+		},
+		"nil": nil,
+	}
+
+	if err := checkAroHcpLimits(jobs, "new-user"); err != nil {
+		t.Fatalf("checkAroHcpLimits() counted inactive or non-ARO jobs: %v", err)
+	}
+}
+
+func TestValidRequesterEmail(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		email string
+		want  bool
+	}{
+		{name: "valid", email: "user@example.com", want: true},
+		{name: "missing", email: "", want: false},
+		{name: "missing domain", email: "user@", want: false},
+		{name: "display name is not an email identity", email: "User <user@example.com>", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := validRequesterEmail(test.email); got != test.want {
+				t.Fatalf("validRequesterEmail(%q) = %t, want %t", test.email, got, test.want)
+			}
+		})
+	}
+}
+
+func TestLookupInputsDoesNotTreatPullRequestsAsImages(t *testing.T) {
+	t.Parallel()
+
+	image := "registry.ci.openshift.org/ocp/release:4.23"
+	tests := []struct {
+		name            string
+		parts           []string
+		allowBranchRefs bool
+		wantImage       string
+		wantRefs        int
+	}{
+		{name: "single pull request", parts: []string{"Azure/ARO-HCP#123"}, wantRefs: 1},
+		{name: "image before pull request", parts: []string{image, "Azure/ARO-HCP#123"}, wantImage: image, wantRefs: 1},
+		{name: "image after pull request", parts: []string{"Azure/ARO-HCP#123", image}, wantImage: image, wantRefs: 1},
+		{name: "two pull requests", parts: []string{"Azure/ARO-HCP#123", "openshift/hypershift#456"}, allowBranchRefs: true, wantRefs: 2},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			m := &jobManager{githubClient: &lookupGitHubClient{}}
+			inputs, _, err := m.lookupInputs([][]string{test.parts}, "amd64", test.allowBranchRefs)
+			if err != nil {
+				t.Fatalf("lookupInputs() returned error: %v", err)
+			}
+			if len(inputs) != 1 || inputs[0].Image != test.wantImage || len(inputs[0].Refs) != test.wantRefs {
+				t.Fatalf("lookupInputs() = %#v, want image %q and %d refs", inputs, test.wantImage, test.wantRefs)
+			}
+		})
+	}
+}
+
+func TestLookupInputsChecksBranchAndPullBaseInEitherOrder(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name    string
+		parts   []string
+		wantErr bool
+	}{
+		{name: "branch then matching pull", parts: []string{"Azure/ARO-HCP@main", "Azure/ARO-HCP#123"}},
+		{name: "pull then matching branch", parts: []string{"Azure/ARO-HCP#123", "Azure/ARO-HCP@main"}},
+		{name: "branch then conflicting pull", parts: []string{"Azure/ARO-HCP@feature", "Azure/ARO-HCP#123"}, wantErr: true},
+		{name: "pull then conflicting branch", parts: []string{"Azure/ARO-HCP#123", "Azure/ARO-HCP@feature"}, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			m := &jobManager{githubClient: &lookupGitHubClient{}}
+			inputs, _, err := m.lookupInputs([][]string{test.parts}, "amd64", true)
+			if test.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "conflicts") {
+					t.Fatalf("lookupInputs() error = %v, want branch conflict", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("lookupInputs() returned error: %v", err)
+			}
+			if len(inputs) != 1 || len(inputs[0].Refs) != 1 || len(inputs[0].Refs[0].Pulls) != 1 || inputs[0].Refs[0].BaseRef != "main" {
+				t.Fatalf("lookupInputs() = %#v, want one pull request on main", inputs)
+			}
+		})
+	}
+}
+
+func TestSyncRetainsAroHcpCredentials(t *testing.T) {
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+	created := metav1.Now()
+	prowJob := &prowapiv1.ProwJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "aro-job",
+			Namespace:         "ci",
+			CreationTimestamp: created,
+			Labels:            map[string]string{utils.LaunchLabel: "true"},
+			Annotations: map[string]string{
+				"ci-chat-bot.openshift.io/jobInputs": `[{"Version":"4.23"}]`,
+				"ci-chat-bot.openshift.io/user":      "U123",
+				"ci-chat-bot.openshift.io/mode":      JobTypeAroHcp,
+				"ci-chat-bot.openshift.io/expires":   "3600",
+				"release.openshift.io/buildCluster":  "build01",
+			},
+		},
+		Status: prowapiv1.ProwJobStatus{State: prowapiv1.PendingState},
+	}
+	if err := indexer.Add(prowJob); err != nil {
+		t.Fatalf("add ProwJob: %v", err)
+	}
+	manager := &jobManager{
+		jobs: map[string]*Job{
+			"aro-job": {
+				Name:               "aro-job",
+				Mode:               JobTypeAroHcp,
+				State:              prowapiv1.PendingState,
+				Credentials:        "service kubeconfig",
+				Credentials2:       "management kubeconfig",
+				CredentialsSnippet: "login details",
+				StartDuration:      12 * time.Minute,
+			},
+		},
+		requests:      map[string]*JobRequest{"U123": {User: "U123", Name: "aro-job", RequestedAt: created.Time}},
+		prowLister:    prowjobLister.NewProwJobLister(indexer),
+		prowNamespace: "ci",
+		maxAge:        time.Hour,
+	}
+	if err := manager.sync(); err != nil {
+		t.Fatalf("sync() returned error: %v", err)
+	}
+	job, err := manager.GetLaunchJob("U123")
+	if err != nil {
+		t.Fatalf("GetLaunchJob() returned error after sync: %v", err)
+	}
+	if job.Credentials != "service kubeconfig" || job.Credentials2 != "management kubeconfig" || job.CredentialsSnippet != "login details" || job.StartDuration != 12*time.Minute {
+		t.Fatalf("sync() lost ready credentials: %#v", job)
 	}
 }

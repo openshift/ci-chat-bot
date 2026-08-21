@@ -1,6 +1,7 @@
 package slack
 
 import (
+	orgdatacore "github.com/openshift-eng/cyborg-data/go"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	chatmetrics "github.com/openshift/ci-chat-bot/pkg/metrics"
 )
@@ -17,10 +18,7 @@ func ClassifyUserMembership(orgDataService manager.OrgDataService, slackID, emai
 		return chatmetrics.MembershipUnknown
 	}
 
-	employee := orgDataService.GetEmployeeBySlackID(slackID)
-	if employee == nil && email != "" {
-		employee = orgDataService.GetEmployeeByEmail(email)
-	}
+	employee := employeeForSlackUser(orgDataService, slackID, email)
 	if employee == nil || employee.UID == "" {
 		return chatmetrics.MembershipUnknown
 	}
@@ -29,4 +27,18 @@ func ClassifyUserMembership(orgDataService manager.OrgDataService, slackID, emai
 		return chatmetrics.MembershipMember
 	}
 	return chatmetrics.MembershipNonMember
+}
+
+// employeeForSlackUser resolves a Slack user to organizational data, preferring
+// the Slack ID and falling back to the email from the Slack profile.
+func employeeForSlackUser(orgDataService manager.OrgDataService, slackID, email string) *orgdatacore.Employee {
+	if orgDataService == nil {
+		return nil
+	}
+
+	employee := orgDataService.GetEmployeeBySlackID(slackID)
+	if employee == nil && email != "" {
+		employee = orgDataService.GetEmployeeByEmail(email)
+	}
+	return employee
 }
