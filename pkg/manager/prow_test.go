@@ -88,19 +88,19 @@ func Test_processOperatorPR(t *testing.T) {
 						Environment: []citools.StepParameter{
 							{
 								Name:    "OO_CHANNEL",
-								Default: ptrTo("dev"),
+								Default: new("dev"),
 							},
 							{
 								Name:    "OO_INSTALL_NAMESPACE",
-								Default: ptrTo("my-namespace"),
+								Default: new("my-namespace"),
 							},
 							{
 								Name:    "OO_PACKAGE",
-								Default: ptrTo("my-operator"),
+								Default: new("my-operator"),
 							},
 							{
 								Name:    "OO_TARGET_NAMESPACE",
-								Default: ptrTo("!install"),
+								Default: new("!install"),
 							},
 						},
 					}},
@@ -111,7 +111,7 @@ func Test_processOperatorPR(t *testing.T) {
 			Tests: []citools.TestStepConfiguration{{
 				As: "launch",
 				MultiStageTestConfiguration: &citools.MultiStageTestConfiguration{
-					Test: []citools.TestStep{{Reference: ptrTo("clusterbot-wait")}},
+					Test: []citools.TestStep{{Reference: new("clusterbot-wait")}},
 				},
 			}},
 		},
@@ -144,7 +144,7 @@ func Test_processOperatorPR(t *testing.T) {
 						"OO_PACKAGE":           "my-operator",
 						"OO_TARGET_NAMESPACE":  "!install",
 					},
-					Test: []citools.TestStep{{Reference: ptrTo("optional-operators-subscribe")}, {Reference: ptrTo("clusterbot-wait")}},
+					Test: []citools.TestStep{{Reference: new("optional-operators-subscribe")}, {Reference: new("clusterbot-wait")}},
 				},
 			}},
 		},
@@ -197,7 +197,7 @@ func Test_processOperatorPR(t *testing.T) {
 			Tests: []citools.TestStepConfiguration{{
 				As: "launch",
 				MultiStageTestConfiguration: &citools.MultiStageTestConfiguration{
-					Test: []citools.TestStep{{Reference: ptrTo("clusterbot-wait")}},
+					Test: []citools.TestStep{{Reference: new("clusterbot-wait")}},
 				},
 			}},
 		},
@@ -243,7 +243,7 @@ func Test_processOperatorPR(t *testing.T) {
 								},
 							},
 						}},
-						{Reference: ptrTo("clusterbot-wait")}},
+						{Reference: new("clusterbot-wait")}},
 				},
 			}},
 		},
@@ -279,8 +279,4 @@ func Test_processOperatorPR(t *testing.T) {
 			}
 		})
 	}
-}
-
-func ptrTo[T any](v T) *T {
-	return &v
 }
