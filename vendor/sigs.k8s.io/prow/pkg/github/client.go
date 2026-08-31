@@ -167,6 +167,8 @@ type CommitClient interface {
 	ListFileCommits(org, repo, path string) ([]RepositoryCommit, error)
 	CreateCheckRun(org, repo string, checkRun CheckRun) (int64, error)
 	UpdateCheckRun(org, repo string, checkRunId int64, checkRun CheckRun) error
+	GetBlame(org, repo, ref, path string) ([]BlameRange, error)
+	GetMergeBase(org, repo, base, head string) (string, error)
 }
 
 // RepositoryClient interface for repository related API actions
@@ -178,6 +180,8 @@ type RepositoryClient interface {
 	GetBranchProtection(org, repo, branch string) (*BranchProtection, error)
 	RemoveBranchProtection(org, repo, branch string) error
 	UpdateBranchProtection(org, repo, branch string, config BranchProtectionRequest) error
+	EnableCommitSignProtection(org, repo, branch string) error
+	DisableCommitSignProtection(org, repo, branch string) error
 	AddRepoLabel(org, repo, label, description, color string) error
 	UpdateRepoLabel(org, repo, label, newName, description, color string) error
 	DeleteRepoLabel(org, repo, label string) error
@@ -2913,6 +2917,38 @@ func (c *client) UpdateBranchProtection(org, repo, branch string, config BranchP
 	return err
 }
 
+// EnableCommitSignProtection enables required signed commits for a branch.
+//
+// See https://docs.github.com/en/rest/branches/branch-protection#create-commit-signature-protection
+func (c *client) EnableCommitSignProtection(org, repo, branch string) error {
+	durationLogger := c.log("EnableCommitSignProtection", org, repo, branch)
+	defer durationLogger()
+
+	_, err := c.request(&request{
+		method:    http.MethodPost,
+		path:      fmt.Sprintf("/repos/%s/%s/branches/%s/protection/required_signatures", org, repo, branch),
+		org:       org,
+		exitCodes: []int{200},
+	}, nil)
+	return err
+}
+
+// DisableCommitSignProtection disables required signed commits for a branch.
+//
+// See https://docs.github.com/en/rest/branches/branch-protection#delete-commit-signature-protection
+func (c *client) DisableCommitSignProtection(org, repo, branch string) error {
+	durationLogger := c.log("DisableCommitSignProtection", org, repo, branch)
+	defer durationLogger()
+
+	_, err := c.request(&request{
+		method:    http.MethodDelete,
+		path:      fmt.Sprintf("/repos/%s/%s/branches/%s/protection/required_signatures", org, repo, branch),
+		org:       org,
+		exitCodes: []int{204},
+	}, nil)
+	return err
+}
+
 // AddRepoLabel adds a defined label given org/repo
 //
 // See https://developer.github.com/v3/issues/labels/#create-a-label
@@ -4390,6 +4426,96 @@ func (c *client) ListDirectCollaboratorsWithPermissions(org, repo string) (map[s
 	}
 
 	return result, nil
+}
+
+type blameQuery struct {
+	Repository struct {
+		Object struct {
+			Commit struct {
+				Blame struct {
+					Ranges []struct {
+						StartingLine githubql.Int
+						EndingLine   githubql.Int
+						Commit       struct {
+							Author struct {
+								User *struct {
+									Login githubql.String
+								}
+								Date githubql.DateTime
+							}
+						}
+					}
+				} `graphql:"blame(path: $path)"`
+			} `graphql:"... on Commit"`
+		} `graphql:"object(expression: $ref)"`
+	} `graphql:"repository(owner: $owner, name: $name)"`
+}
+
+// GetBlame returns git blame data for a file at a given ref using the GraphQL API.
+func (c *client) GetBlame(org, repo, ref, path string) ([]BlameRange, error) {
+	durationLogger := c.log("GetBlame", org, repo, ref, path)
+	defer durationLogger()
+
+	if c.fake {
+		return nil, nil
+	}
+
+	var query blameQuery
+	vars := map[string]interface{}{
+		"owner": githubql.String(org),
+		"name":  githubql.String(repo),
+		"ref":   githubql.String(ref),
+		"path":  githubql.String(path),
+	}
+	if err := c.QueryWithGitHubAppsSupport(context.Background(), &query, vars, org); err != nil {
+		return nil, fmt.Errorf("graphql blame query for %s: %w", path, err)
+	}
+
+	var ranges []BlameRange
+	for _, r := range query.Repository.Object.Commit.Blame.Ranges {
+		login := ""
+		if r.Commit.Author.User != nil {
+			login = strings.ToLower(string(r.Commit.Author.User.Login))
+		}
+		ranges = append(ranges, BlameRange{
+			StartingLine: int(r.StartingLine),
+			EndingLine:   int(r.EndingLine),
+			AuthorLogin:  login,
+			Date:         r.Commit.Author.Date.Time,
+		})
+	}
+	return ranges, nil
+}
+
+// GetMergeBase returns the SHA of the merge-base commit of base and head.
+//
+// See https://docs.github.com/en/rest/commits/commits#compare-two-commits
+func (c *client) GetMergeBase(org, repo, base, head string) (string, error) {
+	durationLogger := c.log("GetMergeBase", org, repo, base, head)
+	defer durationLogger()
+
+	if c.fake {
+		return "", nil
+	}
+
+	var resp struct {
+		MergeBaseCommit struct {
+			SHA string `json:"sha"`
+		} `json:"merge_base_commit"`
+	}
+	_, err := c.request(&request{
+		method:    http.MethodGet,
+		path:      fmt.Sprintf("/repos/%s/%s/compare/%s...%s", org, repo, base, head),
+		org:       org,
+		exitCodes: []int{200},
+	}, &resp)
+	if err != nil {
+		return "", err
+	}
+	if resp.MergeBaseCommit.SHA == "" {
+		return "", fmt.Errorf("no merge base found for %s...%s", base, head)
+	}
+	return resp.MergeBaseCommit.SHA, nil
 }
 
 // AddCollaborator adds a user as a collaborator to a repository with the specified permission level.

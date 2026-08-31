@@ -1,21 +1,20 @@
 // Backing state for a test results table of a TestGrid dashboard tab.
-// TestState() is updated and stored by test-focused update_server.py.
-// Stored in GCS as "<test group name>".
-
-// NOTE: Do NOT update this until you have updated the internal state.proto!
-
+// Grid is the top-level message; updated and stored by the updater and
+// tabulator.
 syntax = "proto3";
+
+package testgrid.state;
+
+option go_package = "github.com/GoogleCloudPlatform/testgrid/pb/state";
 
 import "google/protobuf/timestamp.proto";
 import "pb/config/config.proto";
 
-message Property {
-  map<string, string> property = 1;
-}
+message Property { map<string, string> property = 1; }
 
 // A metric and its values for each test cycle.
 message Metric {
-  string name = 1;  // Name of metric, such as duration
+  string name = 1; // Name of metric, such as duration
   // Sparse encoding of values. Indices is a list of pairs of <index, count>
   // that details columns with metric values. So given:
   //   Indices: [0, 2, 6, 4]
@@ -23,8 +22,8 @@ message Metric {
   // Decoded 12-value equivalent is:
   // [0.1, 0.2, nil, nil, nil, nil, 6.1, 6.2, 6.3, 6.4, nil, nil, ...]
   repeated int32 indices =
-      2;  // n=index of first value, n+1=count of filled values
-  repeated double values = 3;  // only present for columns with a metric value
+      2; // n=index of first value, n+1=count of filled values
+  repeated double values = 3; // only present for columns with a metric value
 }
 
 message UpdatePhaseData {
@@ -86,8 +85,12 @@ message AlertInfo {
   // A list of IDs for issue hotlists related to this failure.
   repeated string hotlist_ids = 13;
 
-  // Dynamic email list, route email alerts to these instead of the configured defaults.
+  // Dynamic email list, route email alerts to these instead of the configured
+  // defaults.
   repeated string email_addresses = 15;
+
+  // Maps (custom column headers name):(custom column headers value) for arbitrary alert properties.
+  map<string,string> custom_column_headers = 16;
 }
 
 // Info on default test metadata for a dashboard tab.
@@ -107,9 +110,11 @@ message TestMetadata {
   // When present, only file a bug for failed tests with same error type.
   // Otherwise, always file a bug.
   string error_type = 5;
+
+  reserved 6;
 }
 
-// TestGrid columns (also known as TestCycle).
+// TestGrid column headers. Does not contain the individual cells.
 message Column {
   // Unique instance of the job, typically BUILD_NUMBER from prow or a guid
   string build = 1;
@@ -120,6 +125,7 @@ message Column {
   string name = 2;
 
   // Milliseconds since start of epoch (python time.time() * 1000)
+  // TODO(#683): Use a timestamp, not this double
   double started = 3;
 
   // Additional custom headers like commit, image used, etc.
@@ -131,14 +137,33 @@ message Column {
   // An optional hint for the updater.
   string hint = 6;
 
-  // Dynamic email list, route email alerts to these instead of the configured defaults.
+  // Dynamic email list, route email alerts to these instead of the configured
+  // defaults.
   repeated string email_addresses = 7;
+
+  // Status totals for the column.
+  // Only written in tab state, if a broken threshold is defined for columns.
+  Stats stats = 8;
 }
 
-// TestGrid rows (also known as TestRow)
+message Stats {
+  int32 fail_count = 1;
+  int32 pass_count = 2;
+  int32 total_count = 3;
+  // True if this column has any in-progress runs.
+  bool pending = 4;
+  // True if a broken threshold is defined, and this column's fail/total ratio
+  // exceeds it.
+  bool broken = 5;
+}
+
+// TestGrid rows
 message Row {
-  string name = 1;  // Display name, which might process id to append/filter info.
-  string id = 2;  // raw id for the row, such as the bazel target or golang package.
+  // Display name, which might process id to append/filter info.
+  string name = 1;
+
+  // raw id for the row, such as the bazel target or golang package.
+  string id = 2;
 
   // Results for this row, run-length encoded to reduce size/improve
   // performance. Thus (encoded -> decoded equivalent):
@@ -162,7 +187,7 @@ message Row {
   // metric info (which may be omitted).
   repeated string metric = 7;
 
-  repeated Metric metrics = 8;  // Numerical performance/timing data, etc.
+  repeated Metric metrics = 8; // Numerical performance/timing data, etc.
 
   // Short string to place inside the cell (F for fail, etc)
   // Present for any column with a non-empty status (not NO_RESULT).
@@ -196,7 +221,7 @@ message Grid {
   reserved 3;
 
   // The latest configuration used to generate this test group.
-  TestGroup config = 4;
+  testgrid.config.TestGroup config = 4;
 
   reserved 5;
 

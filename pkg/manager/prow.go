@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,7 +25,6 @@ import (
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 
 	"k8s.io/klog"
-	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/yaml"
 
 	corev1 "k8s.io/api/core/v1"

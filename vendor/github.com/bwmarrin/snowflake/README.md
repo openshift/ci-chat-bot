@@ -1,20 +1,20 @@
 snowflake
 ====
-[![GoDoc](https://godoc.org/github.com/bwmarrin/snowflake?status.svg)](https://godoc.org/github.com/bwmarrin/snowflake) [![Go report](http://goreportcard.com/badge/bwmarrin/snowflake)](http://goreportcard.com/report/bwmarrin/snowflake) [![Build Status](https://travis-ci.org/bwmarrin/snowflake.svg?branch=master)](https://travis-ci.org/bwmarrin/snowflake) [![Discord Gophers](https://img.shields.io/badge/Discord%20Gophers-%23info-blue.svg)](https://discord.gg/0f1SbxBZjYq9jLBk)
+[![GoDoc](https://godoc.org/github.com/bwmarrin/snowflake?status.svg)](https://godoc.org/github.com/bwmarrin/snowflake) [![Go report](http://goreportcard.com/badge/bwmarrin/snowflake)](http://goreportcard.com/report/bwmarrin/snowflake) [![Coverage](http://gocover.io/_badge/github.com/bwmarrin/snowflake)](https://gocover.io/github.com/bwmarrin/snowflake) [![Build Status](https://travis-ci.org/bwmarrin/snowflake.svg?branch=master)](https://travis-ci.org/bwmarrin/snowflake) [![Discord Gophers](https://img.shields.io/badge/Discord%20Gophers-%23info-blue.svg)](https://discord.gg/0f1SbxBZjYq9jLBk)
 
 snowflake is a [Go](https://golang.org/) package that provides
 * A very simple Twitter snowflake generator.
 * Methods to parse existing snowflake IDs.
-* Methods to convert a snowflake ID into several other data types.
+* Methods to convert a snowflake ID into several other data types and back.
 * JSON Marshal/Unmarshal functions to easily use snowflake IDs within a JSON API.
+* Monotonic Clock calculations protect from clock drift.
 
 **For help with this package or general Go discussion, please join the [Discord 
 Gophers](https://discord.gg/0f1SbxBZjYq9jLBk) chat server.**
 
-## Status @ 2017-02-21
+## Status
 This package should be considered stable and completed.  Any additions in the 
-future will strongly avoid API changes to existing functions.  Please see issues
-for any remaining TODO items that are planned.
+future will strongly avoid API changes to existing functions. 
   
 ### ID Format
 By default, the ID format follows the original Twitter snowflake format.
@@ -135,7 +135,7 @@ To benchmark the generator on your system run the following command inside the
 snowflake package directory.
 
 ```sh
-go test -bench=.
+go test -run=^$ -bench=.
 ```
 
 If your curious, check out this commit that shows benchmarks that compare a few 

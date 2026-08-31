@@ -9,7 +9,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	configv1 "github.com/openshift/api/config/v1"
-	features "github.com/openshift/api/features"
 	"github.com/openshift/installer/pkg/ipnet"
 	"github.com/openshift/installer/pkg/types/aws"
 	"github.com/openshift/installer/pkg/types/azure"
@@ -228,7 +227,116 @@ type InstallConfig struct {
 	// E.g. "featureGates": ["FeatureGate1=true", "FeatureGate2=false"].
 	// +optional
 	FeatureGates []string `json:"featureGates,omitempty"`
+
+	// OSImageStream is the global OS Image Stream to be used for all machines in the cluster.
+	// +optional
+	OSImageStream OSImageStream `json:"osImageStream,omitempty"`
+
+	// PKI configures cryptographic parameters for installer-generated
+	// signer certificates. When specified, all signer certificates use the
+	// algorithm and parameters from signerCertificates.
+	// Feature gated by ConfigurablePKI.
+	// +openshift:enable:FeatureGate=ConfigurablePKI
+	// +optional
+	PKI *PKIConfig `json:"pki,omitempty"`
 }
+
+// PKIConfig configures cryptographic parameters for installer-generated
+// signer certificates. When pki is present in the install config,
+// signerCertificates must be fully specified with algorithm and key parameters.
+type PKIConfig struct {
+	// signerCertificates specifies key parameters for all installer-generated
+	// certificate authority (CA) certificates.
+	// When set, all signer certificates use the specified algorithm and parameters.
+	// +required
+	SignerCertificates CertificateConfig `json:"signerCertificates"`
+}
+
+// The types below (CertificateConfig, KeyConfig, RSAKeyConfig, ECDSAKeyConfig,
+// KeyAlgorithm, ECDSACurve) mirror configv1alpha1 types from openshift/api.
+// We maintain local copies so that new fields added in openshift/api do not
+// silently appear in the install-config YAML API without explicit opt-in and
+// validation by the installer. Conversion to the openshift/api type happens at
+// the manifest boundary (see pkg/types/pki/conversion.go).
+
+// CertificateConfig specifies configuration parameters for certificates.
+// +kubebuilder:validation:MinProperties=1
+type CertificateConfig struct {
+	// key specifies the cryptographic parameters for the certificate's key pair.
+	// +optional
+	Key KeyConfig `json:"key,omitzero"`
+}
+
+// KeyConfig specifies cryptographic parameters for key generation.
+//
+// +union
+// +kubebuilder:validation:XValidation:rule="has(self.algorithm) && self.algorithm == 'RSA' ?  has(self.rsa) : !has(self.rsa)",message="rsa is required when algorithm is RSA, and forbidden otherwise"
+// +kubebuilder:validation:XValidation:rule="has(self.algorithm) && self.algorithm == 'ECDSA' ?  has(self.ecdsa) : !has(self.ecdsa)",message="ecdsa is required when algorithm is ECDSA, and forbidden otherwise"
+type KeyConfig struct {
+	// algorithm specifies the key generation algorithm.
+	// Valid values are "RSA" and "ECDSA".
+	// +required
+	// +unionDiscriminator
+	Algorithm KeyAlgorithm `json:"algorithm,omitempty"`
+
+	// rsa specifies RSA key parameters.
+	// Required when algorithm is RSA, and forbidden otherwise.
+	// +optional
+	// +unionMember
+	RSA *RSAKeyConfig `json:"rsa,omitzero"`
+
+	// ecdsa specifies ECDSA key parameters.
+	// Required when algorithm is ECDSA, and forbidden otherwise.
+	// +optional
+	// +unionMember
+	ECDSA *ECDSAKeyConfig `json:"ecdsa,omitzero"`
+}
+
+// RSAKeyConfig specifies parameters for RSA key generation.
+type RSAKeyConfig struct {
+	// keySize specifies the size of RSA keys in bits.
+	// Valid values are multiples of 1024 from 2048 to 8192.
+	// +required
+	// +kubebuilder:validation:Minimum=2048
+	// +kubebuilder:validation:Maximum=8192
+	// +kubebuilder:validation:MultipleOf=1024
+	KeySize int32 `json:"keySize,omitempty"`
+}
+
+// ECDSAKeyConfig specifies parameters for ECDSA key generation.
+type ECDSAKeyConfig struct {
+	// curve specifies the NIST elliptic curve for ECDSA keys.
+	// Valid values are "P256", "P384", and "P521".
+	// +required
+	Curve ECDSACurve `json:"curve,omitempty"`
+}
+
+// KeyAlgorithm specifies the cryptographic algorithm used for key generation.
+// +kubebuilder:validation:Enum=RSA;ECDSA
+type KeyAlgorithm string
+
+const (
+	// KeyAlgorithmRSA specifies the RSA algorithm for key generation.
+	KeyAlgorithmRSA KeyAlgorithm = "RSA"
+
+	// KeyAlgorithmECDSA specifies the ECDSA algorithm for key generation.
+	KeyAlgorithmECDSA KeyAlgorithm = "ECDSA"
+)
+
+// ECDSACurve specifies the elliptic curve used for ECDSA key generation.
+// +kubebuilder:validation:Enum=P256;P384;P521
+type ECDSACurve string
+
+const (
+	// ECDSACurveP256 specifies the NIST P-256 curve.
+	ECDSACurveP256 ECDSACurve = "P256"
+
+	// ECDSACurveP384 specifies the NIST P-384 curve.
+	ECDSACurveP384 ECDSACurve = "P384"
+
+	// ECDSACurveP521 specifies the NIST P-521 curve.
+	ECDSACurveP521 ECDSACurve = "P521"
+)
 
 // ClusterDomain returns the DNS domain that all records for a cluster must belong to.
 func (c *InstallConfig) ClusterDomain() string {
@@ -422,6 +530,13 @@ type Networking struct {
 	// OVNKubernetesConfig provides configuration for ovn-kubernetes as the default
 	// pod network when NetworkType is set to OVNKubernetes.
 	OVNKubernetesConfig *OVNKubernetesConfig `json:"ovnKubernetesConfig,omitempty"`
+
+	// NetworkObservability is an optional field that configures network observability installation
+	// during cluster deployment (day-0).
+	// When omitted, network observability will be installed unless this is a SNO cluster.
+	//
+	// +optional
+	NetworkObservability *NetworkObservability `json:"networkObservability,omitempty"`
 
 	// Deprecated types, scheduled to be removed
 
@@ -620,14 +735,18 @@ func (c *InstallConfig) EnabledFeatureGates() featuregates.FeatureGate {
 		customFS = featuregates.GenerateCustomFeatures(c.FeatureGates)
 	}
 
-	clusterProfile := GetClusterProfileName()
-	featureSets, ok := features.AllFeatureSets()[clusterProfile]
-	if !ok {
-		logrus.Warnf("no feature sets for cluster profile %q", clusterProfile)
+	featureSets, err := FeatureSetsForProfile()
+	if err != nil {
+		logrus.Warnf("no feature sets for cluster profile %q. %v", GetClusterProfileName(), err)
 	}
 	fg := featuregates.FeatureGateFromFeatureSets(featureSets, c.FeatureSet, customFS)
 
 	return fg
+}
+
+// Enabled returns true if the given feature gate is enabled in the current feature sets.
+func (c *InstallConfig) Enabled(key configv1.FeatureGateName) bool {
+	return c.EnabledFeatureGates().Enabled(key)
 }
 
 // PublicAPI indicates whether the API load balancer should be public
@@ -656,4 +775,54 @@ func (c *InstallConfig) PublicIngress() bool {
 		return true
 	}
 	return false
+}
+
+// OSImageStream represents the name of an OS Image Stream to use in a pool.
+// +kubebuilder:validation:Enum=rhel-9;rhel-10;centos-10
+type OSImageStream string
+
+const (
+	// OSImageStreamRHCOS9 represents the RHEL 9 OS Image Stream.
+	OSImageStreamRHCOS9 OSImageStream = "rhel-9"
+	// OSImageStreamRHCOS10 represents the RHEL 10 OS Image Stream.
+	OSImageStreamRHCOS10 OSImageStream = "rhel-10"
+	// OSImageStreamCentos10 represents the SCOS 10 OS Image Stream.
+	OSImageStreamCentos10 OSImageStream = "centos-10"
+
+	// OSStreamLabelKey represents the label key used to note the OS image stream on MachineSet
+	// and Machine resources.
+	OSStreamLabelKey = "machineconfiguration.openshift.io/osstream"
+)
+
+// OSImageStreamValues returns the list of valid values a OSImageStream can take.
+func OSImageStreamValues() []OSImageStream {
+	if SCOS {
+		return []OSImageStream{OSImageStreamCentos10}
+	}
+	return []OSImageStream{
+		OSImageStreamRHCOS9,
+		OSImageStreamRHCOS10,
+	}
+}
+
+// NetworkObservabilityInstallationPolicy is an enumeration of the available network observability installation policies
+// Valid values are "InstallAndEnable", "NoAction".
+// +kubebuilder:validation:Enum=InstallAndEnable;NoAction
+type NetworkObservabilityInstallationPolicy string
+
+const (
+	// NetworkObservabilityInstallAndEnable means that network observability should be installed and enabled during cluster deployment.
+	NetworkObservabilityInstallAndEnable NetworkObservabilityInstallationPolicy = "InstallAndEnable"
+	// NetworkObservabilityNoAction means that nothing will be done regarding network observability.
+	NetworkObservabilityNoAction NetworkObservabilityInstallationPolicy = "NoAction"
+)
+
+// NetworkObservability defines the configuration for network observability installation.
+type NetworkObservability struct {
+	// InstallationPolicy controls whether network observability is installed during cluster deployment.
+	// Valid values are "InstallAndEnable" and "NoAction".
+	// When set to "InstallAndEnable", network observability will be installed and enabled.
+	// When set to "NoAction", nothing will be done regarding network observability.
+	// +optional
+	InstallationPolicy *NetworkObservabilityInstallationPolicy `json:"installationPolicy,omitempty"`
 }

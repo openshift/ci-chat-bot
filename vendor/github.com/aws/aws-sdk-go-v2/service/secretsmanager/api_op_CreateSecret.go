@@ -213,6 +213,12 @@ type CreateSecretInput struct {
 	// [Control access to secrets using tags]: https://docs.aws.amazon.com/secretsmanager/latest/userguide/auth-and-access_examples.html#tag-secrets-abac
 	Tags []types.Tag
 
+	// The exact string that identifies the partner that holds the external secret.
+	// For more information, see [Using Secrets Manager managed external secrets].
+	//
+	// [Using Secrets Manager managed external secrets]: https://docs.aws.amazon.com/secretsmanager/latest/userguide/managed-external-secrets.html
+	Type *string
+
 	noSmithyDocumentSerde
 }
 
@@ -289,6 +295,9 @@ func (c *Client) addOperationCreateSecretMiddlewares(stack *middleware.Stack, op
 	if err = addRecordResponseTiming(stack); err != nil {
 		return err
 	}
+	if err = addSpanRetryLoop(stack, options); err != nil {
+		return err
+	}
 	if err = addClientUserAgent(stack, options); err != nil {
 		return err
 	}
@@ -305,6 +314,9 @@ func (c *Client) addOperationCreateSecretMiddlewares(stack *middleware.Stack, op
 		return err
 	}
 	if err = addUserAgentRetryMode(stack, options); err != nil {
+		return err
+	}
+	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addIdempotencyToken_opCreateSecretMiddleware(stack, options); err != nil {
@@ -329,6 +341,15 @@ func (c *Client) addOperationCreateSecretMiddlewares(stack *middleware.Stack, op
 		return err
 	}
 	if err = addDisableHTTPSMiddleware(stack, options); err != nil {
+		return err
+	}
+	if err = addInterceptBeforeRetryLoop(stack, options); err != nil {
+		return err
+	}
+	if err = addInterceptAttempt(stack, options); err != nil {
+		return err
+	}
+	if err = addInterceptors(stack, options); err != nil {
 		return err
 	}
 	return nil

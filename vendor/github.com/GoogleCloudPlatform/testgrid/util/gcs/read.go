@@ -44,9 +44,9 @@ type PodInfo struct {
 
 const (
 	// MissingPodInfo appears when builds complete without a podinfo.json report.
-	MissingPodInfo = "podinfo.json not found, please install prow's GCS reporter"
+	MissingPodInfo = "podinfo.json not found in job artifacts (has not uploaded, or Prow's GCS reporter is not enabled)."
 	// NoPodUtils appears when builds run without decoration.
-	NoPodUtils = "not using decoration, please set decorate: true on prowjob"
+	NoPodUtils = "Decoration is not enabled; set `decorate: true` on Prowjob."
 )
 
 func truncate(s string, max int) string {
@@ -277,7 +277,7 @@ func ListBuilds(parent context.Context, lister Lister, gcsPath Path, after *Path
 }
 
 // junit_CONTEXT_TIMESTAMP_THREAD.xml
-var re = regexp.MustCompile(`.+/junit((_[^_]+)?(_\d+-\d+)?(_\d+)?|.+)?\.xml$`)
+var re = regexp.MustCompile(`.+/(?:junit((_[^_]+)?(_\d+-\d+)?(_\d+)?|.+)?\.xml|test.xml)$`)
 
 // dropPrefix removes the _ in _CONTEXT to help keep the regexp simple
 func dropPrefix(name string) string {
@@ -290,11 +290,12 @@ func dropPrefix(name string) string {
 // parseSuitesMeta returns the metadata for this junit file (nil for a non-junit file).
 //
 // Expected format: junit_context_20180102-1256_07.xml
-// Results in {
-//   "Context": "context",
-//   "Timestamp": "20180102-1256",
-//   "Thread": "07",
-// }
+//
+//	Results in {
+//	  "Context": "context",
+//	  "Timestamp": "20180102-1256",
+//	  "Thread": "07",
+//	}
 func parseSuitesMeta(name string) map[string]string {
 	mat := re.FindStringSubmatch(name)
 	if mat == nil {

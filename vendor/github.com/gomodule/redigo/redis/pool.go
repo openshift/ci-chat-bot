@@ -128,16 +128,24 @@ type Pool struct {
 	// DialContext is an application supplied function for creating and configuring a
 	// connection with the given context.
 	//
-	// The connection returned from Dial must not be in a special state
+	// The connection returned from DialContext must not be in a special state
 	// (subscribed to pubsub channel, transaction started, ...).
 	DialContext func(ctx context.Context) (Conn, error)
 
 	// TestOnBorrow is an optional application supplied function for checking
 	// the health of an idle connection before the connection is used again by
-	// the application. Argument t is the time that the connection was returned
+	// the application. Argument lastUsed is the time when the connection was returned
 	// to the pool. If the function returns an error, then the connection is
 	// closed.
-	TestOnBorrow func(c Conn, t time.Time) error
+	TestOnBorrow func(c Conn, lastUsed time.Time) error
+
+	// TestOnBorrowContext is an optional application supplied function
+	// for checking the health of an idle connection with the given context
+	// before the connection is used again by the application.
+	// Argument lastUsed is the time when the connection was returned
+	// to the pool. If the function returns an error, then the connection is
+	// closed.
+	TestOnBorrowContext func(ctx context.Context, c Conn, lastUsed time.Time) error
 
 	// Maximum number of idle connections in the pool.
 	MaxIdle int
@@ -228,6 +236,7 @@ func (p *Pool) GetContext(ctx context.Context) (Conn, error) {
 		p.idle.popFront()
 		p.mu.Unlock()
 		if (p.TestOnBorrow == nil || p.TestOnBorrow(pc.c, pc.t) == nil) &&
+			(p.TestOnBorrowContext == nil || p.TestOnBorrowContext(ctx, pc.c, pc.t) == nil) &&
 			(p.MaxConnLifetime == 0 || nowFunc().Sub(pc.created) < p.MaxConnLifetime) {
 			return &activeConn{p: p, pc: pc}, nil
 		}
@@ -512,6 +521,20 @@ func (ac *activeConn) Err() error {
 	return pc.c.Err()
 }
 
+func (ac *activeConn) DoContext(ctx context.Context, commandName string, args ...interface{}) (reply interface{}, err error) {
+	pc := ac.pc
+	if pc == nil {
+		return nil, errConnClosed
+	}
+	cwt, ok := pc.c.(ConnWithContext)
+	if !ok {
+		return nil, errContextNotSupported
+	}
+	ci := lookupCommandInfo(commandName)
+	ac.state = (ac.state | ci.Set) &^ ci.Clear
+	return cwt.DoContext(ctx, commandName, args...)
+}
+
 func (ac *activeConn) Do(commandName string, args ...interface{}) (reply interface{}, err error) {
 	pc := ac.pc
 	if pc == nil {
@@ -562,6 +585,18 @@ func (ac *activeConn) Receive() (reply interface{}, err error) {
 	return pc.c.Receive()
 }
 
+func (ac *activeConn) ReceiveContext(ctx context.Context) (reply interface{}, err error) {
+	pc := ac.pc
+	if pc == nil {
+		return nil, errConnClosed
+	}
+	cwt, ok := pc.c.(ConnWithContext)
+	if !ok {
+		return nil, errContextNotSupported
+	}
+	return cwt.ReceiveContext(ctx)
+}
+
 func (ac *activeConn) ReceiveWithTimeout(timeout time.Duration) (reply interface{}, err error) {
 	pc := ac.pc
 	if pc == nil {
@@ -577,6 +612,9 @@ func (ac *activeConn) ReceiveWithTimeout(timeout time.Duration) (reply interface
 type errorConn struct{ err error }
 
 func (ec errorConn) Do(string, ...interface{}) (interface{}, error) { return nil, ec.err }
+func (ec errorConn) DoContext(context.Context, string, ...interface{}) (interface{}, error) {
+	return nil, ec.err
+}
 func (ec errorConn) DoWithTimeout(time.Duration, string, ...interface{}) (interface{}, error) {
 	return nil, ec.err
 }
@@ -585,6 +623,7 @@ func (ec errorConn) Err() error                                            { ret
 func (ec errorConn) Close() error                                          { return nil }
 func (ec errorConn) Flush() error                                          { return ec.err }
 func (ec errorConn) Receive() (interface{}, error)                         { return nil, ec.err }
+func (ec errorConn) ReceiveContext(context.Context) (interface{}, error)   { return nil, ec.err }
 func (ec errorConn) ReceiveWithTimeout(time.Duration) (interface{}, error) { return nil, ec.err }
 
 type idleList struct {

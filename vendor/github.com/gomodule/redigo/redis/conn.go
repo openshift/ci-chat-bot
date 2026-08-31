@@ -246,7 +246,7 @@ func DialContext(ctx context.Context, network, address string, options ...DialOp
 		if do.tlsConfig == nil {
 			tlsConfig = &tls.Config{InsecureSkipVerify: do.skipVerify}
 		} else {
-			tlsConfig = cloneTLSConfig(do.tlsConfig)
+			tlsConfig = do.tlsConfig.Clone()
 		}
 		if tlsConfig.ServerName == "" {
 			host, _, err := net.SplitHostPort(address)
@@ -291,21 +291,21 @@ func DialContext(ctx context.Context, network, address string, options ...DialOp
 			authArgs = append(authArgs, do.username)
 		}
 		authArgs = append(authArgs, do.password)
-		if _, err := c.Do("AUTH", authArgs...); err != nil {
+		if _, err := c.DoContext(ctx, "AUTH", authArgs...); err != nil {
 			netConn.Close()
 			return nil, err
 		}
 	}
 
 	if do.clientName != "" {
-		if _, err := c.Do("CLIENT", "SETNAME", do.clientName); err != nil {
+		if _, err := c.DoContext(ctx, "CLIENT", "SETNAME", do.clientName); err != nil {
 			netConn.Close()
 			return nil, err
 		}
 	}
 
 	if do.db != 0 {
-		if _, err := c.Do("SELECT", do.db); err != nil {
+		if _, err := c.DoContext(ctx, "SELECT", do.db); err != nil {
 			netConn.Close()
 			return nil, err
 		}
@@ -316,16 +316,26 @@ func DialContext(ctx context.Context, network, address string, options ...DialOp
 
 var pathDBRegexp = regexp.MustCompile(`/(\d*)\z`)
 
-// DialURL connects to a Redis server at the given URL using the Redis
+// DialURL wraps DialURLContext using context.Background.
+func DialURL(rawurl string, options ...DialOption) (Conn, error) {
+	ctx := context.Background()
+
+	return DialURLContext(ctx, rawurl, options...)
+}
+
+// DialURLContext connects to a Redis server at the given URL using the Redis
 // URI scheme. URLs should follow the draft IANA specification for the
 // scheme (https://www.iana.org/assignments/uri-schemes/prov/redis).
-func DialURL(rawurl string, options ...DialOption) (Conn, error) {
+func DialURLContext(ctx context.Context, rawurl string, options ...DialOption) (Conn, error) {
 	u, err := url.Parse(rawurl)
 	if err != nil {
 		return nil, err
 	}
 
-	if u.Scheme != "redis" && u.Scheme != "rediss" {
+	switch u.Scheme {
+	case "redis", "rediss", "valkey", "valkeys":
+		// valid scheme
+	default:
 		return nil, fmt.Errorf("invalid redis URL scheme: %s", u.Scheme)
 	}
 
@@ -379,9 +389,9 @@ func DialURL(rawurl string, options ...DialOption) (Conn, error) {
 		return nil, fmt.Errorf("invalid database: %s", u.Path[1:])
 	}
 
-	options = append(options, DialUseTLS(u.Scheme == "rediss"))
+	options = append(options, DialUseTLS(u.Scheme == "rediss" || u.Scheme == "valkeys"))
 
-	return Dial("tcp", address, options...)
+	return DialContext(ctx, "tcp", address, options...)
 }
 
 // NewConn returns a new Redigo connection for the given net connection.
@@ -703,6 +713,36 @@ func (c *conn) Receive() (interface{}, error) {
 	return c.ReceiveWithTimeout(c.readTimeout)
 }
 
+func (c *conn) ReceiveContext(ctx context.Context) (interface{}, error) {
+	var realTimeout time.Duration
+	if dl, ok := ctx.Deadline(); ok {
+		timeout := time.Until(dl)
+		if timeout >= c.readTimeout && c.readTimeout != 0 {
+			realTimeout = c.readTimeout
+		} else if timeout <= 0 {
+			return nil, c.fatal(context.DeadlineExceeded)
+		} else {
+			realTimeout = timeout
+		}
+	} else {
+		realTimeout = c.readTimeout
+	}
+	endch := make(chan struct{})
+	var r interface{}
+	var e error
+	go func() {
+		defer close(endch)
+
+		r, e = c.ReceiveWithTimeout(realTimeout)
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, c.fatal(ctx.Err())
+	case <-endch:
+		return r, e
+	}
+}
+
 func (c *conn) ReceiveWithTimeout(timeout time.Duration) (reply interface{}, err error) {
 	var deadline time.Time
 	if timeout != 0 {
@@ -735,6 +775,36 @@ func (c *conn) ReceiveWithTimeout(timeout time.Duration) (reply interface{}, err
 
 func (c *conn) Do(cmd string, args ...interface{}) (interface{}, error) {
 	return c.DoWithTimeout(c.readTimeout, cmd, args...)
+}
+
+func (c *conn) DoContext(ctx context.Context, cmd string, args ...interface{}) (interface{}, error) {
+	var realTimeout time.Duration
+	if dl, ok := ctx.Deadline(); ok {
+		timeout := time.Until(dl)
+		if timeout >= c.readTimeout && c.readTimeout != 0 {
+			realTimeout = c.readTimeout
+		} else if timeout <= 0 {
+			return nil, c.fatal(context.DeadlineExceeded)
+		} else {
+			realTimeout = timeout
+		}
+	} else {
+		realTimeout = c.readTimeout
+	}
+	endch := make(chan struct{})
+	var r interface{}
+	var e error
+	go func() {
+		defer close(endch)
+
+		r, e = c.DoWithTimeout(realTimeout, cmd, args...)
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, c.fatal(ctx.Err())
+	case <-endch:
+		return r, e
+	}
 }
 
 func (c *conn) DoWithTimeout(readTimeout time.Duration, cmd string, args ...interface{}) (interface{}, error) {
