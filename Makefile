@@ -35,6 +35,7 @@ run:
 .PHONY: run
 
 lint: verify-golint
+.PHONY: lint
 
 # Override verify-govet to include gcs build tag
 verify-govet:
