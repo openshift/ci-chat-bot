@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	chatmetrics "github.com/openshift/ci-chat-bot/pkg/metrics"
+	botslack "github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/slack/events"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
 	"github.com/sirupsen/logrus"
@@ -39,7 +41,8 @@ var HelpCategories = []string{
 	HelpCategoryManage,
 }
 
-func Handle(client *slack.Client, manager manager.JobManager, botCommands []parser.BotCommand) events.PartialHandler {
+func Handle(client *slack.Client, manager manager.JobManager, botCommands []parser.BotCommand, recorders ...chatmetrics.CommandRecorder) events.PartialHandler {
+	recorder := commandRecorder(recorders)
 	return events.PartialHandlerFunc("direct-message",
 		func(callback *slackevents.EventsAPIEvent, logger *logrus.Entry) (handled bool, err error) {
 			if callback.Type != slackevents.CallbackEvent {
@@ -48,27 +51,6 @@ func Handle(client *slack.Client, manager manager.JobManager, botCommands []pars
 			event, ok := callback.InnerEvent.Data.(*slackevents.MessageEvent)
 			if !ok {
 				return false, fmt.Errorf("failed to parse the slack event")
-			}
-			mceConfig := manager.GetMceUserConfig()
-			mceConfig.Mutex.RLock()
-			users := mceConfig.Users
-			var allowed bool
-			for user := range users {
-				if user == event.User {
-					allowed = true
-					break
-				}
-			}
-			mceConfig.Mutex.RUnlock()
-			text := strings.TrimSpace(event.Text)
-			if text == "help" || strings.HasPrefix(text, "help ") {
-				parts := strings.Split(text, " ")
-				if len(parts) == 1 {
-					HelpOverview(client, event, botCommands, allowed)
-				} else {
-					HelpSpecific(client, event, parts[1], botCommands, allowed)
-				}
-				return true, nil
 			}
 			// do not respond to bots
 			if event.BotID != "" {
@@ -82,9 +64,31 @@ func Handle(client *slack.Client, manager manager.JobManager, botCommands []pars
 				}
 				return true, nil
 			}
-			// do not respond if the event SubType is message_changed or file_share( in cases a link is posted and a preview is
+			// do not respond if the event SubType is message_changed or file_share (in cases a link is posted and a preview is
 			// added afterwards and when an attachment is included)
 			if event.SubType == "message_changed" || event.SubType == "file_share" {
+				return true, nil
+			}
+			mceConfig := manager.GetMceUserConfig()
+			var allowed bool
+			if mceConfig != nil {
+				mceConfig.Mutex.RLock()
+				for user := range mceConfig.Users {
+					if user == event.User {
+						allowed = true
+						break
+					}
+				}
+				mceConfig.Mutex.RUnlock()
+			}
+			text := strings.TrimSpace(event.Text)
+			parts := strings.Fields(text)
+			if len(parts) > 0 && parts[0] == "help" {
+				if len(parts) == 1 {
+					HelpOverview(client, event, botCommands, allowed)
+				} else {
+					HelpSpecific(client, event, parts[1], botCommands, allowed)
+				}
 				return true, nil
 			}
 			for _, command := range botCommands {
@@ -93,7 +97,7 @@ func Handle(client *slack.Client, manager manager.JobManager, botCommands []pars
 				}
 				properties, match := command.Match(event.Text)
 				if match {
-					response := command.Execute(client, manager, event, properties)
+					response := executeCommand(client, manager, command, event, properties, recorder)
 					if err := postResponse(client, event, response); err != nil {
 						return false, fmt.Errorf("failed all attempts to post the response to the requested action: %s", event.Text)
 					}
@@ -105,6 +109,37 @@ func Handle(client *slack.Client, manager manager.JobManager, botCommands []pars
 			}
 			return true, nil
 		})
+}
+
+func commandRecorder(recorders []chatmetrics.CommandRecorder) chatmetrics.CommandRecorder {
+	if len(recorders) > 0 && recorders[0] != nil {
+		return recorders[0]
+	}
+	return chatmetrics.NoopRecorder{}
+}
+
+func commandMetricName(command parser.BotCommand, message string) string {
+	return chatmetrics.NormalizeCommand(command.Usage(), message)
+}
+
+func executeCommand(client parser.SlackClient, manager manager.JobManager, command parser.BotCommand, event *slackevents.MessageEvent, properties *parser.Properties, recorder chatmetrics.CommandRecorder) string {
+	orgDataService := manager.GetOrgDataService()
+	membership := botslack.ClassifyUserMembership(orgDataService, event.User, "", botslack.HybridPlatformsOrganization)
+	if membership == chatmetrics.MembershipUnknown && orgDataService != nil && client != nil {
+		if user, err := client.GetUserInfo(event.User); err == nil && user != nil {
+			membership = botslack.ClassifyUserMembership(orgDataService, event.User, user.Profile.Email, botslack.HybridPlatformsOrganization)
+		}
+	}
+	recorder.RecordCommand(commandMetricName(command, event.Text), event.User, string(membership))
+
+	executionContext := &parser.CommandExecutionContext{Membership: string(membership)}
+	if outcomeRecorder, ok := recorder.(parser.GCPAccessOutcomeRecorder); ok {
+		executionContext.GCPAccessOutcomeRecorder = outcomeRecorder
+	}
+	if contextualCommand, ok := command.(parser.ContextualBotCommand); ok {
+		return contextualCommand.ExecuteWithContext(client, manager, event, properties, executionContext)
+	}
+	return command.Execute(client, manager, event, properties)
 }
 
 func postResponse(client *slack.Client, event *slackevents.MessageEvent, response string) error {

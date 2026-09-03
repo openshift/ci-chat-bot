@@ -1,8 +1,11 @@
 package common
 
 import (
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
-	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -40,15 +43,12 @@ func TestFetchReleases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(tt.statusCode)
-				_, _ = w.Write([]byte(tt.responseBody))
-			}))
-			defer server.Close()
-
-			// Use a custom transport that rewrites the URL to our test server
 			client := &http.Client{
-				Transport: &rewriteTransport{targetURL: server.URL},
+				Transport: responseTransport{
+					statusCode:   tt.statusCode,
+					responseBody: tt.responseBody,
+					expectedURL:  "https://amd64.ocp.releases.ci.openshift.org/api/v1/releasestreams/accepted",
+				},
 			}
 
 			releases, err := FetchReleases(client, "amd64")
@@ -79,7 +79,9 @@ func TestFetchReleases(t *testing.T) {
 
 	t.Run("server unreachable returns error", func(t *testing.T) {
 		client := &http.Client{
-			Transport: &rewriteTransport{targetURL: "http://127.0.0.1:1"},
+			Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return nil, errors.New("connection refused")
+			}),
 		}
 
 		_, err := FetchReleases(client, "amd64")
@@ -89,17 +91,29 @@ func TestFetchReleases(t *testing.T) {
 	})
 }
 
-// rewriteTransport redirects all requests to the test server URL
-type rewriteTransport struct {
-	targetURL string
+type responseTransport struct {
+	statusCode   int
+	responseBody string
+	expectedURL  string
 }
 
-func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	req = req.Clone(req.Context())
-	parsed, err := http.NewRequest(req.Method, t.targetURL+req.URL.Path, req.Body)
-	if err != nil {
-		return nil, err
+func (t responseTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method != http.MethodGet {
+		return nil, fmt.Errorf("request method = %s, want %s", req.Method, http.MethodGet)
 	}
-	parsed.Header = req.Header
-	return http.DefaultTransport.RoundTrip(parsed)
+	if req.URL.String() != t.expectedURL {
+		return nil, fmt.Errorf("request URL = %s, want %s", req.URL, t.expectedURL)
+	}
+	return &http.Response{
+		StatusCode: t.statusCode,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(t.responseBody)),
+		Request:    req,
+	}, nil
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }

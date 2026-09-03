@@ -1,11 +1,15 @@
 package messages
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	orgdatacore "github.com/openshift-eng/cyborg-data/go"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	chatmetrics "github.com/openshift/ci-chat-bot/pkg/metrics"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
+	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 )
 
@@ -44,6 +48,150 @@ var mockBotCommands = []parser.BotCommand{
 
 func mockHandler(client parser.SlackClient, manager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
 	return "mock response"
+}
+
+type commandActivityRecorder struct {
+	command     string
+	slackUserID string
+	membership  string
+}
+
+func (r *commandActivityRecorder) RecordCommand(command, slackUserID, membership string) {
+	r.command = command
+	r.slackUserID = slackUserID
+	r.membership = membership
+}
+
+func (r *commandActivityRecorder) RecordGCPAccessOutcome(string, string, string) {}
+
+type commandActivityOrgDataService struct {
+	manager.OrgDataService
+	employee        *orgdatacore.Employee
+	employeeByEmail *orgdatacore.Employee
+	inOrg           bool
+}
+
+func (s *commandActivityOrgDataService) GetEmployeeBySlackID(string) *orgdatacore.Employee {
+	return s.employee
+}
+
+func (s *commandActivityOrgDataService) GetEmployeeByEmail(string) *orgdatacore.Employee {
+	return s.employeeByEmail
+}
+
+func (s *commandActivityOrgDataService) IsEmployeeInOrg(string, string) bool {
+	return s.inOrg
+}
+
+type commandActivitySlackClient struct {
+	user    *slack.User
+	err     error
+	lookups int
+}
+
+func (c *commandActivitySlackClient) GetUserInfo(string) (*slack.User, error) {
+	c.lookups++
+	return c.user, c.err
+}
+
+func (c *commandActivitySlackClient) PostMessage(string, ...slack.MsgOption) (string, string, error) {
+	return "", "", fmt.Errorf("unexpected PostMessage call")
+}
+
+func (c *commandActivitySlackClient) UploadFile(slack.UploadFileParameters) (*slack.FileSummary, error) {
+	return nil, fmt.Errorf("unexpected UploadFile call")
+}
+
+type commandActivityJobManager struct {
+	manager.JobManager
+	orgDataService manager.OrgDataService
+}
+
+func (m *commandActivityJobManager) GetOrgDataService() manager.OrgDataService {
+	return m.orgDataService
+}
+
+func TestExecuteCommandRecordsActivity(t *testing.T) {
+	tests := []struct {
+		name       string
+		employee   *orgdatacore.Employee
+		inOrg      bool
+		membership string
+	}{
+		{name: "member", employee: &orgdatacore.Employee{UID: "employee123"}, inOrg: true, membership: chatmetrics.MembershipMember},
+		{name: "non-member", employee: &orgdatacore.Employee{UID: "employee123"}, membership: chatmetrics.MembershipNonMember},
+		{name: "unknown", membership: chatmetrics.MembershipUnknown},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := &commandActivityRecorder{}
+			jobManager := &commandActivityJobManager{
+				orgDataService: &commandActivityOrgDataService{
+					employee: test.employee,
+					inOrg:    test.inOrg,
+				},
+			}
+			var gotContext *parser.CommandExecutionContext
+			command := parser.NewBotCommand("request <resource?> <justification?>", &parser.CommandDefinition{
+				Handler: mockHandler,
+				ContextualHandler: func(client parser.SlackClient, manager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties, context *parser.CommandExecutionContext) string {
+					gotContext = context
+					return "mock response"
+				},
+			}, false)
+			event := &slackevents.MessageEvent{
+				User: "U12345",
+				Text: `request gcp-access "justification@example.com"`,
+			}
+
+			if got := executeCommand(nil, jobManager, command, event, parser.NewProperties(nil), recorder); got != "mock response" {
+				t.Fatalf("executeCommand() = %q, want mock response", got)
+			}
+			if recorder.command != "request-gcp-access" {
+				t.Errorf("command = %q, want request-gcp-access", recorder.command)
+			}
+			if recorder.slackUserID != event.User {
+				t.Errorf("slack user ID = %q, want %q", recorder.slackUserID, event.User)
+			}
+			if recorder.membership != test.membership {
+				t.Errorf("membership = %q, want %q", recorder.membership, test.membership)
+			}
+			if gotContext == nil {
+				t.Fatal("execution context was nil")
+			}
+			if gotContext.Membership != test.membership {
+				t.Errorf("execution context membership = %q, want %q", gotContext.Membership, test.membership)
+			}
+			if gotContext.GCPAccessOutcomeRecorder == nil {
+				t.Error("execution context did not receive the outcome recorder")
+			}
+		})
+	}
+}
+
+func TestExecuteCommandUsesEmailFallbackForActivity(t *testing.T) {
+	recorder := &commandActivityRecorder{}
+	jobManager := &commandActivityJobManager{
+		orgDataService: &commandActivityOrgDataService{
+			employeeByEmail: &orgdatacore.Employee{UID: "employee123"},
+		},
+	}
+	client := &commandActivitySlackClient{
+		user: &slack.User{Profile: slack.UserProfile{Email: "person@example.com"}},
+	}
+	command := parser.NewBotCommand("list", &parser.CommandDefinition{Handler: mockHandler}, false)
+	event := &slackevents.MessageEvent{User: "U12345", Text: "list"}
+
+	if got := executeCommand(client, jobManager, command, event, parser.NewProperties(nil), recorder); got != "mock response" {
+		t.Fatalf("executeCommand() = %q, want mock response", got)
+	}
+	if recorder.membership != chatmetrics.MembershipNonMember {
+		t.Errorf("membership = %q, want %q", recorder.membership, chatmetrics.MembershipNonMember)
+	}
+	if client.lookups != 1 {
+		t.Errorf("Slack user lookups = %d, want 1", client.lookups)
+	}
 }
 
 func TestFindCommandSuggestion(t *testing.T) {

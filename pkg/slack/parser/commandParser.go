@@ -40,6 +40,16 @@ func (c *botCommand) Execute(client SlackClient, manager manager.JobManager, eve
 	return c.definition.Handler(client, manager, event, properties)
 }
 
+func (c *botCommand) ExecuteWithContext(client SlackClient, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties, context *CommandExecutionContext) string {
+	if c.definition == nil {
+		return "Failed to execute the command!"
+	}
+	if c.definition.ContextualHandler != nil {
+		return c.definition.ContextualHandler(client, manager, event, properties, context)
+	}
+	return c.Execute(client, manager, event, properties)
+}
+
 // Match determines whether the bot should respond based on the text received
 func (c *botCommand) Match(text string) (*Properties, bool) {
 	return c.command.Match(text)

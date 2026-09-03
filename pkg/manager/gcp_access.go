@@ -933,8 +933,7 @@ func extractEmailFromMember(member string) string {
 
 // isAlreadyMemberError checks if the error indicates the user is already a member
 func isAlreadyMemberError(err error) bool {
-	var apiErr *googleapi.Error
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 		// HTTP 409 Conflict is returned when the member already exists
 		return apiErr.Code == http.StatusConflict
 	}
@@ -943,8 +942,7 @@ func isAlreadyMemberError(err error) bool {
 
 // isNotFoundError checks if the error indicates the resource was not found
 func isNotFoundError(err error) bool {
-	var apiErr *googleapi.Error
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 		return apiErr.Code == http.StatusNotFound
 	}
 	return false

@@ -262,6 +262,8 @@ type LeaseClient interface {
 
 // OrgDataService provides organizational data queries for group membership validation
 type OrgDataService interface {
+	// GetEmployeeBySlackID retrieves an employee by their Slack user ID.
+	GetEmployeeBySlackID(slackID string) *orgdatacore.Employee
 	// IsSlackUserInOrg checks if a Slack user belongs to an organization
 	IsSlackUserInOrg(slackID string, orgName string) bool
 	// GetEmployeeByEmail retrieves an employee by their email address
