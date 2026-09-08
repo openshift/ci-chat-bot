@@ -19,10 +19,12 @@ import (
 	"github.com/adrg/xdg"
 	orgdatacore "github.com/openshift-eng/cyborg-data/go"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	chatmetrics "github.com/openshift/ci-chat-bot/pkg/metrics"
 	"github.com/openshift/ci-chat-bot/pkg/slack"
 	"github.com/openshift/ci-chat-bot/pkg/utils"
 	botversion "github.com/openshift/ci-chat-bot/pkg/version"
 	"github.com/openshift/rosa/pkg/rosa"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"sigs.k8s.io/prow/pkg/config/secret"
 	"sigs.k8s.io/prow/pkg/flagutil"
@@ -175,6 +177,11 @@ func run() error {
 
 	if err := opt.Validate(); err != nil {
 		return fmt.Errorf("unable to validate program arguments: %w", err)
+	}
+
+	commandUsageMetrics, err := chatmetrics.New(prometheus.DefaultRegisterer)
+	if err != nil {
+		return fmt.Errorf("unable to initialize command usage metrics: %w", err)
 	}
 
 	if opt.overrideLaunchLabel != "" {
@@ -427,7 +434,7 @@ func run() error {
 
 	bot := slack.NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows)
 	httpClient := &http.Client{Timeout: 60 * time.Second}
-	Start(bot, jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics)
+	Start(bot, jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics, commandUsageMetrics)
 
 	return nil
 }

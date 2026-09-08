@@ -34,9 +34,24 @@ type Token struct {
 
 // CommandDefinition structure contains definition of the bot command
 type CommandDefinition struct {
-	Description string
-	Example     string
-	Handler     func(client SlackClient, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string
+	Description       string
+	Example           string
+	Handler           func(client SlackClient, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string
+	ContextualHandler func(client SlackClient, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties, context *CommandExecutionContext) string
+}
+
+// GCPAccessOutcomeRecorder records the outcome of a GCP access request. It is
+// kept as a small interface so command parsing does not depend on a concrete
+// metrics implementation.
+type GCPAccessOutcomeRecorder interface {
+	RecordGCPAccessOutcome(slackUserID, membership, outcome string)
+}
+
+// CommandExecutionContext carries optional dependencies for command handlers
+// that need instrumentation in addition to the central command recorder.
+type CommandExecutionContext struct {
+	Membership               string
+	GCPAccessOutcomeRecorder GCPAccessOutcomeRecorder
 }
 
 // BotCommand interface
@@ -47,6 +62,13 @@ type BotCommand interface {
 	Tokenize() []*Token
 	Execute(client SlackClient, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string
 	IsPrivate() bool
+}
+
+// ContextualBotCommand is implemented by commands that can receive optional
+// execution dependencies while retaining the standard BotCommand API.
+type ContextualBotCommand interface {
+	BotCommand
+	ExecuteWithContext(client SlackClient, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties, context *CommandExecutionContext) string
 }
 
 // botCommand structure Contains the bots' command, description and handler

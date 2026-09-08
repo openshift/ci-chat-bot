@@ -9,6 +9,7 @@ import (
 	botversion "github.com/openshift/ci-chat-bot/pkg/version"
 
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	chatmetrics "github.com/openshift/ci-chat-bot/pkg/metrics"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
 	"github.com/slack-go/slack/slackevents"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -311,21 +312,40 @@ func Version(client parser.SlackClient, jobManager manager.JobManager, event *sl
 }
 
 func Request(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	return request(client, jobManager, event, properties, nil)
+}
+
+// RequestWithContext executes a request command and records its optional GCP
+// access outcome.
+func RequestWithContext(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties, executionContext *parser.CommandExecutionContext) string {
+	return request(client, jobManager, event, properties, executionContext)
+}
+
+func request(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties, executionContext *parser.CommandExecutionContext) string {
 	// Extract command parameters
 	resource := properties.StringParam("resource", "")
 	justification := properties.StringParam("justification", "")
 
-	// Validate parameters
+	var membership chatmetrics.Membership = chatmetrics.MembershipUnknown
+	outcome := ""
+	if resource == "gcp-access" {
+		defer func() {
+			recordGCPAccessOutcome(executionContext, event.User, membership, outcome)
+		}()
+	}
+
+	// Validate parameters before checking the supported resource, preserving the
+	// existing malformed-command response.
 	if resource == "" || justification == "" {
 		return "Invalid command format. Usage: request <resource> \"<business justification>\"\nExample: request gcp-access \"Need to debug CI infrastructure issues\""
 	}
-
-	klog.Infof("Resource: \"%s\"", resource)
 
 	// For now, only allow "gcp-access" resource
 	if resource != "gcp-access" {
 		return "Currently, access is only available for the 'gcp-access' resource."
 	}
+
+	klog.Infof("Resource: \"%s\"", resource)
 
 	// Get user's email
 	user, err := client.GetUserInfo(event.User)
@@ -334,6 +354,9 @@ func Request(client parser.SlackClient, jobManager manager.JobManager, event *sl
 		return "Failed to retrieve your user information. Please try again or contact an administrator."
 	}
 
+	if user == nil {
+		return "Failed to retrieve your user information. Please try again or contact an administrator."
+	}
 	email := user.Profile.Email
 	if email == "" {
 		return "Could not determine your email address. Please ensure your Slack profile has an email configured."
@@ -346,16 +369,22 @@ func Request(client parser.SlackClient, jobManager manager.JobManager, event *sl
 	}
 
 	// Verify user is a member of Hybrid Platforms (required for all access)
-	if !isUserInOrg(orgDataService, event.User, email, "Hybrid Platforms") {
+	membership = ClassifyUserMembership(orgDataService, event.User, email, HybridPlatformsOrganization)
+	if membership != chatmetrics.MembershipMember {
+		if membership == chatmetrics.MembershipNonMember {
+			outcome = chatmetrics.GCPAccessOutcomeDenied
+		}
 		return "You are not a member of the 'Hybrid Platforms' organization. Access can only be granted to Hybrid Platforms members."
 	}
 
 	// Grant access with business justification (creates service account and returns key)
 	msg, keyJSON, err := jobManager.GrantGCPAccess(email, event.User, justification, resource)
 	if err != nil {
+		outcome = chatmetrics.GCPAccessOutcomeGrantError
 		klog.Errorf("Failed to grant GCP access for %s: %v", email, err)
 		return fmt.Sprintf("Failed to grant access: %v", err)
 	}
+	outcome = chatmetrics.GCPAccessOutcomeGranted
 
 	// Upload service account key file to Slack
 	if err := SendGCPServiceAccountKey(client, event.Channel, string(keyJSON), email); err != nil {
@@ -387,6 +416,9 @@ func Revoke(client parser.SlackClient, jobManager manager.JobManager, event *sla
 		klog.Errorf("Failed to get user info for %s: %v", event.User, err)
 		return "Failed to retrieve your user information. Please try again or contact an administrator."
 	}
+	if user == nil {
+		return "Failed to retrieve your user information. Please try again or contact an administrator."
+	}
 
 	email := user.Profile.Email
 	if email == "" {
@@ -399,7 +431,7 @@ func Revoke(client parser.SlackClient, jobManager manager.JobManager, event *sla
 		return "Organizational data service is not available. Please contact an administrator."
 	}
 
-	if !isUserInOrg(orgDataService, event.User, email, "Hybrid Platforms") {
+	if ClassifyUserMembership(orgDataService, event.User, email, HybridPlatformsOrganization) != chatmetrics.MembershipMember {
 		return "GCP workspace access is only available to members of the Hybrid Platforms organization."
 	}
 
@@ -411,6 +443,13 @@ func Revoke(client parser.SlackClient, jobManager manager.JobManager, event *sla
 	}
 
 	return msg
+}
+
+func recordGCPAccessOutcome(executionContext *parser.CommandExecutionContext, slackUserID string, membership chatmetrics.Membership, outcome string) {
+	if executionContext == nil || executionContext.GCPAccessOutcomeRecorder == nil || membership == chatmetrics.MembershipUnknown {
+		return
+	}
+	executionContext.GCPAccessOutcomeRecorder.RecordGCPAccessOutcome(slackUserID, string(membership), outcome)
 }
 
 func WorkflowLaunch(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
@@ -711,30 +750,9 @@ func MceList(client parser.SlackClient, jobManager manager.JobManager, event *sl
 	return list
 }
 
-// isUserInOrg checks if a user is in the specified organization.
-// It first tries to look up by Slack ID, and if that fails (e.g., in staging environments),
-// it falls back to looking up by email address and checking the employee's UID.
+// isUserInOrg preserves the boolean authorization helper for callers that only
+// need a membership decision. Classification itself remains tri-state so
+// callers recording usage do not turn an unknown user into a non-member.
 func isUserInOrg(orgDataService manager.OrgDataService, slackID, email, org string) bool {
-	// First try Slack ID lookup (works in production)
-	if orgDataService.IsSlackUserInOrg(slackID, org) {
-		klog.V(2).Infof("User %s validated by Slack ID for org %s", slackID, org)
-		return true
-	}
-
-	// Fallback to email lookup (useful for staging/testing environments where Slack IDs differ)
-	klog.V(2).Infof("Slack ID %s not found in org data, trying email lookup for %s", slackID, email)
-	employee := orgDataService.GetEmployeeByEmail(email)
-	if employee == nil {
-		klog.V(2).Infof("User with email %s not found in organizational data", email)
-		return false
-	}
-
-	// Check if the employee (by UID) is in the specified organization
-	if orgDataService.IsEmployeeInOrg(employee.UID, org) {
-		klog.V(2).Infof("User %s validated by email (%s -> UID %s) for org %s", slackID, email, employee.UID, org)
-		return true
-	}
-
-	klog.V(2).Infof("User %s (email: %s, UID: %s) is not a member of org %s", slackID, email, employee.UID, org)
-	return false
+	return ClassifyUserMembership(orgDataService, slackID, email, org) == chatmetrics.MembershipMember
 }

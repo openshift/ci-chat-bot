@@ -9,6 +9,7 @@ import (
 	orgdatacore "github.com/openshift-eng/cyborg-data/go"
 	clustermgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
+	chatmetrics "github.com/openshift/ci-chat-bot/pkg/metrics"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	"github.com/slack-go/slack"
@@ -116,9 +117,31 @@ func (m *mockJobManager) GetGCPAccessManager() *manager.GCPAccessManager { retur
 
 // mockOrgDataService is a mock implementation of OrgDataService for testing
 type mockOrgDataService struct {
-	isSlackUserInOrgFunc   func(slackID, orgName string) bool
-	getEmployeeByEmailFunc func(email string) *orgdatacore.Employee
-	isEmployeeInOrgFunc    func(uid, orgName string) bool
+	getEmployeeBySlackIDFunc func(slackID string) *orgdatacore.Employee
+	isSlackUserInOrgFunc     func(slackID, orgName string) bool
+	getEmployeeByEmailFunc   func(email string) *orgdatacore.Employee
+	isEmployeeInOrgFunc      func(uid, orgName string) bool
+}
+
+type mockGCPAccessOutcomeRecorder struct {
+	slackUserID string
+	membership  string
+	outcome     string
+	count       int
+}
+
+func (m *mockGCPAccessOutcomeRecorder) RecordGCPAccessOutcome(slackUserID, membership, outcome string) {
+	m.slackUserID = slackUserID
+	m.membership = membership
+	m.outcome = outcome
+	m.count++
+}
+
+func (m *mockOrgDataService) GetEmployeeBySlackID(slackID string) *orgdatacore.Employee {
+	if m.getEmployeeBySlackIDFunc != nil {
+		return m.getEmployeeBySlackIDFunc(slackID)
+	}
+	return nil
 }
 
 func (m *mockOrgDataService) IsSlackUserInOrg(slackID, orgName string) bool {
@@ -323,15 +346,20 @@ func TestRequest(t *testing.T) {
 			var orgDataService manager.OrgDataService
 			if !tc.orgDataServiceNil {
 				orgDataService = &mockOrgDataService{
-					isSlackUserInOrgFunc: func(slackID, orgName string) bool {
+					getEmployeeBySlackIDFunc: func(slackID string) *orgdatacore.Employee {
 						if slackID != tc.userID {
 							t.Errorf("Expected slackID %s, got %s", tc.userID, slackID)
 						}
-						// Return membership for Hybrid Platforms only
-						if orgName == "Hybrid Platforms" {
-							return tc.userInHybridPlatforms
+						return &orgdatacore.Employee{UID: "employee123", Email: tc.userEmail}
+					},
+					isEmployeeInOrgFunc: func(uid, orgName string) bool {
+						if uid != "employee123" {
+							t.Errorf("Expected UID employee123, got %s", uid)
 						}
-						return false
+						if orgName != "Hybrid Platforms" {
+							t.Errorf("Expected orgName 'Hybrid Platforms', got %s", orgName)
+						}
+						return tc.userInHybridPlatforms
 					},
 				}
 			}
@@ -524,9 +552,15 @@ func TestRevoke(t *testing.T) {
 			var orgDataService manager.OrgDataService
 			if !tc.orgDataServiceNil {
 				orgDataService = &mockOrgDataService{
-					isSlackUserInOrgFunc: func(slackID, orgName string) bool {
+					getEmployeeBySlackIDFunc: func(slackID string) *orgdatacore.Employee {
 						if slackID != tc.userID {
 							t.Errorf("Expected slackID %s, got %s", tc.userID, slackID)
+						}
+						return &orgdatacore.Employee{UID: "employee123", Email: tc.userEmail}
+					},
+					isEmployeeInOrgFunc: func(uid, orgName string) bool {
+						if uid != "employee123" {
+							t.Errorf("Expected UID employee123, got %s", uid)
 						}
 						if orgName != "Hybrid Platforms" {
 							t.Errorf("Expected orgName 'Hybrid Platforms', got %s", orgName)
@@ -573,6 +607,113 @@ func TestRevoke(t *testing.T) {
 	}
 }
 
+func TestRequestRecordsGCPAccessOutcome(t *testing.T) {
+	tests := []struct {
+		name                string
+		membership          chatmetrics.Membership
+		grantError          error
+		expectedOutcome     string
+		expectedMembership  string
+		expectedGrantCalled bool
+	}{
+		{
+			name:                "member grant",
+			membership:          chatmetrics.MembershipMember,
+			expectedOutcome:     chatmetrics.GCPAccessOutcomeGranted,
+			expectedMembership:  chatmetrics.MembershipMember,
+			expectedGrantCalled: true,
+		},
+		{
+			name:                "non-member denial",
+			membership:          chatmetrics.MembershipNonMember,
+			expectedOutcome:     chatmetrics.GCPAccessOutcomeDenied,
+			expectedMembership:  chatmetrics.MembershipNonMember,
+			expectedGrantCalled: false,
+		},
+		{
+			name:                "unknown membership",
+			membership:          chatmetrics.MembershipUnknown,
+			expectedOutcome:     "",
+			expectedMembership:  chatmetrics.MembershipUnknown,
+			expectedGrantCalled: false,
+		},
+		{
+			name:                "grant error",
+			membership:          chatmetrics.MembershipMember,
+			grantError:          fmt.Errorf("grant failed"),
+			expectedOutcome:     chatmetrics.GCPAccessOutcomeGrantError,
+			expectedMembership:  chatmetrics.MembershipMember,
+			expectedGrantCalled: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			outcomeRecorder := &mockGCPAccessOutcomeRecorder{}
+			grantCalled := false
+			mockSlack := &mockSlackClient{
+				getUserInfoFunc: func(userID string) (*slack.User, error) {
+					return &slack.User{ID: userID, Profile: slack.UserProfile{Email: "user@example.com"}}, nil
+				},
+				uploadFileFunc: func(params slack.UploadFileParameters) (*slack.FileSummary, error) {
+					return &slack.FileSummary{ID: "F12345"}, nil
+				},
+			}
+			var employee *orgdatacore.Employee
+			if tc.membership != chatmetrics.MembershipUnknown {
+				employee = &orgdatacore.Employee{UID: "employee123"}
+			}
+			orgDataService := &mockOrgDataService{
+				getEmployeeBySlackIDFunc: func(string) *orgdatacore.Employee { return employee },
+				isEmployeeInOrgFunc: func(string, string) bool {
+					return tc.membership == chatmetrics.MembershipMember
+				},
+			}
+			mockManager := &mockJobManager{
+				getOrgDataServiceFunc: func() manager.OrgDataService { return orgDataService },
+				grantGCPAccessFunc: func(email, slackID, justification, resource string) (string, error) {
+					grantCalled = true
+					return "Access granted successfully", tc.grantError
+				},
+			}
+			event := &slackevents.MessageEvent{User: "U12345", Channel: "D12345"}
+			properties := parser.NewProperties(map[string]string{
+				"resource":      "gcp-access",
+				"justification": "Testing",
+			})
+			result := RequestWithContext(mockSlack, mockManager, event, properties, &parser.CommandExecutionContext{
+				GCPAccessOutcomeRecorder: outcomeRecorder,
+			})
+
+			if result == "" {
+				t.Error("RequestWithContext returned an empty response")
+			}
+			if grantCalled != tc.expectedGrantCalled {
+				t.Errorf("grant called = %v, want %v", grantCalled, tc.expectedGrantCalled)
+			}
+			expectedRecordCount := 1
+			if tc.membership == chatmetrics.MembershipUnknown {
+				expectedRecordCount = 0
+			}
+			if outcomeRecorder.count != expectedRecordCount {
+				t.Fatalf("outcome record count = %d, want %d", outcomeRecorder.count, expectedRecordCount)
+			}
+			if expectedRecordCount == 0 {
+				return
+			}
+			if outcomeRecorder.slackUserID != "U12345" {
+				t.Errorf("Slack user ID = %q, want U12345", outcomeRecorder.slackUserID)
+			}
+			if outcomeRecorder.membership != tc.expectedMembership {
+				t.Errorf("membership = %q, want %q", outcomeRecorder.membership, tc.expectedMembership)
+			}
+			if outcomeRecorder.outcome != tc.expectedOutcome {
+				t.Errorf("outcome = %q, want %q", outcomeRecorder.outcome, tc.expectedOutcome)
+			}
+		})
+	}
+}
+
 // TestRequestValidatesOrganization ensures organization check happens before grant
 func TestRequestValidatesOrganization(t *testing.T) {
 	t.Parallel()
@@ -592,7 +733,10 @@ func TestRequestValidatesOrganization(t *testing.T) {
 	grantCalled := false
 
 	orgDataService := &mockOrgDataService{
-		isSlackUserInOrgFunc: func(slackID, orgName string) bool {
+		getEmployeeBySlackIDFunc: func(slackID string) *orgdatacore.Employee {
+			return &orgdatacore.Employee{UID: "employee123"}
+		},
+		isEmployeeInOrgFunc: func(uid, orgName string) bool {
 			orgCheckCalled = true
 			return false // User not in org
 		},
@@ -656,7 +800,10 @@ func TestRevokeValidatesOrganization(t *testing.T) {
 	revokeCalled := false
 
 	orgDataService := &mockOrgDataService{
-		isSlackUserInOrgFunc: func(slackID, orgName string) bool {
+		getEmployeeBySlackIDFunc: func(slackID string) *orgdatacore.Employee {
+			return &orgdatacore.Employee{UID: "employee123"}
+		},
+		isEmployeeInOrgFunc: func(uid, orgName string) bool {
 			orgCheckCalled = true
 			return false // User not in org
 		},
@@ -729,10 +876,16 @@ func TestIsUserInOrg_SlackIDLookup(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			orgDataService := &mockOrgDataService{
-				isSlackUserInOrgFunc: func(slackID, orgName string) bool {
+				getEmployeeBySlackIDFunc: func(slackID string) *orgdatacore.Employee {
 					if slackID != tc.slackID {
 						t.Errorf("Expected slackID %s, got %s", tc.slackID, slackID)
 					}
+					if !tc.slackUserInOrg {
+						return nil
+					}
+					return &orgdatacore.Employee{UID: "employee123"}
+				},
+				isEmployeeInOrgFunc: func(uid, orgName string) bool {
 					if orgName != tc.org {
 						t.Errorf("Expected org %s, got %s", tc.org, orgName)
 					}
@@ -837,14 +990,15 @@ func TestIsUserInOrg_DualLookupPreference(t *testing.T) {
 	emailCalled := false
 
 	orgDataService := &mockOrgDataService{
-		isSlackUserInOrgFunc: func(slackID, orgName string) bool {
+		getEmployeeBySlackIDFunc: func(slackID string) *orgdatacore.Employee {
 			slackIDCalled = true
-			return true // Found via Slack ID
+			return &orgdatacore.Employee{UID: "employee123"}
 		},
 		getEmployeeByEmailFunc: func(email string) *orgdatacore.Employee {
 			emailCalled = true
 			return &orgdatacore.Employee{UID: "employee123", Email: email}
 		},
+		isEmployeeInOrgFunc: func(uid, orgName string) bool { return true },
 	}
 
 	result := isUserInOrg(orgDataService, "U12345", "user@example.com", "test-org")
@@ -854,9 +1008,9 @@ func TestIsUserInOrg_DualLookupPreference(t *testing.T) {
 		t.Error("Expected true when Slack ID lookup succeeds")
 	}
 
-	// Should have called Slack ID lookup
+	// Should have called direct Slack ID employee lookup
 	if !slackIDCalled {
-		t.Error("Expected Slack ID lookup to be called")
+		t.Error("Expected direct Slack ID employee lookup to be called")
 	}
 
 	// Should NOT have called email lookup (short-circuit)
@@ -942,14 +1096,16 @@ func TestIsUserInOrg_MultipleOrganizations(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			orgDataService := &mockOrgDataService{
-				isSlackUserInOrgFunc: func(slackID, orgName string) bool {
+				getEmployeeBySlackIDFunc: func(slackID string) *orgdatacore.Employee {
 					if slackID != tc.slackID {
 						t.Errorf("Expected slackID %s, got %s", tc.slackID, slackID)
 					}
+					return &orgdatacore.Employee{UID: "employee123"}
+				},
+				isEmployeeInOrgFunc: func(uid, orgName string) bool {
 					if orgName != tc.expectedOrg {
 						t.Errorf("Expected org %s, got %s", tc.expectedOrg, orgName)
 					}
-					// Check if user is in the requested organization
 					return tc.userOrgs[orgName]
 				},
 			}

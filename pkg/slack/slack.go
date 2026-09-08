@@ -224,9 +224,10 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Handler:     MceImageSets,
 		}, false),
 		parser.NewBotCommand("request <resource?> <justification?>", &parser.CommandDefinition{
-			Description: "Request access to workspace. Access is granted for 7 days. Must be member of Hybrid Platforms organization.",
-			Example:     "request gcp-access \"Need to debug CI infrastructure issues\"",
-			Handler:     Request,
+			Description:       "Request access to workspace. Access is granted for 7 days. Must be member of Hybrid Platforms organization.",
+			Example:           "request gcp-access \"Need to debug CI infrastructure issues\"",
+			Handler:           Request,
+			ContextualHandler: RequestWithContext,
 		}, false),
 		parser.NewBotCommand("revoke <resource?>", &parser.CommandDefinition{
 			Description: "Revoke your workspace access before expiration.",
