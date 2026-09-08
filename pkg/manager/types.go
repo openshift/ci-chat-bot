@@ -486,7 +486,10 @@ type Job struct {
 
 	WorkflowName string
 
-	UseSecondaryAccount bool
+	// CloudProfileSet is the cluster-profile set (e.g. "openshift-org-gcp")
+	// to launch under, delegating account selection to Test Platform. Empty
+	// means use the default per-platform profile.
+	CloudProfileSet string
 
 	Operator        OperatorInfo
 	CatalogComplete bool

@@ -603,21 +603,11 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		}
 	}
 
-	// if a step based config, launch should now be the test config we will run; time to update the config for lease balancing
-	if job.UseSecondaryAccount {
-		switch job.Platform {
-		case "aws":
-			if err := convertAWSToAWS2(pj, sourceConfig); err != nil {
-				return "", fmt.Errorf("failed updating aws job to aws-2: %w", err)
-			}
-		case "gcp":
-			if err := convertGCPToGCP2(pj, sourceConfig); err != nil {
-				return "", fmt.Errorf("failed updating gcp job to gcp-openshift-gce-devel-ci-2: %w", err)
-			}
-		case "azure":
-			if err := convertAzureToAzure2(pj, sourceConfig); err != nil {
-				return "", fmt.Errorf("failed updating azure job to azure-2: %w", err)
-			}
+	// if a cluster-profile set was selected, apply it so Test Platform picks
+	// and balances the underlying account at runtime
+	if job.CloudProfileSet != "" {
+		if err := applyClusterProfile(pj, sourceConfig, job.CloudProfileSet); err != nil {
+			return "", fmt.Errorf("failed applying cluster profile %q: %w", job.CloudProfileSet, err)
 		}
 	}
 
@@ -1822,18 +1812,13 @@ func (e *resolvedEnvironment) Lookup(name string) string {
 	return ""
 }
 
-func convertToAccount2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration, profileName, profileSecret, accountDomain string) error {
+// applyClusterProfile points the job's `launch` test at the given cluster
+// profile (typically a profile set such as "openshift-org-gcp"). Only the
+// cloud-cluster-profile label and the launch test's ClusterProfile are set;
+// the per-account secret volume and BASE_DOMAIN are intentionally left alone,
+// as the runtime resolves those from the account the profile set selects.
+func applyClusterProfile(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration, profileName string) error {
 	job.Labels["ci-operator.openshift.io/cloud-cluster-profile"] = profileName
-	for index, volume := range job.Spec.PodSpec.Volumes {
-		// TODO: only some ci-chat-bot jobs have this; check if they can all be removed
-		if volume.Name == "cluster-profile" {
-			if volume.Projected == nil {
-				volume.Projected = &corev1.ProjectedVolumeSource{}
-			}
-			volume.Projected.Sources = []corev1.VolumeProjection{{Secret: &corev1.SecretProjection{LocalObjectReference: corev1.LocalObjectReference{Name: profileSecret}}}}
-			job.Spec.PodSpec.Volumes[index] = volume
-		}
-	}
 	var matchedTarget *citools.TestStepConfiguration
 	for _, test := range sourceConfig.Tests {
 		if test.As == "launch" {
@@ -1848,20 +1833,5 @@ func convertToAccount2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuil
 		return fmt.Errorf("invalid job; `launch` test is not a multistage test")
 	}
 	matchedTarget.MultiStageTestConfiguration.ClusterProfile = citools.ClusterProfile(profileName)
-	if accountDomain != "" && matchedTarget.MultiStageTestConfiguration != nil && matchedTarget.MultiStageTestConfiguration.Environment != nil {
-		matchedTarget.MultiStageTestConfiguration.Environment["BASE_DOMAIN"] = accountDomain
-	}
 	return nil
-}
-
-func convertAWSToAWS2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration) error {
-	return convertToAccount2(job, sourceConfig, "aws-2", "cluster-secrets-aws-2", "aws-2.ci.openshift.org")
-}
-
-func convertAzureToAzure2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration) error {
-	return convertToAccount2(job, sourceConfig, "azure-2", "cluster-secrets-azure-2", "ci2.azure.devcluster.openshift.com")
-}
-
-func convertGCPToGCP2(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration) error {
-	return convertToAccount2(job, sourceConfig, "gcp-openshift-gce-devel-ci-2", "cluster-secrets-gcp-openshift-gce-devel-ci-2", "")
 }

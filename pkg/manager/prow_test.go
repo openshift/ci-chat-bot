@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	citools "github.com/openshift/ci-tools/pkg/api"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 )
@@ -279,4 +280,81 @@ func Test_processOperatorPR(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_applyClusterProfile(t *testing.T) {
+	newJob := func() *prowapiv1.ProwJob {
+		return &prowapiv1.ProwJob{
+			ObjectMeta: v1.ObjectMeta{
+				Labels: map[string]string{"ci-operator.openshift.io/cloud-cluster-profile": "gcp"},
+			},
+			Spec: prowapiv1.ProwJobSpec{
+				PodSpec: &corev1.PodSpec{
+					Volumes: []corev1.Volume{{
+						Name: "cluster-profile",
+						VolumeSource: corev1.VolumeSource{
+							Projected: &corev1.ProjectedVolumeSource{
+								Sources: []corev1.VolumeProjection{{
+									Secret: &corev1.SecretProjection{
+										LocalObjectReference: corev1.LocalObjectReference{Name: "cluster-secrets-gcp"},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+		}
+	}
+	newConfig := func() *citools.ReleaseBuildConfiguration {
+		return &citools.ReleaseBuildConfiguration{
+			Tests: []citools.TestStepConfiguration{{
+				As: "launch",
+				MultiStageTestConfiguration: &citools.MultiStageTestConfiguration{
+					ClusterProfile: "gcp",
+					Environment:    citools.TestEnvironment{"BASE_DOMAIN": "gcp.devcluster.openshift.com"},
+				},
+			}},
+		}
+	}
+
+	t.Run("sets label and launch ClusterProfile without touching secret volume or BASE_DOMAIN", func(t *testing.T) {
+		job := newJob()
+		config := newConfig()
+		if err := applyClusterProfile(job, config, "openshift-org-gcp"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := job.Labels["ci-operator.openshift.io/cloud-cluster-profile"]; got != "openshift-org-gcp" {
+			t.Errorf("label = %q, want %q", got, "openshift-org-gcp")
+		}
+		if got := config.Tests[0].MultiStageTestConfiguration.ClusterProfile; got != "openshift-org-gcp" {
+			t.Errorf("launch ClusterProfile = %q, want %q", got, "openshift-org-gcp")
+		}
+		// the per-account secret volume must be left untouched; the runtime
+		// resolves the secret from the account the profile set selects
+		gotSecret := job.Spec.PodSpec.Volumes[0].Projected.Sources[0].Secret.Name
+		if gotSecret != "cluster-secrets-gcp" {
+			t.Errorf("cluster-profile secret = %q, want it left as %q", gotSecret, "cluster-secrets-gcp")
+		}
+		// BASE_DOMAIN must be left untouched
+		if got := config.Tests[0].MultiStageTestConfiguration.Environment["BASE_DOMAIN"]; got != "gcp.devcluster.openshift.com" {
+			t.Errorf("BASE_DOMAIN = %q, want it left unchanged", got)
+		}
+	})
+
+	t.Run("errors when no launch test is present", func(t *testing.T) {
+		job := newJob()
+		config := &citools.ReleaseBuildConfiguration{Tests: []citools.TestStepConfiguration{{As: "other"}}}
+		if err := applyClusterProfile(job, config, "openshift-org-gcp"); err == nil {
+			t.Fatal("expected error for missing launch test, got nil")
+		}
+	})
+
+	t.Run("errors when launch test is not multistage", func(t *testing.T) {
+		job := newJob()
+		config := &citools.ReleaseBuildConfiguration{Tests: []citools.TestStepConfiguration{{As: "launch"}}}
+		if err := applyClusterProfile(job, config, "openshift-org-gcp"); err == nil {
+			t.Fatal("expected error for non-multistage launch test, got nil")
+		}
+	})
 }

@@ -5,6 +5,27 @@ import (
 	"testing"
 )
 
+func Test_platformProfileSets(t *testing.T) {
+	tests := []struct {
+		name     string
+		platform string
+		want     string
+	}{
+		{name: "aws maps to its profile set", platform: "aws", want: "openshift-org-aws"},
+		{name: "azure maps to its profile set", platform: "azure", want: "openshift-org-azure"},
+		{name: "gcp maps to its profile set", platform: "gcp", want: "openshift-org-gcp"},
+		{name: "unknown platform has no profile set", platform: "metal", want: ""},
+		{name: "empty platform has no profile set", platform: "", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := platformProfileSets[tt.platform]; got != tt.want {
+				t.Errorf("platformProfileSets[%q] = %q, want %q", tt.platform, got, tt.want)
+			}
+		})
+	}
+}
+
 func Test_containsValidVersion(t *testing.T) {
 	type args struct {
 		listOfImageOrVersionOrPRs []string
