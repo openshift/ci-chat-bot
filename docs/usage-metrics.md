@@ -52,7 +52,7 @@ sum by (slack_user_id) (
   increase(ci_chat_bot_user_command_activity_total{
     hybrid_platforms_membership="non_member"
   }[30d])
-)
+) > 0
 ```
 
 Distinct non-members attempting `request gcp-access`:
@@ -76,7 +76,7 @@ sum by (slack_user_id) (
     command="request-gcp-access",
     hybrid_platforms_membership="non_member"
   }[30d])
-)
+) > 0
 ```
 
 Total GCP access attempts by membership:
