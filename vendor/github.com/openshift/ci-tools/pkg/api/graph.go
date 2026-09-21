@@ -105,7 +105,7 @@ func setMultiArchForChildren(node *StepNode) {
 type InputDefinition []string
 
 // +k8s:deepcopy-gen=false
-type ParameterMap map[string]func() (string, error)
+type ParameterMap map[string]func() (any, error)
 
 // StepLink abstracts the types of links that steps
 // require and create.

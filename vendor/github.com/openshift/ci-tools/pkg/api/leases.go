@@ -1,7 +1,6 @@
 package api
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 )
@@ -9,19 +8,14 @@ import (
 // LeasesForTest aggregates all the lease configurations in a test.
 // It is assumed that they have been validated and contain only valid and
 // unique values.
-func LeasesForTest(test *TestStepConfiguration, targetAdditionalSuffix string) (ret []StepLease) {
+func LeasesForTest(test *TestStepConfiguration) (ret []StepLease) {
 	multiStageTest := test.MultiStageTestConfigurationLiteral
-	if p := multiStageTest.ClusterProfile; p != "" {
-		clusterProfileTarget := test.As
-		if targetAdditionalSuffix != "" {
-			clusterProfileTarget = strings.TrimSuffix(clusterProfileTarget, fmt.Sprintf("-%s", targetAdditionalSuffix))
-		}
+	if p := multiStageTest.ClusterProfileLiteral; p != nil {
 		ret = append(ret, StepLease{
-			ResourceType:         p.LeaseType(),
-			Env:                  DefaultLeaseEnv,
-			Count:                1,
-			ClusterProfile:       multiStageTest.ClusterProfile.Name(),
-			ClusterProfileTarget: clusterProfileTarget,
+			ResourceType:   p.LeaseType,
+			Env:            DefaultLeaseEnv,
+			Count:          1,
+			ClusterProfile: p,
 		})
 	}
 	for _, step := range append(multiStageTest.Pre, append(multiStageTest.Test, multiStageTest.Post...)...) {
@@ -33,20 +27,15 @@ func LeasesForTest(test *TestStepConfiguration, targetAdditionalSuffix string) (
 
 const maxAddressesRequired = 13
 
-func IPPoolLeaseForTest(s *MultiStageTestConfigurationLiteral, metadata Metadata) (ret StepLease) {
-	p := s.ClusterProfile
-	if p != "" {
-		if lt := p.IPPoolLeaseType(); lt != "" {
-			if !p.IPPoolLeaseShouldValidateBranch() || branchValidForIPPoolLease(metadata.Branch) {
-				ret = StepLease{
-					ResourceType: lt,
-					Env:          DefaultIPPoolLeaseEnv,
-					Count:        maxAddressesRequired,
-				}
-			}
+func IPPoolLeaseForTest(ipPoolLeaseType, branch string) StepLease {
+	if ipPoolLeaseType != "" && branchValidForIPPoolLease(branch) {
+		return StepLease{
+			ResourceType: ipPoolLeaseType,
+			Env:          DefaultIPPoolLeaseEnv,
+			Count:        maxAddressesRequired,
 		}
 	}
-	return
+	return StepLease{}
 }
 
 const (

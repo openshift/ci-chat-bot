@@ -11,9 +11,13 @@ const (
 
 	// Encoding constants for special characters
 	DotReplacementString = "--dot--"
+	// UnderscorePrefix/Suffix for encoding consecutive underscores
+	// __ → --uu--, ___ → --uuu--, etc.
+	UnderscorePrefix = "--"
+	UnderscoreSuffix = "--"
 
 	CollectionRegex = "^([a-z0-9_-]*[a-z0-9])?$"
-	GroupRegex      = `^[a-z0-9]+([a-z0-9_-]*[a-z0-9]+)?(/[a-z0-9]+([a-z0-9_-]*[a-z0-9]+)?)*$`
+	GroupRegex      = `^(--dot--)?[a-zA-Z0-9]+([a-zA-Z0-9_-]*[a-zA-Z0-9]+)?(/[a-zA-Z0-9]+([a-zA-Z0-9_-]*[a-zA-Z0-9]+)?)*$`
 	SecretNameRegex = "^[A-Za-z0-9_-]+$"
 
 	// MaxCollectionLength is the maximum length of a collection name
@@ -21,6 +25,13 @@ const (
 
 	// GcpMaxNameLength is the maximum length for a GSM secret name
 	GcpMaxNameLength = 255
+)
+
+var (
+	// Regex to find consecutive underscores (2 or more)
+	consecutiveUnderscoresRegex = regexp.MustCompile(`_{2,}`)
+	// Regex to find encoded underscores in format --uu-- (2 or more u's)
+	encodedUnderscoresRegex = regexp.MustCompile(`--u{2,}--`)
 )
 
 var (
@@ -35,7 +46,10 @@ func ValidateCollectionName(collection string) bool {
 		return false
 	}
 
-	// Cannot end with underscore (would create collection___secret)
+	// Cannot start or end with underscore
+	if strings.HasPrefix(collection, "_") {
+		return false
+	}
 	if strings.HasSuffix(collection, "_") {
 		return false
 	}
@@ -74,8 +88,11 @@ func ValidateSecretName(secretName string) bool {
 		return false
 	}
 
-	// Cannot start with underscore (would create collection___secret)
+	// Cannot start or end with underscore
 	if strings.HasPrefix(secretName, "_") {
+		return false
+	}
+	if strings.HasSuffix(secretName, "_") {
 		return false
 	}
 
@@ -86,20 +103,33 @@ func ValidateSecretName(secretName string) bool {
 	return secretNameRegexp.MatchString(secretName)
 }
 
-// NormalizeName replaces forbidden characters in field names with safe replacements.
-// This is used when migrating from Vault to GSM to handle special characters in field names.
-// Rules:
-//   - `.` → `--dot--` (dots not allowed in GSM secret names)
+// NormalizeName replaces forbidden characters in names with safe replacements.
+// This is used when migrating from Vault to GSM to handle special characters.
+// Rules (applied in order):
+//  1. `__` (2+ consecutive underscores) → `--uu--`, `--uuu--`, etc.
+//  2. `.` → `--dot--` (dots not allowed in GSM secret names)
 //
-// Example: ".dockerconfigjson" → "--dot--dockerconfigjson"
+// Examples:
+//   - ".dockerconfigjson" → "--dot--dockerconfigjson"
+//   - "mac_ai__base_dir" → "mac_ai--uu--base_dir"
+//   - "some___field" → "some--uuu--field"
+//   - "field.with__both" → "field--dot--with--uu--both"
 func NormalizeName(name string) string {
-	// Encode in specific order to avoid conflicts
-	return strings.ReplaceAll(name, ".", DotReplacementString)
+	result := consecutiveUnderscoresRegex.ReplaceAllStringFunc(name, func(match string) string {
+		count := len(match)
+		return UnderscorePrefix + strings.Repeat("u", count) + UnderscoreSuffix
+	})
+	return strings.ReplaceAll(result, ".", DotReplacementString)
 }
 
 // DenormalizeName decodes field names back to their original form.
 // This reverses the encoding done by NormalizeName.
+// Decodes in reverse order of NormalizeName.
 func DenormalizeName(name string) string {
-	// Decode in reverse order
-	return strings.ReplaceAll(name, DotReplacementString, ".")
+	result := strings.ReplaceAll(name, DotReplacementString, ".")
+	result = encodedUnderscoresRegex.ReplaceAllStringFunc(result, func(match string) string {
+		uCount := len(match) - len(UnderscorePrefix) - len(UnderscoreSuffix)
+		return strings.Repeat("_", uCount)
+	})
+	return result
 }

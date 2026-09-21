@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -25,6 +24,40 @@ func IsPromotionJob(jobLabels map[string]string) bool {
 	return ok
 }
 
+var (
+	DefaultSlackReporterJobStatesToReport = []prowv1.ProwJobState{
+		prowv1.SuccessState,
+		prowv1.FailureState,
+		prowv1.ErrorState,
+	}
+)
+
+type SlackReporterConfig struct {
+	Channel           string                `json:"channel"`
+	JobStatesToReport []prowv1.ProwJobState `json:"job_states_to_report,omitempty"`
+	ReportTemplate    string                `json:"report_template,omitempty"`
+	// ReportPresubmit controls whether the presubmit job generated from a
+	// periodic test with `presubmit: true` also gets this slack config.
+	// Only valid when the test has `presubmit: true`.
+	ReportPresubmit bool `json:"report_presubmit,omitempty"`
+}
+
+type ProwgenOverrides struct {
+	DisableRehearsals           bool `json:"disable_rehearsals,omitempty"`
+	SkipOperatorPresubmits      bool `json:"skip_operator_presubmits,omitempty"`
+	EnableSecretsStoreCSIDriver bool `json:"enable_secrets_store_csi_driver,omitempty"`
+	// Private indicates that generated jobs should be marked as hidden
+	// from display in deck and that they should mount appropriate git credentials
+	// to clone the repository under test.
+	Private bool `json:"private,omitempty"`
+	// Expose declares that jobs should not be hidden from view in deck if they
+	// are private. This field has no effect if private is not set.
+	Expose bool `json:"expose,omitempty"`
+	// DisableSparseCheckout disables the sparse checkout optimization for the
+	// repository clone done by Prow's clonerefs.
+	DisableSparseCheckout bool `json:"disable_sparse_checkout,omitempty"`
+}
+
 // ReleaseBuildConfiguration describes how release
 // artifacts are built from a repository of source
 // code. The configuration is made up of two parts:
@@ -37,6 +70,8 @@ func IsPromotionJob(jobLabels map[string]string) bool {
 //     fine-grained build flows
 type ReleaseBuildConfiguration struct {
 	Metadata Metadata `json:"zz_generated_metadata"`
+
+	Prowgen *ProwgenOverrides `json:"prowgen,omitempty"`
 
 	InputConfiguration `json:",inline"`
 
@@ -747,14 +782,15 @@ func (config PipelineImageCacheStepConfiguration) TargetName() string {
 type Cluster string
 
 const (
-	ClusterAPPCI     Cluster = "app.ci"
-	ClusterBuild01   Cluster = "build01"
-	ClusterBuild02   Cluster = "build02"
-	ClusterBuild03   Cluster = "build03"
-	ClusterBuild10   Cluster = "build10"
-	ClusterVSphere02 Cluster = "vsphere02"
-	ClusterARM01     Cluster = "arm01"
-	ClusterHive      Cluster = "hosted-mgmt"
+	ClusterAPPCI       Cluster = "app.ci"
+	ClusterBuild01     Cluster = "build01"
+	ClusterBuild02     Cluster = "build02"
+	ClusterBuild03     Cluster = "build03"
+	ClusterBuild10     Cluster = "build10"
+	ClusterVSphere02   Cluster = "vsphere02"
+	ClusterARM01       Cluster = "arm01"
+	ClusterHostedMgmt1 Cluster = "hosted-mgmt"
+	ClusterHostedMgmt2 Cluster = "hosted-mgmt2"
 )
 
 // TestStepConfiguration describes a step that runs a
@@ -829,6 +865,7 @@ type TestStepConfiguration struct {
 	Retry *prowconfig.Retry `json:"retry,omitempty"`
 
 	// RunIfChanged is a regex that will result in the test only running if something that matches it was changed.
+	// Only applicable to presubmits; postsubmits always run on every merge.
 	RunIfChanged string `json:"run_if_changed,omitempty"`
 
 	// PipelineRunIfChanged is a regex that will result in the test only running in second
@@ -842,7 +879,16 @@ type TestStepConfiguration struct {
 	Portable bool `json:"portable,omitempty"`
 
 	// SkipIfOnlyChanged is a regex that will result in the test being skipped if all changed files match that regex.
+	// Only applicable to presubmits; postsubmits always run on every merge.
 	SkipIfOnlyChanged string `json:"skip_if_only_changed,omitempty"`
+
+	// SkipBranches is a list of branch name regex patterns. Branches matching
+	// any of these patterns will be excluded from running this presubmit job.
+	// This maps directly to the upstream Prow Brancher.SkipBranches field and
+	// is useful to prevent feature branch inheritance (e.g. preventing a
+	// presubmit configured for "main" from also running on "main-*" branches).
+	// Only applicable to presubmit tests.
+	SkipBranches []string `json:"skip_branches,omitempty"`
 
 	// PipelineSkipIfOnlyChanged is a regex that will result in the test being skipped in second
 	// stage of the pipeline run if all changed files match that regex.
@@ -855,6 +901,12 @@ type TestStepConfiguration struct {
 	// If set, the generated test pod will include a nodeSelector for this architecture.
 	NodeArchitecture NodeArchitecture `json:"node_architecture,omitempty"`
 
+	// DisableRehearsal prevents this specific test from being picked up for rehearsals.
+	DisableRehearsal bool `json:"disable_rehearsal,omitempty"`
+
+	// DisablePodScaler opts generated test and image build pods out of pod-scaler admission.
+	DisablePodScaler bool `json:"disable_pod_scaler,omitempty"`
+
 	// RestrictNetworkAccess restricts network access to RedHat intranet.
 	RestrictNetworkAccess *bool `json:"restrict_network_access,omitempty"`
 
@@ -862,6 +914,12 @@ type TestStepConfiguration struct {
 	// Each generated job will be a duplication, but contain a suffix and the necessary SHARD_ARGS will be passed to the steps
 	// Only applicable to presubmits and periodics
 	ShardCount *int `json:"shard_count,omitempty"`
+
+	// MaxConcurrency sets the maximum number of this job running concurrently. 0 means no limit.
+	MaxConcurrency int `json:"max_concurrency,omitempty"`
+
+	// SlackReporterConfig configures Slack notifications for this test's generated jobs.
+	SlackReporterConfig *SlackReporterConfig `json:"reporter_config,omitempty"`
 
 	// Only one of the following can be not-null.
 	ContainerTestConfiguration         *ContainerTestConfiguration         `json:"container,omitempty"`
@@ -880,10 +938,11 @@ func (config TestStepConfiguration) IsPeriodic() bool {
 // GetClusterProfileName returns the cluster profile name if it's set
 func (config TestStepConfiguration) GetClusterProfileName() string {
 	switch {
-	case config.MultiStageTestConfigurationLiteral != nil:
-		return config.MultiStageTestConfigurationLiteral.ClusterProfile.Name()
+	case config.MultiStageTestConfigurationLiteral != nil &&
+		config.MultiStageTestConfigurationLiteral.ClusterProfileLiteral != nil:
+		return config.MultiStageTestConfigurationLiteral.ClusterProfileLiteral.Name
 	case config.MultiStageTestConfiguration != nil:
-		return config.MultiStageTestConfiguration.ClusterProfile.Name()
+		return config.MultiStageTestConfiguration.ClusterProfile
 	default:
 		return ""
 	}
@@ -898,6 +957,24 @@ const (
 	CloudAzure4  Cloud = "azure4"
 	CloudVSphere Cloud = "vsphere"
 )
+
+type ClusterProfileLiteral struct {
+	Name            string `yaml:"name,omitempty" json:"name,omitempty"`
+	LeaseType       string `yaml:"lease_type,omitempty" json:"lease_type,omitempty"`
+	IPPoolLeaseType string `yaml:"ip_pool_lease_type,omitempty" json:"ip_pool_lease_type,omitempty"`
+	ClusterType     string `yaml:"cluster_type,omitempty" json:"cluster_type,omitempty"`
+	Secret          string `yaml:"secret,omitempty" json:"secret,omitempty"`
+}
+
+func FromClusterProfile(clusterProfile *ClusterProfile) *ClusterProfileLiteral {
+	return &ClusterProfileLiteral{
+		Name:            clusterProfile.Name,
+		LeaseType:       clusterProfile.LeaseType,
+		IPPoolLeaseType: clusterProfile.IPPoolLeaseType,
+		ClusterType:     clusterProfile.ClusterType,
+		Secret:          clusterProfile.Secret,
+	}
+}
 
 // ClusterClaim claims an OpenShift cluster for the job.
 type ClusterClaim struct {
@@ -1136,7 +1213,7 @@ type CredentialReference struct {
 	// MountPath is where the secret should be mounted.
 	MountPath string `json:"mount_path"`
 	// Namespace is where the source secret exists.
-	Namespace string `json:"namespace"`
+	Namespace string `json:"namespace,omitempty"`
 	// Name is the name of the secret.
 	Name string `json:"name,omitempty"`
 }
@@ -1182,9 +1259,8 @@ type StepLease struct {
 	// Env is the environment variable that will contain the resource name.
 	Env string `json:"env"`
 	// Count is the number of resources to acquire (optional, defaults to 1).
-	Count                uint   `json:"count,omitempty"`
-	ClusterProfile       string `json:"-"`
-	ClusterProfileTarget string `json:"-"`
+	Count          uint                   `json:"count,omitempty"`
+	ClusterProfile *ClusterProfileLiteral `json:"-"`
 }
 
 // FromImageTag returns the internal name for the image tag that will be used
@@ -1212,7 +1288,7 @@ type TestStep struct {
 // the multiple stages of end to end tests.
 type MultiStageTestConfiguration struct {
 	// ClusterProfile defines the profile/cloud provider for end-to-end test steps.
-	ClusterProfile ClusterProfile `json:"cluster_profile,omitempty"`
+	ClusterProfile string `json:"cluster_profile,omitempty"`
 	// Pre is the array of test steps run to set up the environment for the test.
 	Pre []TestStep `json:"pre,omitempty"`
 	// Test is the array of test steps that define the actual test.
@@ -1260,8 +1336,8 @@ type DependencyOverrides map[string]string
 // references. It is the type that MultiStageTestConfigurations are converted to when parsed by the
 // ci-operator-configresolver.
 type MultiStageTestConfigurationLiteral struct {
-	// ClusterProfile defines the profile/cloud provider for end-to-end test steps.
-	ClusterProfile ClusterProfile `json:"cluster_profile"`
+	// ClusterProfileLiteral defines the profile/cloud provider for end-to-end test steps.
+	ClusterProfileLiteral *ClusterProfileLiteral `json:"cluster_profile_literal,omitempty"`
 	// Pre is the array of test steps run to set up the environment for the test.
 	Pre []LiteralTestStep `json:"pre,omitempty"`
 	// Test is the array of test steps that define the actual test.
@@ -1309,11 +1385,41 @@ type TestDependencies map[string]string
 // Secret describes a secret to be mounted inside a test
 // container.
 type Secret struct {
-	// Secret name, used inside test containers
-	Name string `json:"name"`
+	// As is an optional string under which the secret will be stored on the file system.
+	// Requires Field to be not empty.
+	As string `json:"as,omitempty"`
+	// Bundle is a named bundle reference from the GSM config mapping file.
+	// Mutually exclusive with Collection/Group and Name.
+	Bundle string `json:"bundle,omitempty"`
+	// Collection is the GSM collection the secret belongs to.
+	// Mutually exclusive with Bundle and Name.
+	Collection string `json:"collection,omitempty"`
+	// Field is the specific field name within the collection/group.
+	// When set, only this single field is mounted. When omitted, all fields
+	// in the collection/group are auto-discovered.
+	Field string `json:"field,omitempty"`
+	// Group is the group name within the collection.
+	// Required when Collection is set.
+	Group string `json:"group,omitempty"`
+	// Secret name, used inside test containers.
+	// Mutually exclusive with Bundle and Collection/Group.
+	Name string `json:"name,omitempty"`
+	// Namespace is where the source secret exists. Only relevant when
+	// Bundle references a bundle with sync_to_cluster: true, in which case
+	// the underlying Kubernetes secret is fetched from this namespace
+	// instead of GSM.
+	Namespace string `json:"namespace,omitempty"`
 	// Secret mount path. Defaults to /usr/test-secrets for first
 	// secret. /usr/test-secrets-2 for second, and so on.
 	MountPath string `json:"mount_path"`
+}
+
+func (s *Secret) IsGSMReference() bool {
+	return s.Collection != "" && s.Group != ""
+}
+
+func (s *Secret) IsBundleReference() bool {
+	return s.Bundle != ""
 }
 
 // MemoryBackedVolume describes a tmpfs (memory backed volume)
@@ -1340,1223 +1446,10 @@ type ContainerTestConfiguration struct {
 	Clone *bool `json:"clone,omitempty"`
 }
 
-// ClusterProfile is the name of a set of input variables
-// provided to the installer defining the target cloud,
-// cluster topology, etc.
-type ClusterProfile string
-
-const (
-	ClusterProfileAWS                     ClusterProfile = "aws"
-	ClusterProfileAWSCSPIQE               ClusterProfile = "aws-cspi-qe"
-	ClusterProfileAWSQE                   ClusterProfile = "aws-qe"
-	ClusterProfileAWSC2SQE                ClusterProfile = "aws-c2s-qe"
-	ClusterProfileAWSChinaQE              ClusterProfile = "aws-china-qe"
-	ClusterProfileAWSGovCloudQE           ClusterProfile = "aws-usgov-qe"
-	ClusterProfileAWSSC2SQE               ClusterProfile = "aws-sc2s-qe"
-	ClusterProfileAWSSCPQE                ClusterProfile = "aws-scp-qe"
-	ClusterProfileAWS1QE                  ClusterProfile = "aws-1-qe"
-	ClusterProfileAWSAutoreleaseQE        ClusterProfile = "aws-autorelease-qe"
-	ClusterProfileAWSSdQE                 ClusterProfile = "aws-sd-qe"
-	ClusterProfileOEXAWSQE                ClusterProfile = "oex-aws-qe"
-	ClusterProfileHyperfleetE2E           ClusterProfile = "hyperfleet-e2e"
-	ClusterProfileAWSPerfScale            ClusterProfile = "aws-perfscale"
-	ClusterProfileAWSPerfScaleOKD         ClusterProfile = "aws-perfscale-okd"
-	ClusterProfileAWSPerfScaleQE          ClusterProfile = "aws-perfscale-qe"
-	ClusterProfileAWSPerfScaleLRCQE       ClusterProfile = "aws-perfscale-lrc-qe"
-	ClusterProfileAWSRestrictedQE         ClusterProfile = "aws-restricted-qe"
-	ClusterProfileROSAE2E01               ClusterProfile = "rosa-e2e-01"
-	ClusterProfileROSAE2E02               ClusterProfile = "rosa-e2e-02"
-	ClusterProfileROSAE2E03               ClusterProfile = "rosa-e2e-03"
-	ClusterProfileAWSEUSC                 ClusterProfile = "aws-eusc"
-	ClusterProfileAWSOutpostQE            ClusterProfile = "aws-outpost-qe"
-	ClusterProfileAWSChaos                ClusterProfile = "aws-chaos"
-	ClusterProfileAWSManagedCSPIQE        ClusterProfile = "aws-managed-cspi-qe"
-	ClusterProfileAWSOSDMSP               ClusterProfile = "aws-osd-msp"
-	ClusterProfileAWSINTEROPQE            ClusterProfile = "aws-interop-qe"
-	ClusterProfileAWSTerraformQE          ClusterProfile = "aws-terraform-qe"
-	ClusterProfileAWSPipelinesPerf        ClusterProfile = "aws-pipelines-performance"
-	ClusterProfileAWSRHTAPQE              ClusterProfile = "aws-rhtap-qe"
-	ClusterProfileAWSKonfluxQE            ClusterProfile = "aws-konflux-qe"
-	ClusterProfileAWSRHTAPPerformance     ClusterProfile = "aws-rhtap-performance"
-	ClusterProfileAWSRHDHPerf             ClusterProfile = "aws-rhdh-performance"
-	ClusterProfileAWSServerless           ClusterProfile = "aws-serverless"
-	ClusterProfileAWSTelco                ClusterProfile = "aws-telco"
-	ClusterProfileAWSOpendatahub          ClusterProfile = "aws-opendatahub"
-	ClusterProfileAWSDevfile              ClusterProfile = "aws-devfile"
-	ClusterProfileAWSSPLAT                ClusterProfile = "aws-splat"
-	ClusterProfileAWSSustAutoRel412       ClusterProfile = "aws-sustaining-autorelease-412"
-	ClusterProfileAWSKubeVirt             ClusterProfile = "aws-kubevirt"
-	ClusterProfileAWSOVNPerfScale         ClusterProfile = "aws-ovn-perfscale"
-	ClusterProfileAWSConfidentialQE       ClusterProfile = "aws-confidential-qe"
-	ClusterProfileAlibabaCloud            ClusterProfile = "alibabacloud"
-	ClusterProfileAlibabaCloudQE          ClusterProfile = "alibabacloud-qe"
-	ClusterProfileAlibabaCloudCNQE        ClusterProfile = "alibabacloud-cn-qe"
-	ClusterProfileAzure                   ClusterProfile = "azure"
-	ClusterProfileAzure2                  ClusterProfile = "azure-2"
-	ClusterProfileAzure4                  ClusterProfile = "azure4"
-	ClusterProfileAzureArc                ClusterProfile = "azure-arc"
-	ClusterProfileAzureArm64              ClusterProfile = "azure-arm64"
-	ClusterProfileAzurePerfScale          ClusterProfile = "azure-perfscale"
-	ClusterProfileAzureStack              ClusterProfile = "azurestack"
-	ClusterProfileAzureStackDEV           ClusterProfile = "azurestack-dev"
-	ClusterProfileAzureStackQE            ClusterProfile = "azurestack-qe"
-	ClusterProfileAzureMag                ClusterProfile = "azuremag"
-	ClusterProfileAzureQE                 ClusterProfile = "azure-qe"
-	ClusterProfileAzureObservability      ClusterProfile = "azure-observability"
-	ClusterProfileAzureHCPQE              ClusterProfile = "azure-hcp-qe"
-	ClusterProfileAzureHCPHAQE            ClusterProfile = "azure-hcp-ha-qe"
-	ClusterProfileAzureAutoreleaseQE      ClusterProfile = "azure-autorelease-qe"
-	ClusterProfileAzureArm64QE            ClusterProfile = "azure-arm64-qe"
-	ClusterProfileAzureMagQE              ClusterProfile = "azuremag-qe"
-	ClusterProfileAzureSustAutoRel412     ClusterProfile = "azure-sustaining-autorelease-412"
-	ClusterProfileAzureConfidentialQE     ClusterProfile = "azure-confidential-qe"
-	ClusterProfileAzureCNVDevOps          ClusterProfile = "azure-cnv-devops"
-	ClusterProfileEquinixOcpMetal         ClusterProfile = "equinix-ocp-metal"
-	ClusterProfileEquinixOcpMetalQE       ClusterProfile = "equinix-ocp-metal-qe"
-	ClusterProfileEquinixOcpHCP           ClusterProfile = "equinix-ocp-hcp"
-	ClusterProfileFleetManagerQE          ClusterProfile = "fleet-manager-qe"
-	ClusterProfileGCPQE                   ClusterProfile = "gcp-qe"
-	ClusterProfileGCPQEC3Metal            ClusterProfile = "gcp-qe-c3-metal"
-	ClusterProfileGCPAutoReleaseQE        ClusterProfile = "gcp-autorelease-qe"
-	ClusterProfileGCPArm64                ClusterProfile = "gcp-arm64"
-	ClusterProfileGCP                     ClusterProfile = "gcp"
-	ClusterProfileGCP3                    ClusterProfile = "gcp-3"
-	ClusterProfileGCP2                    ClusterProfile = "gcp-openshift-gce-devel-ci-2"
-	ClusterProfileGCPOpendatahub          ClusterProfile = "gcp-opendatahub"
-	ClusterProfileGCPTelco                ClusterProfile = "gcp-telco"
-	ClusterProfileGCPChaos                ClusterProfile = "gcp-chaos"
-	ClusterProfileGCPConfidentialQE       ClusterProfile = "gcp-confidential-qe"
-	ClusterProfileGCPPerfScaleQE          ClusterProfile = "gcp-perfscale-qe"
-	ClusterProfileIBMCloud                ClusterProfile = "ibmcloud"
-	ClusterProfileGCPSustAutoRel412       ClusterProfile = "gcp-sustaining-autorelease-412"
-	ClusterProfileIBMCloudCSPIQE          ClusterProfile = "ibmcloud-cspi-qe"
-	ClusterProfileIBMCloudRHOAIQE         ClusterProfile = "ibmcloud-rhoai-qe"
-	ClusterProfileIBMCloudQE              ClusterProfile = "ibmcloud-qe"
-	ClusterProfileIBMCloudQE2             ClusterProfile = "ibmcloud-qe-2"
-	ClusterProfileIBMCloudMultiPpc64le    ClusterProfile = "ibmcloud-multi-ppc64le"
-	ClusterProfileIBMCloudMultiS390x      ClusterProfile = "ibmcloud-multi-s390x"
-	ClusterProfilePOWERVC1                ClusterProfile = "powervc-1"
-	ClusterProfilePOWERVSMulti1           ClusterProfile = "powervs-multi-1"
-	ClusterProfilePOWERVS1                ClusterProfile = "powervs-1"
-	ClusterProfilePOWERVS2                ClusterProfile = "powervs-2"
-	ClusterProfilePOWERVS3                ClusterProfile = "powervs-3"
-	ClusterProfilePOWERVS4                ClusterProfile = "powervs-4"
-	ClusterProfilePOWERVS5                ClusterProfile = "powervs-5"
-	ClusterProfilePOWERVS6                ClusterProfile = "powervs-6"
-	ClusterProfilePOWERVS7                ClusterProfile = "powervs-7"
-	ClusterProfilePOWERVS8                ClusterProfile = "powervs-8"
-	ClusterProfilePOWERVS9                ClusterProfile = "powervs-9"
-	ClusterProfileLibvirtPpc64le          ClusterProfile = "libvirt-ppc64le"
-	ClusterProfileLibvirtPpc64leS2S       ClusterProfile = "libvirt-ppc64le-s2s"
-	ClusterProfileLibvirtS390x            ClusterProfile = "libvirt-s390x"
-	ClusterProfileLibvirtS390x1           ClusterProfile = "libvirt-s390x-1"
-	ClusterProfileLibvirtS390x2           ClusterProfile = "libvirt-s390x-2"
-	ClusterProfileLibvirtS390xAmd64       ClusterProfile = "libvirt-s390x-amd64"
-	ClusterProfileLibvirtS390xVPN         ClusterProfile = "libvirt-s390x-vpn"
-	ClusterProfileMetalPerfscaleBMCPT     ClusterProfile = "metal-perfscale-cpt"
-	ClusterProfileMetalPerfscaleJetlag    ClusterProfile = "metal-perfscale-jetlag"
-	ClusterProfileMetalPerfscaleOSP       ClusterProfile = "metal-perfscale-osp"
-	ClusterProfileMetalPerfscaleSelfSched ClusterProfile = "metal-perfscale-selfsched"
-	ClusterProfileMetalPerfscaleTelco     ClusterProfile = "metal-perfscale-telco"
-	ClusterProfileMetalTelco5G            ClusterProfile = "metal-telco5g"
-	ClusterProfileMetalTelcoV10N          ClusterProfile = "metal-telcov10n"
-	ClusterProfileMetalTelco5GPTP         ClusterProfile = "metal-telco5g-ptp"
-	ClusterProfileNutanix                 ClusterProfile = "nutanix"
-	ClusterProfileNutanixQE               ClusterProfile = "nutanix-qe"
-	ClusterProfileNutanixQEDis            ClusterProfile = "nutanix-qe-dis"
-	ClusterProfileNutanixQEZone           ClusterProfile = "nutanix-qe-zone"
-	ClusterProfileNutanixQEGPU            ClusterProfile = "nutanix-qe-gpu"
-	ClusterProfileNutanixQEFlow           ClusterProfile = "nutanix-qe-flow"
-	ClusterProfileOpenStackHwoffload      ClusterProfile = "openstack-hwoffload"
-	ClusterProfileOpenStackIBMOSP         ClusterProfile = "openstack-ibm-osp"
-	ClusterProfileOpenStackNFV            ClusterProfile = "openstack-nfv"
-	ClusterProfileOpenStackMechaCentral   ClusterProfile = "openstack-vh-mecha-central"
-	ClusterProfileOpenStackMechaAz0       ClusterProfile = "openstack-vh-mecha-az0"
-	ClusterProfileOpenStackOsuosl         ClusterProfile = "openstack-osuosl"
-	ClusterProfileOpenStackVexxhost       ClusterProfile = "openstack-vexxhost"
-	ClusterProfileOpenStackVexxhostRHOS   ClusterProfile = "openstack-vh-bm-rhos"
-	ClusterProfileOpenStackPpc64le        ClusterProfile = "openstack-ppc64le"
-	ClusterProfileOpenStackOpVexxhost     ClusterProfile = "openstack-operators-vexxhost"
-	ClusterProfileOpenStackNercDev        ClusterProfile = "openstack-nerc-dev"
-	ClusterProfileOpenStackRHOSO          ClusterProfile = "openstack-rhoso"
-	ClusterProfileOpenStackRHOSCI         ClusterProfile = "openstack-rhos-ci"
-	ClusterProfileOvirt                   ClusterProfile = "ovirt"
-	ClusterProfilePacket                  ClusterProfile = "packet"
-	ClusterProfilePacketAssisted          ClusterProfile = "packet-assisted"
-	ClusterProfilePacketSNO               ClusterProfile = "packet-sno"
-	ClusterProfileVSphereDis2             ClusterProfile = "vsphere-dis-2"
-	ClusterProfileVSphereMultizone2       ClusterProfile = "vsphere-multizone-2"
-	ClusterProfileVSphereConnected2       ClusterProfile = "vsphere-connected-2"
-	ClusterProfileVSphereElastic          ClusterProfile = "vsphere-elastic"
-	ClusterProfileVSphereElasticPoc       ClusterProfile = "vsphere-elastic-poc"
-	ClusterProfileKubevirt                ClusterProfile = "kubevirt"
-	ClusterProfileAWSCPaaS                ClusterProfile = "aws-cpaas"
-	ClusterProfileOSDEphemeral            ClusterProfile = "osd-ephemeral"
-	ClusterProfileAWS2                    ClusterProfile = "aws-2"
-	ClusterProfileAWS3                    ClusterProfile = "aws-3"
-	ClusterProfileAWS4                    ClusterProfile = "aws-4"
-	ClusterProfileAWS5                    ClusterProfile = "aws-5"
-	ClusterProfileOpenshiftOrgAWS         ClusterProfile = "openshift-org-aws"
-	ClusterProfileOpenshiftOrgAzure       ClusterProfile = "openshift-org-azure"
-	ClusterProfileGCPVirtualization       ClusterProfile = "gcp-virtualization"
-	ClusterProfileAWSVirtualization       ClusterProfile = "aws-virtualization"
-	ClusterProfileAzureVirtualization     ClusterProfile = "azure-virtualization"
-	ClusterProfileOCIAgent                ClusterProfile = "oci-agent-qe"
-	ClusterProfileOCIAssisted             ClusterProfile = "oci-assisted"
-	ClusterProfileHypershiftAWS           ClusterProfile = "hypershift-aws"
-	ClusterProfileHypershiftAzure         ClusterProfile = "hypershift-azure"
-	ClusterProfileHypershiftAKS           ClusterProfile = "hypershift-aks"
-	ClusterProfileHypershiftPowerVS       ClusterProfile = "hypershift-powervs"
-	ClusterProfileHypershiftPowerVSCB     ClusterProfile = "hypershift-powervs-cb"
-	ClusterProfileHypershiftGCP           ClusterProfile = "hypershift-gcp"
-	ClusterProfileOSSM                    ClusterProfile = "ossm-aws"
-	ClusterProfileMedik8sAWS              ClusterProfile = "medik8s-aws"
-	ClusterProfileGitOpsAWS               ClusterProfile = "gitops-aws"
-	ClusterProfileCheAWS                  ClusterProfile = "che-aws"
-	ClusterProfileOSLGCP                  ClusterProfile = "osl-gcp"
-	ClusterProfileDevSandboxCIAWS         ClusterProfile = "devsandboxci-aws"
-	ClusterProfileQuayAWS                 ClusterProfile = "quay-aws"
-	ClusterProfileAWSEdgeInfra            ClusterProfile = "aws-edge-infra"
-	ClusterProfileRHOpenShiftEcosystem    ClusterProfile = "rh-openshift-ecosystem"
-	ClusterProfileODFAWS                  ClusterProfile = "odf-aws"
-	ClusterProfileKonfluxWorkspacesAWS    ClusterProfile = "konfluxworkspaces-aws"
-	ClusterProfileAWSObservabiltity       ClusterProfile = "aws-observability"
-	ClusterProfileAWSStackrox             ClusterProfile = "aws-stackrox"
-	ClusterProfileAWSSDCICD               ClusterProfile = "aws-sd-cicd"
-	ClusterProfileGCPSDCICD               ClusterProfile = "gcp-sd-cicd"
-	ClusterProfileAroRH                   ClusterProfile = "aro-redhat-tenant"
-	ClusterProfileAWSRHOAIQE              ClusterProfile = "aws-rhoai-qe"
-	ClusterProfileAWSManagedRosaRHOAIQE   ClusterProfile = "aws-managed-rosa-rhoai-qe"
-	ClusterProfileAWSManagedOSDRHOAIQE    ClusterProfile = "aws-managed-osd-rhoai-qe"
-	ClusterProfileGCPObservability        ClusterProfile = "gcp-observability"
-	ClusterProfileEquinixEdgeEnablement   ClusterProfile = "equinix-edge-enablement"
-	ClusterProfileAWSQUAYQE               ClusterProfile = "aws-quay-qe"
-	ClusterProfileGCPQUAYQE               ClusterProfile = "gcp-quay-qe"
-	ClusterProfileAzureQUAYQE             ClusterProfile = "azure-quay-qe"
-	ClusterProfileAWSMCOQE                ClusterProfile = "aws-mco-qe"
-	ClusterProfileAWSOADPQE               ClusterProfile = "aws-oadp-qe"
-	ClusterProfileAzureOADPQE             ClusterProfile = "azure-oadp-qe"
-	ClusterProfileGCPOADPQE               ClusterProfile = "gcp-oadp-qe"
-	ClusterProfileAWSlpChaos              ClusterProfile = "aws-lp-chaos"
-	ClusterProfileMetalRHgs               ClusterProfile = "metal-redhat-gs"
-	ClusterProfileAWSOSPQE                ClusterProfile = "aws-osp-qe"
-	ClusterProfileAWSOSC                  ClusterProfile = "aws-sandboxed-containers-operator"
-
-	ClusterProfileRosaRegionalPlatformInt ClusterProfile = "rosa-regional-platform-int"
-
-	ClusterProfileAROHCPInt  ClusterProfile = "aro-hcp-int"
-	ClusterProfileAROHCPStg  ClusterProfile = "aro-hcp-stg"
-	ClusterProfileAROHCPProd ClusterProfile = "aro-hcp-prod"
-	ClusterProfileAROHCPDev  ClusterProfile = "aro-hcp-dev"
-
-	ClusterProfileAROClassicInt  ClusterProfile = "aro-classic-int"
-	ClusterProfileAROClassicStg  ClusterProfile = "aro-classic-stg"
-	ClusterProfileAROClassicProd ClusterProfile = "aro-classic-prod"
-	ClusterProfileAROClassicDev  ClusterProfile = "aro-classic-dev"
-)
-
-// ClusterProfiles are all valid cluster profiles
-func ClusterProfiles() []ClusterProfile {
-	return []ClusterProfile{
-		ClusterProfileAWS,
-		ClusterProfileAWS2,
-		ClusterProfileAWS3,
-		ClusterProfileAWS4,
-		ClusterProfileAWS5,
-		ClusterProfileOpenshiftOrgAWS,
-		ClusterProfileOpenshiftOrgAzure,
-		ClusterProfileAWSC2SQE,
-		ClusterProfileAWSCPaaS,
-		ClusterProfileAWSCSPIQE,
-		ClusterProfileAWSPerfScale,
-		ClusterProfileAWSPerfScaleOKD,
-		ClusterProfileAWSPerfScaleQE,
-		ClusterProfileAWSPerfScaleLRCQE,
-		ClusterProfileAWSRestrictedQE,
-		ClusterProfileROSAE2E01,
-		ClusterProfileROSAE2E02,
-		ClusterProfileROSAE2E03,
-		ClusterProfileAWSEUSC,
-		ClusterProfileAWSChaos,
-		ClusterProfileAWSChinaQE,
-		ClusterProfileAWSManagedCSPIQE,
-		ClusterProfileAWSGovCloudQE,
-		ClusterProfileAWSOSDMSP,
-		ClusterProfileAWSQE,
-		ClusterProfileAWS1QE,
-		ClusterProfileAWSAutoreleaseQE,
-		ClusterProfileAWSSdQE,
-		ClusterProfileOEXAWSQE,
-		ClusterProfileHyperfleetE2E,
-		ClusterProfileAWSSC2SQE,
-		ClusterProfileAWSSCPQE,
-		ClusterProfileAWSOutpostQE,
-		ClusterProfileAWSINTEROPQE,
-		ClusterProfileAWSTerraformQE,
-		ClusterProfileAWSPipelinesPerf,
-		ClusterProfileAWSRHTAPQE,
-		ClusterProfileAWSKonfluxQE,
-		ClusterProfileAWSRHTAPPerformance,
-		ClusterProfileAWSRHDHPerf,
-		ClusterProfileAWSServerless,
-		ClusterProfileAWSStackrox,
-		ClusterProfileAWSTelco,
-		ClusterProfileAWSOpendatahub,
-		ClusterProfileAWSDevfile,
-		ClusterProfileAWSSPLAT,
-		ClusterProfileAWSSustAutoRel412,
-		ClusterProfileAWSKubeVirt,
-		ClusterProfileAWSOVNPerfScale,
-		ClusterProfileAWSConfidentialQE,
-		ClusterProfileAlibabaCloud,
-		ClusterProfileAlibabaCloudQE,
-		ClusterProfileAlibabaCloudCNQE,
-		ClusterProfileAzure2,
-		ClusterProfileAzure4,
-		ClusterProfileAzureArc,
-		ClusterProfileAzureArm64,
-		ClusterProfileAzureArm64QE,
-		ClusterProfileAzureMag,
-		ClusterProfileAzureMagQE,
-		ClusterProfileAzureQE,
-		ClusterProfileAzureObservability,
-		ClusterProfileAzureHCPQE,
-		ClusterProfileAzureHCPHAQE,
-		ClusterProfileAzureAutoreleaseQE,
-		ClusterProfileAzurePerfScale,
-		ClusterProfileAzureStack,
-		ClusterProfileAzureStackDEV,
-		ClusterProfileAzureStackQE,
-		ClusterProfileAzureSustAutoRel412,
-		ClusterProfileAzureConfidentialQE,
-		ClusterProfileAzureCNVDevOps,
-		ClusterProfileEquinixOcpMetal,
-		ClusterProfileEquinixOcpMetalQE,
-		ClusterProfileEquinixOcpHCP,
-		ClusterProfileFleetManagerQE,
-		ClusterProfileGCP,
-		ClusterProfileGCP2,
-		ClusterProfileGCP3,
-		ClusterProfileGCPQE,
-		ClusterProfileGCPQEC3Metal,
-		ClusterProfileGCPAutoReleaseQE,
-		ClusterProfileGCPArm64,
-		ClusterProfileGCPVirtualization,
-		ClusterProfileGCPOpendatahub,
-		ClusterProfileGCPTelco,
-		ClusterProfileGCPChaos,
-		ClusterProfileGCPConfidentialQE,
-		ClusterProfileGCPPerfScaleQE,
-		ClusterProfileGCPSustAutoRel412,
-		ClusterProfileGCPObservability,
-		ClusterProfileAWSVirtualization,
-		ClusterProfileAzureVirtualization,
-		ClusterProfileIBMCloud,
-		ClusterProfileIBMCloudCSPIQE,
-		ClusterProfileIBMCloudRHOAIQE,
-		ClusterProfileIBMCloudQE,
-		ClusterProfileIBMCloudQE2,
-		ClusterProfileIBMCloudMultiPpc64le,
-		ClusterProfilePOWERVC1,
-		ClusterProfilePOWERVSMulti1,
-		ClusterProfileIBMCloudMultiS390x,
-		ClusterProfilePOWERVS1,
-		ClusterProfilePOWERVS2,
-		ClusterProfilePOWERVS3,
-		ClusterProfilePOWERVS4,
-		ClusterProfilePOWERVS5,
-		ClusterProfilePOWERVS6,
-		ClusterProfilePOWERVS7,
-		ClusterProfilePOWERVS8,
-		ClusterProfilePOWERVS9,
-		ClusterProfileKubevirt,
-		ClusterProfileLibvirtPpc64le,
-		ClusterProfileLibvirtPpc64leS2S,
-		ClusterProfileLibvirtS390x,
-		ClusterProfileLibvirtS390x1,
-		ClusterProfileLibvirtS390x2,
-		ClusterProfileLibvirtS390xAmd64,
-		ClusterProfileLibvirtS390xVPN,
-		ClusterProfileMetalPerfscaleBMCPT,
-		ClusterProfileMetalPerfscaleJetlag,
-		ClusterProfileMetalPerfscaleOSP,
-		ClusterProfileMetalPerfscaleSelfSched,
-		ClusterProfileMetalPerfscaleTelco,
-		ClusterProfileMetalTelco5G,
-		ClusterProfileMetalTelcoV10N,
-		ClusterProfileMetalTelco5GPTP,
-		ClusterProfileNutanix,
-		ClusterProfileNutanixQE,
-		ClusterProfileNutanixQEDis,
-		ClusterProfileNutanixQEZone,
-		ClusterProfileNutanixQEGPU,
-		ClusterProfileNutanixQEFlow,
-		ClusterProfileOSDEphemeral,
-		ClusterProfileOpenStackHwoffload,
-		ClusterProfileOpenStackIBMOSP,
-		ClusterProfileOpenStackMechaAz0,
-		ClusterProfileOpenStackMechaCentral,
-		ClusterProfileOpenStackNFV,
-		ClusterProfileOpenStackOsuosl,
-		ClusterProfileOpenStackPpc64le,
-		ClusterProfileOpenStackVexxhost,
-		ClusterProfileOpenStackVexxhostRHOS,
-		ClusterProfileOpenStackOpVexxhost,
-		ClusterProfileOpenStackNercDev,
-		ClusterProfileOpenStackRHOSO,
-		ClusterProfileOpenStackRHOSCI,
-		ClusterProfileOvirt,
-		ClusterProfilePacket,
-		ClusterProfilePacketAssisted,
-		ClusterProfilePacketSNO,
-
-		ClusterProfileVSphereDis2,
-		ClusterProfileVSphereMultizone2,
-		ClusterProfileVSphereConnected2,
-		ClusterProfileVSphereElastic,
-		ClusterProfileVSphereElasticPoc,
-		ClusterProfileOCIAgent,
-		ClusterProfileOCIAssisted,
-		ClusterProfileHypershiftAWS,
-		ClusterProfileHypershiftAzure,
-		ClusterProfileHypershiftAKS,
-		ClusterProfileHypershiftPowerVS,
-		ClusterProfileHypershiftPowerVSCB,
-		ClusterProfileHypershiftGCP,
-		ClusterProfileOSSM,
-		ClusterProfileMedik8sAWS,
-		ClusterProfileGitOpsAWS,
-		ClusterProfileCheAWS,
-		ClusterProfileOSLGCP,
-		ClusterProfileDevSandboxCIAWS,
-		ClusterProfileQuayAWS,
-		ClusterProfileAWSEdgeInfra,
-		ClusterProfileRHOpenShiftEcosystem,
-		ClusterProfileODFAWS,
-		ClusterProfileKonfluxWorkspacesAWS,
-		ClusterProfileAWSObservabiltity,
-		ClusterProfileAWSSDCICD,
-		ClusterProfileGCPSDCICD,
-		ClusterProfileAroRH,
-		ClusterProfileAWSRHOAIQE,
-		ClusterProfileAWSManagedRosaRHOAIQE,
-		ClusterProfileAWSManagedOSDRHOAIQE,
-		ClusterProfileEquinixEdgeEnablement,
-		ClusterProfileAWSQUAYQE,
-		ClusterProfileGCPQUAYQE,
-		ClusterProfileAzureQUAYQE,
-		ClusterProfileAWSMCOQE,
-		ClusterProfileAWSOADPQE,
-		ClusterProfileAzureOADPQE,
-		ClusterProfileGCPOADPQE,
-		ClusterProfileAWSlpChaos,
-		ClusterProfileMetalRHgs,
-		ClusterProfileAWSOSPQE,
-		ClusterProfileAWSOSC,
-
-		ClusterProfileRosaRegionalPlatformInt,
-
-		ClusterProfileAROHCPInt,
-		ClusterProfileAROHCPStg,
-		ClusterProfileAROHCPProd,
-		ClusterProfileAROHCPDev,
-
-		ClusterProfileAROClassicInt,
-		ClusterProfileAROClassicStg,
-		ClusterProfileAROClassicProd,
-		ClusterProfileAROClassicDev,
-	}
-}
-
-func (p ClusterProfile) Name() string {
-	return string(p)
-}
-
-// ClusterType maps profiles to the type string used by tests.
-func (p ClusterProfile) ClusterType() string {
-	switch p {
-	case
-		ClusterProfileAWS,
-		ClusterProfileAWSCSPIQE,
-		ClusterProfileAWSManagedCSPIQE,
-		ClusterProfileAWSCPaaS,
-		ClusterProfileAWS2,
-		ClusterProfileAWS3,
-		ClusterProfileAWS4,
-		ClusterProfileAWS5,
-		ClusterProfileOpenshiftOrgAWS,
-		ClusterProfileAWSQE,
-		ClusterProfileAWSINTEROPQE,
-		ClusterProfileAWS1QE,
-		ClusterProfileAWSAutoreleaseQE,
-		ClusterProfileAWSSdQE,
-		ClusterProfileOEXAWSQE,
-		ClusterProfileAWSVirtualization,
-		ClusterProfileFleetManagerQE,
-		ClusterProfileAWSPerfScale,
-		ClusterProfileAWSPerfScaleOKD,
-		ClusterProfileAWSPerfScaleQE,
-		ClusterProfileAWSPerfScaleLRCQE,
-		ClusterProfileAWSRestrictedQE,
-		ClusterProfileROSAE2E01,
-		ClusterProfileROSAE2E02,
-		ClusterProfileROSAE2E03,
-		ClusterProfileAWSServerless,
-		ClusterProfileAWSStackrox,
-		ClusterProfileAWSOutpostQE,
-		ClusterProfileAWSChaos,
-		ClusterProfileAWSTerraformQE,
-		ClusterProfileAWSPipelinesPerf,
-		ClusterProfileAWSRHTAPQE,
-		ClusterProfileAWSKonfluxQE,
-		ClusterProfileAWSRHTAPPerformance,
-		ClusterProfileAWSRHDHPerf,
-		ClusterProfileAWSSPLAT,
-		ClusterProfileAWSSustAutoRel412,
-		ClusterProfileAWSKubeVirt,
-		ClusterProfileAWSOVNPerfScale,
-		ClusterProfileOSSM,
-		ClusterProfileAWSOpendatahub,
-		ClusterProfileAWSDevfile,
-		ClusterProfileAWSTelco,
-		ClusterProfileMedik8sAWS,
-		ClusterProfileGitOpsAWS,
-		ClusterProfileCheAWS,
-		ClusterProfileDevSandboxCIAWS,
-		ClusterProfileQuayAWS,
-		ClusterProfileAWSEdgeInfra,
-		ClusterProfileODFAWS,
-		ClusterProfileAWSObservabiltity,
-		ClusterProfileAWSSDCICD,
-		ClusterProfileKonfluxWorkspacesAWS,
-		ClusterProfileAWSRHOAIQE,
-		ClusterProfileAWSManagedRosaRHOAIQE,
-		ClusterProfileAWSQUAYQE,
-		ClusterProfileAWSMCOQE,
-		ClusterProfileAWSManagedOSDRHOAIQE,
-		ClusterProfileAWSOADPQE,
-		ClusterProfileAWSConfidentialQE,
-		ClusterProfileAWSlpChaos,
-		ClusterProfileAWSOSPQE,
-		ClusterProfileAWSOSC:
-		return string(CloudAWS)
-	case
-		ClusterProfileAlibabaCloud,
-		ClusterProfileAlibabaCloudQE,
-		ClusterProfileAlibabaCloudCNQE:
-		return "alibabacloud"
-	case ClusterProfileAWSC2SQE:
-		return "aws-c2s"
-	case ClusterProfileAWSChinaQE:
-		return "aws-china"
-	case ClusterProfileAWSGovCloudQE:
-		return "aws-usgov"
-	case ClusterProfileAWSSC2SQE:
-		return "aws-sc2s"
-	case ClusterProfileAWSEUSC:
-		return "aws-eusc"
-	case ClusterProfileAWSSCPQE:
-		return "aws-scp"
-	case ClusterProfileAWSOSDMSP:
-		return "aws-osd-msp"
-	case
-		ClusterProfileAzure2,
-		ClusterProfileAzure4,
-		ClusterProfileOpenshiftOrgAzure,
-		ClusterProfileAzureArc,
-		ClusterProfileAzureQE,
-		ClusterProfileAzureObservability,
-		ClusterProfileAzureHCPQE,
-		ClusterProfileAzureHCPHAQE,
-		ClusterProfileAzureAutoreleaseQE,
-		ClusterProfileAzurePerfScale,
-		ClusterProfileAzureSustAutoRel412,
-		ClusterProfileAzureQUAYQE,
-		ClusterProfileAzureConfidentialQE,
-		ClusterProfileAzureCNVDevOps,
-		ClusterProfileAzureVirtualization,
-		ClusterProfileAzureOADPQE:
-		return "azure4"
-	case
-		ClusterProfileAzureArm64,
-		ClusterProfileAzureArm64QE:
-		return "azure-arm64"
-	case
-		ClusterProfileAzureStack,
-		ClusterProfileAzureStackDEV,
-		ClusterProfileAzureStackQE:
-		return "azurestack"
-	case
-		ClusterProfileAzureMag,
-		ClusterProfileAzureMagQE:
-		return "azuremag"
-	case
-		ClusterProfileEquinixOcpMetal,
-		ClusterProfileEquinixOcpMetalQE,
-		ClusterProfileEquinixOcpHCP:
-		return "equinix-ocp-metal"
-	case
-		ClusterProfileGCPQE,
-		ClusterProfileGCPQEC3Metal,
-		ClusterProfileGCPAutoReleaseQE,
-		ClusterProfileGCPArm64,
-		ClusterProfileGCP,
-		ClusterProfileGCP3,
-		ClusterProfileGCP2,
-		ClusterProfileGCPVirtualization,
-		ClusterProfileGCPSustAutoRel412,
-		ClusterProfileGCPObservability,
-		ClusterProfileGCPOpendatahub,
-		ClusterProfileGCPTelco,
-		ClusterProfileGCPChaos,
-		ClusterProfileGCPConfidentialQE,
-		ClusterProfileGCPPerfScaleQE,
-		ClusterProfileGCPSDCICD,
-		ClusterProfileGCPQUAYQE,
-		ClusterProfileOSLGCP:
-		return string(CloudGCP)
-	case
-		ClusterProfileIBMCloud,
-		ClusterProfileIBMCloudCSPIQE,
-		ClusterProfileIBMCloudQE,
-		ClusterProfileIBMCloudQE2,
-		ClusterProfileIBMCloudRHOAIQE:
-		return "ibmcloud"
-	case ClusterProfileIBMCloudMultiPpc64le:
-		return "ibmcloud-multi-ppc64le"
-	case ClusterProfileIBMCloudMultiS390x:
-		return "ibmcloud-multi-s390x"
-	case ClusterProfilePOWERVC1:
-		return "powervc-1"
-	case ClusterProfilePOWERVSMulti1:
-		return "powervs-multi-1"
-	case ClusterProfilePOWERVS1:
-		return "powervs-1"
-	case ClusterProfilePOWERVS2:
-		return "powervs-2"
-	case ClusterProfilePOWERVS3:
-		return "powervs-3"
-	case ClusterProfilePOWERVS4:
-		return "powervs-4"
-	case ClusterProfilePOWERVS5:
-		return "powervs-5"
-	case ClusterProfilePOWERVS6:
-		return "powervs-6"
-	case ClusterProfilePOWERVS7:
-		return "powervs-7"
-	case ClusterProfilePOWERVS8:
-		return "powervs-8"
-	case ClusterProfilePOWERVS9:
-		return "powervs-9"
-	case ClusterProfileLibvirtPpc64le:
-		return "libvirt-ppc64le"
-	case ClusterProfileLibvirtPpc64leS2S:
-		return "libvirt-ppc64le-s2s"
-	case ClusterProfileLibvirtS390x:
-		return "libvirt-s390x"
-	case ClusterProfileLibvirtS390x1:
-		return "libvirt-s390x-1"
-	case ClusterProfileLibvirtS390x2:
-		return "libvirt-s390x-2"
-	case ClusterProfileLibvirtS390xAmd64:
-		return "libvirt-s390x-amd64"
-	case ClusterProfileLibvirtS390xVPN:
-		return "libvirt-s390x-vpn"
-	case ClusterProfileMetalRHgs:
-		return "metal-redhat-gs"
-	case ClusterProfileMetalPerfscaleBMCPT:
-		return "metal-perfscale-cpt"
-	case ClusterProfileMetalPerfscaleJetlag:
-		return "metal-perfscale-jetlag"
-	case ClusterProfileMetalPerfscaleOSP:
-		return "metal-perfscale-osp"
-	case ClusterProfileMetalPerfscaleSelfSched:
-		return "metal-perfscale-selfsched"
-	case ClusterProfileMetalPerfscaleTelco:
-		return "metal-perfscale-telco"
-	case ClusterProfileMetalTelco5G:
-		return "metal-telco5g"
-	case ClusterProfileMetalTelco5GPTP:
-		return "metal-telco5g-ptp"
-	case ClusterProfileMetalTelcoV10N:
-		return "metal-telcov10n"
-	case
-		ClusterProfileNutanix,
-		ClusterProfileNutanixQE,
-		ClusterProfileNutanixQEDis,
-		ClusterProfileNutanixQEZone,
-		ClusterProfileNutanixQEGPU,
-		ClusterProfileNutanixQEFlow:
-		return "nutanix"
-	case ClusterProfileOpenStackHwoffload:
-		return "openstack-hwoffload"
-	case ClusterProfileOpenStackIBMOSP:
-		return "openstack-ibm-osp"
-	case ClusterProfileOpenStackNFV:
-		return "openstack-nfv"
-	case ClusterProfileOpenStackMechaCentral:
-		return "openstack-vh-mecha-central"
-	case ClusterProfileOpenStackMechaAz0:
-		return "openstack-vh-mecha-az0"
-	case ClusterProfileOpenStackOsuosl:
-		return "openstack-osuosl"
-	case ClusterProfileOpenStackVexxhost:
-		return "openstack-vexxhost"
-	case ClusterProfileOpenStackVexxhostRHOS:
-		return "openstack-vh-bm-rhos"
-	case ClusterProfileOpenStackPpc64le:
-		return "openstack-ppc64le"
-	case ClusterProfileOpenStackOpVexxhost:
-		return "openstack-operators-vexxhost"
-	case ClusterProfileOpenStackNercDev:
-		return "openstack-nerc-dev"
-	case ClusterProfileOpenStackRHOSO:
-		return "openstack-rhoso"
-	case ClusterProfileOpenStackRHOSCI:
-		return "openstack-rhos-ci"
-	case
-		ClusterProfileVSphereMultizone2,
-		ClusterProfileVSphereDis2,
-		ClusterProfileVSphereElastic,
-		ClusterProfileVSphereConnected2,
-		ClusterProfileVSphereElasticPoc:
-
-		return "vsphere"
-	case ClusterProfileOvirt:
-		return "ovirt"
-	case
-		ClusterProfilePacket:
-		return "packet"
-	case
-		ClusterProfilePacketAssisted,
-		ClusterProfilePacketSNO:
-		return "packet-edge"
-	case ClusterProfileKubevirt:
-		return "kubevirt"
-	case ClusterProfileOSDEphemeral:
-		return "osd-ephemeral"
-	case ClusterProfileHyperfleetE2E:
-		return "hyperfleet-e2e"
-	case ClusterProfileOCIAgent:
-		return "oci-agent-qe"
-	case ClusterProfileOCIAssisted:
-		return "oci-edge"
-	case ClusterProfileHypershiftAWS:
-		return "hypershift-aws"
-	case ClusterProfileHypershiftAzure:
-		return "hypershift-azure"
-	case ClusterProfileHypershiftAKS:
-		return "hypershift-aks"
-	case ClusterProfileHypershiftPowerVS:
-		return "hypershift-powervs"
-	case ClusterProfileHypershiftPowerVSCB:
-		return "hypershift-powervs-cb"
-	case ClusterProfileHypershiftGCP:
-		return "hypershift-gcp"
-	case ClusterProfileRHOpenShiftEcosystem:
-		return string(CloudAWS)
-	case ClusterProfileAroRH:
-		return "aro"
-	case ClusterProfileEquinixEdgeEnablement:
-		return "equinix-edge-enablement"
-
-	case ClusterProfileRosaRegionalPlatformInt:
-		return "rosa-regional-platform-int"
-
-	case ClusterProfileAROHCPInt:
-		return "aro-hcp-int"
-	case ClusterProfileAROHCPStg:
-		return "aro-hcp-stg"
-	case ClusterProfileAROHCPProd:
-		return "aro-hcp-prod"
-	case ClusterProfileAROHCPDev:
-		return "aro-hcp-dev"
-
-	case ClusterProfileAROClassicInt:
-		return "aro-classic-int"
-	case ClusterProfileAROClassicStg:
-		return "aro-classic-stg"
-	case ClusterProfileAROClassicProd:
-		return "aro-classic-prod"
-	case ClusterProfileAROClassicDev:
-		return "aro-classic-dev"
-
-	default:
-		return ""
-	}
-}
-
-// LeaseType maps profiles to the type string used in leases.
-func (p ClusterProfile) LeaseType() string {
-	switch p {
-	case
-		ClusterProfileAWS:
-		return "aws-quota-slice"
-	case ClusterProfileAWSQE:
-		return "aws-qe-quota-slice"
-	case ClusterProfileAWS1QE:
-		return "aws-1-qe-quota-slice"
-	case ClusterProfileAWSAutoreleaseQE:
-		return "aws-autorelease-qe-quota-slice"
-	case ClusterProfileAWSSdQE:
-		return "aws-sd-qe-quota-slice"
-	case ClusterProfileOEXAWSQE:
-		return "oex-aws-qe-quota-slice"
-	case ClusterProfileHyperfleetE2E:
-		return "hyperfleet-e2e-quota-slice"
-	case ClusterProfileAWSOutpostQE:
-		return "aws-outpost-qe-quota-slice"
-	case ClusterProfileAWSC2SQE:
-		return "aws-c2s-qe-quota-slice"
-	case ClusterProfileAWSChinaQE:
-		return "aws-china-qe-quota-slice"
-	case ClusterProfileAWSCSPIQE:
-		return "aws-cspi-qe-quota-slice"
-	case ClusterProfileAWSChaos:
-		return "aws-chaos-quota-slice"
-	case ClusterProfileAWSPerfScale:
-		return "aws-perfscale-quota-slice"
-	case ClusterProfileAWSPerfScaleOKD:
-		return "aws-perfscale-okd-quota-slice"
-	case ClusterProfileAWSPerfScaleQE:
-		return "aws-perfscale-qe-quota-slice"
-	case ClusterProfileAWSPerfScaleLRCQE:
-		return "aws-perfscale-lrc-qe-quota-slice"
-	case ClusterProfileAWSRestrictedQE:
-		return "aws-restricted-qe"
-	case ClusterProfileROSAE2E01:
-		return "rosa-e2e-01-quota-slice"
-	case ClusterProfileROSAE2E02:
-		return "rosa-e2e-02-quota-slice"
-	case ClusterProfileROSAE2E03:
-		return "rosa-e2e-03-quota-slice"
-	case ClusterProfileAWSEUSC:
-		return "aws-eusc-quota-slice"
-	case ClusterProfileAWSManagedCSPIQE:
-		return "aws-managed-cspi-qe-quota-slice"
-	case ClusterProfileAWSGovCloudQE:
-		return "aws-usgov-qe-quota-slice"
-	case ClusterProfileAWSSC2SQE:
-		return "aws-sc2s-qe-quota-slice"
-	case ClusterProfileAWSSCPQE:
-		return "aws-scp-qe-quota-slice"
-	case ClusterProfileAWSSustAutoRel412:
-		return "aws-sustaining-autorelease-412-quota-slice"
-	case ClusterProfileAWSINTEROPQE:
-		return "aws-interop-qe-quota-slice"
-	case ClusterProfileAWSVirtualization:
-		return "aws-virtualization-quota-slice"
-	case ClusterProfileAWSTerraformQE:
-		return "aws-terraform-qe-quota-slice"
-	case ClusterProfileAWSPipelinesPerf:
-		return "aws-pipelines-performance-quota-slice"
-	case ClusterProfileAWSRHTAPQE:
-		return "aws-rhtap-qe-quota-slice"
-	case ClusterProfileAWSKonfluxQE:
-		return "aws-konflux-qe-quota-slice"
-	case ClusterProfileAWSRHTAPPerformance:
-		return "aws-rhtap-performance-quota-slice"
-	case ClusterProfileAWSRHDHPerf:
-		return "aws-rhdh-performance-quota-slice"
-	case ClusterProfileAWSServerless:
-		return "aws-serverless-quota-slice"
-	case ClusterProfileAWSStackrox:
-		return "aws-stackrox-quota-slice"
-	case ClusterProfileAWSTelco:
-		return "aws-telco-quota-slice"
-	case ClusterProfileAWSOpendatahub:
-		return "aws-opendatahub-quota-slice"
-	case ClusterProfileAWSDevfile:
-		return "aws-devfile-quota-slice"
-	case ClusterProfileAWSSPLAT:
-		return "aws-splat-quota-slice"
-	case ClusterProfileAWSKubeVirt:
-		return "aws-kubevirt-quota-slice"
-	case ClusterProfileAWSRHOAIQE:
-		return "aws-rhoai-qe-quota-slice"
-	case ClusterProfileAWSOVNPerfScale:
-		return "aws-ovn-perfscale-quota-slice"
-	case ClusterProfileAlibabaCloud:
-		return "alibabacloud-quota-slice"
-	case ClusterProfileAlibabaCloudQE:
-		return "alibabacloud-qe-quota-slice"
-	case ClusterProfileAlibabaCloudCNQE:
-		return "alibabacloud-cn-qe-quota-slice"
-	case ClusterProfileAzure2:
-		return "azure-2-quota-slice"
-	case ClusterProfileAzure4:
-		return "azure4-quota-slice"
-	case ClusterProfileAzureArm64:
-		return "azure-arm64-quota-slice"
-	case ClusterProfileAzureArc:
-		return "azure-arc-quota-slice"
-	case ClusterProfileAzurePerfScale:
-		return "azure-perfscale-quota-slice"
-	case ClusterProfileAzureStack:
-		return "azurestack-quota-slice"
-	case ClusterProfileAzureStackDEV:
-		return "azurestack-dev-quota-slice"
-	case ClusterProfileAzureStackQE:
-		return "azurestack-qe-quota-slice"
-	case ClusterProfileAWSOSDMSP:
-		return "aws-osd-msp-quota-slice"
-	case ClusterProfileAzureMag:
-		return "azuremag-quota-slice"
-	case ClusterProfileAzureQE:
-		return "azure-qe-quota-slice"
-	case ClusterProfileAzureObservability:
-		return "azure-observability-quota-slice"
-	case ClusterProfileAzureHCPQE:
-		return "azure-hcp-qe-quota-slice"
-	case ClusterProfileAzureHCPHAQE:
-		return "azure-hcp-ha-qe-quota-slice"
-	case ClusterProfileAzureAutoreleaseQE:
-		return "azure-autorelease-qe-quota-slice"
-	case ClusterProfileAzureMagQE:
-		return "azuremag-qe-quota-slice"
-	case ClusterProfileAzureArm64QE:
-		return "azure-arm64-qe-quota-slice"
-	case ClusterProfileAzureVirtualization:
-		return "azure-virtualization-quota-slice"
-	case ClusterProfileAzureSustAutoRel412:
-		return "azure-sustaining-autorelease-412-quota-slice"
-	case ClusterProfileAzureConfidentialQE:
-		return "azure-confidential-qe-quota-slice"
-	case ClusterProfileAzureCNVDevOps:
-		return "azure-cnv-devops-quota-slice"
-	case ClusterProfileEquinixOcpMetal:
-		return "equinix-ocp-metal-quota-slice"
-	case ClusterProfileEquinixOcpMetalQE:
-		return "equinix-ocp-metal-qe-quota-slice"
-	case ClusterProfileEquinixOcpHCP:
-		return "equinix-ocp-hcp-quota-slice"
-	case ClusterProfileFleetManagerQE:
-		return "fleet-manager-qe-quota-slice"
-	case ClusterProfileGCPQE:
-		return "gcp-qe-quota-slice"
-	case ClusterProfileGCPQEC3Metal:
-		return "gcp-qe-c3-metal-quota-slice"
-	case ClusterProfileGCPAutoReleaseQE:
-		return "gcp-autorelease-qe-quota-slice"
-	case ClusterProfileGCPArm64:
-		return "gcp-arm64-quota-slice"
-	case
-		ClusterProfileGCP:
-		return "gcp-quota-slice"
-	case ClusterProfileGCP2:
-		return "gcp-openshift-gce-devel-ci-2-quota-slice"
-	case ClusterProfileGCP3:
-		return "gcp-3-quota-slice"
-	case ClusterProfileGCPVirtualization:
-		return "gcp-virtualization-quota-slice"
-	case ClusterProfileGCPOpendatahub:
-		return "gcp-opendatahub-quota-slice"
-	case ClusterProfileGCPTelco:
-		return "gcp-telco-quota-slice"
-	case ClusterProfileGCPSustAutoRel412:
-		return "gcp-sustaining-autorelease-412-quota-slice"
-	case ClusterProfileGCPChaos:
-		return "gcp-chaos-quota-slice"
-	case ClusterProfileGCPConfidentialQE:
-		return "gcp-confidential-qe-slice"
-	case ClusterProfileGCPPerfScaleQE:
-		return "gcp-perfscale-qe-quota-slice"
-	case ClusterProfileIBMCloud:
-		return "ibmcloud-quota-slice"
-	case ClusterProfileIBMCloudCSPIQE:
-		return "ibmcloud-cspi-qe-quota-slice"
-	case ClusterProfileIBMCloudQE:
-		return "ibmcloud-qe-quota-slice"
-	case ClusterProfileIBMCloudQE2:
-		return "ibmcloud-qe-2-quota-slice"
-	case ClusterProfileIBMCloudMultiPpc64le:
-		return "ibmcloud-multi-ppc64le-quota-slice"
-	case ClusterProfileIBMCloudMultiS390x:
-		return "ibmcloud-multi-s390x-quota-slice"
-	case ClusterProfilePOWERVC1:
-		return "powervc-1-quota-slice"
-	case ClusterProfilePOWERVSMulti1:
-		return "powervs-multi-1-quota-slice"
-	case ClusterProfilePOWERVS1:
-		return "powervs-1-quota-slice"
-	case ClusterProfilePOWERVS2:
-		return "powervs-2-quota-slice"
-	case ClusterProfilePOWERVS3:
-		return "powervs-3-quota-slice"
-	case ClusterProfilePOWERVS4:
-		return "powervs-4-quota-slice"
-	case ClusterProfilePOWERVS5:
-		return "powervs-5-quota-slice"
-	case ClusterProfilePOWERVS6:
-		return "powervs-6-quota-slice"
-	case ClusterProfilePOWERVS7:
-		return "powervs-7-quota-slice"
-	case ClusterProfilePOWERVS8:
-		return "powervs-8-quota-slice"
-	case ClusterProfilePOWERVS9:
-		return "powervs-9-quota-slice"
-	case ClusterProfileLibvirtPpc64le:
-		return "libvirt-ppc64le-quota-slice"
-	case ClusterProfileLibvirtPpc64leS2S:
-		return "libvirt-ppc64le-s2s-quota-slice"
-	case ClusterProfileLibvirtS390x:
-		return "libvirt-s390x-quota-slice"
-	case ClusterProfileLibvirtS390x1:
-		return "libvirt-s390x-1-quota-slice"
-	case ClusterProfileLibvirtS390x2:
-		return "libvirt-s390x-2-quota-slice"
-	case ClusterProfileLibvirtS390xAmd64:
-		return "libvirt-s390x-amd64-quota-slice"
-	case ClusterProfileLibvirtS390xVPN:
-		return "libvirt-s390x-vpn-quota-slice"
-	case ClusterProfileMetalPerfscaleBMCPT:
-		return "metal-perfscale-cpt-quota-slice"
-	case ClusterProfileMetalPerfscaleJetlag:
-		return "metal-perfscale-jetlag-quota-slice"
-	case ClusterProfileMetalPerfscaleOSP:
-		return "metal-perfscale-osp-quota-slice"
-	case ClusterProfileMetalPerfscaleSelfSched:
-		return "metal-perfscale-selfsched-quota-slice"
-	case ClusterProfileMetalPerfscaleTelco:
-		return "metal-perfscale-telco-quota-slice"
-	case ClusterProfileMetalTelco5G:
-		return "metal-telco5g-quota-slice"
-	case ClusterProfileMetalTelcoV10N:
-		return "metal-telcov10n-quota-slice"
-	case ClusterProfileMetalTelco5GPTP:
-		return "metal-telco5g-ptp-quota-slice"
-	case ClusterProfileNutanix:
-		return "nutanix-quota-slice"
-	case ClusterProfileNutanixQE:
-		return "nutanix-qe-quota-slice"
-	case ClusterProfileNutanixQEDis:
-		return "nutanix-qe-dis-quota-slice"
-	case ClusterProfileNutanixQEZone:
-		return "nutanix-qe-zone-quota-slice"
-	case ClusterProfileNutanixQEGPU:
-		return "nutanix-qe-gpu-quota-slice"
-	case ClusterProfileNutanixQEFlow:
-		return "nutanix-qe-flow-quota-slice"
-	case ClusterProfileOpenStackHwoffload:
-		return "openstack-hwoffload-quota-slice"
-	case ClusterProfileOpenStackIBMOSP:
-		return "openstack-ibm-osp-quota-slice"
-	case ClusterProfileOpenStackNFV:
-		return "openstack-nfv-quota-slice"
-	case ClusterProfileOpenStackMechaCentral:
-		return "openstack-vh-mecha-central-quota-slice"
-	case ClusterProfileOpenStackMechaAz0:
-		return "openstack-vh-mecha-az0-quota-slice"
-	case ClusterProfileOpenStackNercDev:
-		return "openstack-nerc-dev-quota-slice"
-	case ClusterProfileOpenStackRHOSO:
-		return "openstack-rhoso-quota-slice"
-	case ClusterProfileOpenStackRHOSCI:
-		return "openstack-rhos-ci-quota-slice"
-	case ClusterProfileOpenStackOsuosl:
-		return "openstack-osuosl-quota-slice"
-	case ClusterProfileOpenStackVexxhost:
-		return "openstack-vexxhost-quota-slice"
-	case ClusterProfileOpenStackVexxhostRHOS:
-		return "openstack-vh-bm-rhos-quota-slice"
-	case ClusterProfileOpenStackPpc64le:
-		return "openstack-ppc64le-quota-slice"
-	case ClusterProfileOpenStackOpVexxhost:
-		return "openstack-operators-vexxhost-quota-slice"
-	case ClusterProfileOvirt:
-		return "ovirt-quota-slice"
-	case ClusterProfilePacket:
-		return "packet-quota-slice"
-	case
-		ClusterProfilePacketAssisted,
-		ClusterProfilePacketSNO:
-		return "packet-edge-quota-slice"
-	case ClusterProfileVSphereDis2:
-		return "vsphere-dis-2-quota-slice"
-	case ClusterProfileVSphereMultizone2:
-		return "vsphere-multizone-2-quota-slice"
-	case ClusterProfileVSphereConnected2:
-		return "vsphere-connected-2-quota-slice"
-	case ClusterProfileVSphereElasticPoc:
-		return "vsphere-elastic-poc-quota-slice"
-	case ClusterProfileVSphereElastic:
-		return "vsphere-elastic-quota-slice"
-	case ClusterProfileKubevirt:
-		return "kubevirt-quota-slice"
-	case ClusterProfileAWSCPaaS:
-		return "aws-cpaas-quota-slice"
-	case ClusterProfileOSDEphemeral:
-		return "osd-ephemeral-quota-slice"
-	case ClusterProfileAWS2:
-		return "aws-2-quota-slice"
-	case ClusterProfileAWS3:
-		return "aws-3-quota-slice"
-	case ClusterProfileAWS4:
-		return "aws-4-quota-slice"
-	case ClusterProfileAWS5:
-		return "aws-5-quota-slice"
-	case ClusterProfileOpenshiftOrgAWS:
-		return "openshift-org-aws-quota-slice"
-	case ClusterProfileOpenshiftOrgAzure:
-		return "openshift-org-azure-quota-slice"
-	case ClusterProfileOCIAgent:
-		return "oci-agent-qe-quota-slice"
-	case ClusterProfileOCIAssisted:
-		return "oci-edge-quota-slice"
-	case ClusterProfileHypershiftAWS:
-		return "hypershift-aws-quota-slice"
-	case ClusterProfileHypershiftAzure:
-		return "hypershift-azure-quota-slice"
-	case ClusterProfileHypershiftAKS:
-		return "hypershift-aks-quota-slice"
-	case ClusterProfileHypershiftPowerVS:
-		return "hypershift-powervs-quota-slice"
-	case ClusterProfileHypershiftPowerVSCB:
-		return "hypershift-powervs-cb-quota-slice"
-	case ClusterProfileHypershiftGCP:
-		return "hypershift-gcp-quota-slice"
-	case ClusterProfileOSSM:
-		return "ossm-aws-quota-slice"
-	case ClusterProfileAWSConfidentialQE:
-		return "aws-confidential-qe-quota-slice"
-	case ClusterProfileMedik8sAWS:
-		return "medik8s-aws-quota-slice"
-	case ClusterProfileGitOpsAWS:
-		return "gitops-aws-quota-slice"
-	case ClusterProfileCheAWS:
-		return "che-aws-quota-slice"
-	case ClusterProfileOSLGCP:
-		return "osl-gcp-quota-slice"
-	case ClusterProfileDevSandboxCIAWS:
-		return "devsandboxci-aws-quota-slice"
-	case ClusterProfileQuayAWS:
-		return "quay-aws-quota-slice"
-	case ClusterProfileAWSQUAYQE:
-		return "aws-quay-qe-quota-slice"
-	case ClusterProfileGCPQUAYQE:
-		return "gcp-quay-qe-quota-slice"
-	case ClusterProfileAzureQUAYQE:
-		return "azure-quay-qe-quota-slice"
-	case ClusterProfileAWSEdgeInfra:
-		return "aws-edge-infra-quota-slice"
-	case ClusterProfileRHOpenShiftEcosystem:
-		return "rh-openshift-ecosystem-quota-slice"
-	case ClusterProfileODFAWS:
-		return "odf-aws-quota-slice"
-	case ClusterProfileKonfluxWorkspacesAWS:
-		return "konfluxworkspaces-aws-quota-slice"
-	case ClusterProfileAWSObservabiltity:
-		return "aws-observability-quota-slice"
-	case ClusterProfileAWSSDCICD:
-		return "aws-sd-cicd-quota-slice"
-	case ClusterProfileGCPSDCICD:
-		return "gcp-sd-cicd-quota-slice"
-	case ClusterProfileAroRH:
-		return "aro-redhat-tenant-quota-slice"
-	case ClusterProfileAWSManagedRosaRHOAIQE:
-		return "aws-managed-rosa-rhoai-qe-quota-slice"
-	case ClusterProfileAWSManagedOSDRHOAIQE:
-		return "aws-managed-osd-rhoai-qe-quota-slice"
-	case ClusterProfileIBMCloudRHOAIQE:
-		return "ibmcloud-rhoai-qe-quota-slice"
-	case ClusterProfileGCPObservability:
-		return "gcp-observability-quota-slice"
-	case ClusterProfileEquinixEdgeEnablement:
-		return "equinix-edge-enablement-quota-slice"
-	case ClusterProfileAWSMCOQE:
-		return "aws-mco-qe-quota-slice"
-	case ClusterProfileAWSOADPQE:
-		return "aws-oadp-qe-quota-slice"
-	case ClusterProfileAzureOADPQE:
-		return "azure-oadp-qe-quota-slice"
-	case ClusterProfileGCPOADPQE:
-		return "gcp-oadp-qe-quota-slice"
-	case ClusterProfileAWSlpChaos:
-		return "aws-lp-chaos-quota-slice"
-	case ClusterProfileMetalRHgs:
-		return "metal-redhat-gs-quota-slice"
-	case ClusterProfileAWSOSPQE:
-		return "aws-osp-qe-quota-slice"
-	case ClusterProfileAWSOSC:
-		return "aws-sandboxed-containers-operator-quota-slice"
-	case ClusterProfileRosaRegionalPlatformInt:
-		return "rosa-regional-platform-int-quota-slice"
-
-	case ClusterProfileAROHCPInt:
-		return "aro-hcp-int-quota-slice"
-	case ClusterProfileAROHCPStg:
-		return "aro-hcp-stg-quota-slice"
-	case ClusterProfileAROHCPProd:
-		return "aro-hcp-prod-quota-slice"
-	case ClusterProfileAROHCPDev:
-		return "aro-hcp-dev-quota-slice"
-
-	case ClusterProfileAROClassicInt:
-		return "aro-classic-int-quota-slice"
-	case ClusterProfileAROClassicStg:
-		return "aro-classic-stg-quota-slice"
-	case ClusterProfileAROClassicProd:
-		return "aro-classic-prod-quota-slice"
-	case ClusterProfileAROClassicDev:
-		return "aro-classic-dev-quota-slice"
-
-	default:
-		return ""
-	}
-}
-
-func (p ClusterProfile) IPPoolLeaseType() string {
-	switch p {
-	case ClusterProfileAWS:
-		return "aws-ip-pools"
-	default:
-		return ""
-	}
-}
-
-// IPPoolLeaseShouldValidateBranch declares whether the ip-pool leases should only be applied to branches matching a
-// specific OpenShift validation model. returns true by default, but should return false for any cluster-profiles
-// that don't want this validation
-func (p ClusterProfile) IPPoolLeaseShouldValidateBranch() bool {
-	switch p {
-	default:
-		return true
-	}
-}
-
-// GetDefaultClusterProfileSecretName returns the default secret name for the profile
-func GetDefaultClusterProfileSecretName(profile ClusterProfile) string {
-	return fmt.Sprintf("cluster-secrets-%s", string(profile))
-}
-
-// LeaseTypeFromClusterType maps cluster types to lease types
-func LeaseTypeFromClusterType(t string) (string, error) {
-	switch t {
-	case
-		"aws", "aws-c2s", "aws-china", "aws-usgov", "aws-sc2s", "aws-eusc", "aws-osd-msp", "aws-opendatahub", "aws-splat",
-		"alibaba", "azure-2", "azure4", "azure-arc", "azure-arm64", "azurestack", "azuremag", "equinix-ocp-metal",
-		"gcp", "gcp-arm64", "gcp-opendatahub", "libvirt-ppc64le", "libvirt-ppc64le-s2s", "libvirt-s390x",
-		"libvirt-s390x-1", "libvirt-s390x-2", "libvirt-s390x-amd64", "libvirt-s390x-vpn", "ibmcloud-multi-ppc64le",
-		"ibmcloud-multi-s390x", "nutanix", "nutanix-qe", "nutanix-qe-dis", "nutanix-qe-zone", "nutanix-qe-gpu",
-		"nutanix-qe-flow", "openstack", "openstack-osuosl", "openstack-vexxhost", "openstack-ppc64le",
-		"openstack-nerc-dev", "vsphere", "ovirt", "packet", "packet-edge", "powervc-1", "powervs-multi-1",
-		"powervs-1", "powervs-2", "powervs-3", "powervs-4", "powervs-5", "powervs-6", "powervs-7", "powervs-8", "powervs-9",
-		"kubevirt", "aws-cpaas", "osd-ephemeral", "gcp-virtualization", "aws-virtualization",
-		"azure-virtualization", "hypershift-aws", "hypershift-aks", "hypershift-azure",
-		"hypershift-powervs", "hypershift-powervs-cb", "hypershift-gcp", "aws-mco-qe",
-		"equinix-edge-enablement", "aws-oadp-qe", "azure-oadp-qe", "gcp-oadp-qe", "aws-lp-chaos", "aws-osp-qe",
-		"metal-redhat-gs", "aro-hcp-int", "aro-hcp-stg", "aro-hcp-prod", "aro-hcp-dev", "rosa-regional-platform-int", "hyperfleet-e2e",
-		"aro-classic-int", "aro-classic-stg", "aro-classic-prod", "aro-classic-dev", "rosa-e2e-01", "rosa-e2e-02", "rosa-e2e-03":
-		return t + "-quota-slice", nil
-	default:
-		return "", fmt.Errorf("invalid cluster type %q", t)
-	}
-}
-
 // ClusterTestConfiguration describes a test that provisions
 // a cluster and runs a command in it.
 type ClusterTestConfiguration struct {
-	ClusterProfile ClusterProfile `json:"cluster_profile"`
+	ClusterProfile string `json:"cluster_profile"`
 }
 
 // PipelineImageStreamTagReference is a tag on the
@@ -2650,6 +1543,14 @@ type Bundle struct {
 	Optional bool `json:"optional,omitempty"`
 	// Capabilities is the list of strings that define additional capabilities needed by the bundle build job
 	Capabilities []string `json:"capabilities,omitempty"`
+	// RunIfChanged is a regex that will cause the auto-generated bundle
+	// presubmit to only run if a file matching the regex is changed.
+	// This field works only for named bundles, i.e., "as" is not empty.
+	RunIfChanged string `json:"run_if_changed,omitempty"`
+	// SkipIfOnlyChanged is a regex that will cause the auto-generated bundle
+	// presubmit to be skipped if all changed files match the regex.
+	// This field works only for named bundles, i.e., "as" is not empty.
+	SkipIfOnlyChanged string `json:"skip_if_only_changed,omitempty"`
 }
 
 // IndexGeneratorStepConfiguration describes a step that creates an index database and
@@ -2734,11 +1635,11 @@ func BundleName(index int) string {
 // along with the run conditions for the auto-generated images job.
 type ImageConfiguration struct {
 	// RunIfChanged is a regex that will cause the auto-generated images
-	// presubmit and postsubmit to only run if a file matching the regex is changed.
+	// presubmit to only run if a file matching the regex is changed.
 	RunIfChanged string `json:"run_if_changed,omitempty"`
 
 	// SkipIfOnlyChanged is a regex that will cause the auto-generated images
-	// presubmit and postsubmit to be skipped if all changed files match the regex.
+	// presubmit to be skipped if all changed files match the regex.
 	SkipIfOnlyChanged string `json:"skip_if_only_changed,omitempty"`
 
 	// PipelineRunIfChanged is a regex that will cause the auto-generated images
@@ -2754,20 +1655,11 @@ type ImageConfiguration struct {
 	// The image name (To field) should match the cmd tool name for this to work correctly.
 	BuildIfAffected bool `json:"build_if_affected,omitempty"`
 
+	// SlackReporterConfig configures Slack notifications for the auto-generated images jobs.
+	SlackReporterConfig *SlackReporterConfig `json:"reporter_config,omitempty"`
+
 	// Items is the list of images to build.
 	Items []ProjectDirectoryImageBuildStepConfiguration `json:"items,omitempty"`
-}
-
-// TODO: Remove custom UnmarshalJSON after migration from plain list to ImageConfiguration struct is complete.
-
-func (ic *ImageConfiguration) UnmarshalJSON(data []byte) error {
-	var items []ProjectDirectoryImageBuildStepConfiguration
-	if err := json.Unmarshal(data, &items); err == nil {
-		ic.Items = items
-		return nil
-	}
-	type rawImageConfiguration ImageConfiguration
-	return json.Unmarshal(data, (*rawImageConfiguration)(ic))
 }
 
 // ProjectDirectoryImageBuildStepConfiguration describes an
@@ -2788,10 +1680,15 @@ type ProjectDirectoryImageBuildStepConfiguration struct {
 	MultiArch bool `json:"multi_arch,omitempty"`
 
 	// AdditionalArchitectures is a list of additional architectures to build for. AMD64 architecture is included by default.
+	// DEPRECATED: use Capabilities instead
 	AdditionalArchitectures []string `json:"additional_architectures,omitempty"`
 
 	// Ref is an optional string linking to the extra_ref in "org.repo" format that this belongs to
 	Ref string `json:"ref,omitempty"`
+
+	// Capabilities is the list of strings that
+	// define additional capabilities needed by the image build jobs
+	Capabilities []string `json:"capabilities,omitempty"`
 
 	// isBundleImage indicates that this build step is a bundle image
 	isBundleImage bool
@@ -2810,6 +1707,33 @@ func (p *ProjectDirectoryImageBuildStepConfiguration) IsBundleImage() bool {
 func (p *ProjectDirectoryImageBuildStepConfiguration) WithBundleImage(isBundleImage bool) *ProjectDirectoryImageBuildStepConfiguration {
 	p.isBundleImage = isBundleImage
 	return p
+}
+
+// ValidArchitectures is the set of supported architecture strings for image builds.
+var ValidArchitectures = sets.New[string](
+	"amd64",   // x86-64
+	"arm64",   // AArch64
+	"ppc64le", // PowerPC 64-bit Little Endian
+	"s390x",   // IBM System z 64-bit
+)
+
+// AllCapabilities returns the deduplicated, sorted union of Capabilities and
+// AdditionalArchitectures. Both fields are treated as equivalent during the
+// transition period while AdditionalArchitectures is being phased out.
+func (p *ProjectDirectoryImageBuildStepConfiguration) AllCapabilities() []string {
+	return sets.List(sets.New[string](append(p.Capabilities, p.AdditionalArchitectures...)...))
+}
+
+// ArchitectureCapabilities returns the subset of AllCapabilities that are valid
+// architecture strings (e.g. "arm64", "ppc64le").
+func (p *ProjectDirectoryImageBuildStepConfiguration) ArchitectureCapabilities() []string {
+	var arches []string
+	for _, c := range p.AllCapabilities() {
+		if ValidArchitectures.Has(c) {
+			arches = append(arches, c)
+		}
+	}
+	return arches
 }
 
 // ProjectDirectoryImageBuildInputs holds inputs for an image build from the repo under test
@@ -2953,24 +1877,6 @@ type MetadataWithTest struct {
 func (m *MetadataWithTest) JobName(prefix string) string {
 	return m.Metadata.JobName(prefix, m.Test)
 }
-
-type ClusterProfilesList []ClusterProfileDetails
-type ClusterProfilesMap map[ClusterProfile]ClusterProfileDetails
-
-type ClusterProfileDetails struct {
-	Profile     ClusterProfile         `yaml:"profile" json:"profile"`
-	Owners      []ClusterProfileOwners `yaml:"owners,omitempty" json:"owners,omitempty"`
-	ClusterType string                 `yaml:"cluster_type,omitempty" json:"cluster_type,omitempty"`
-	LeaseType   string                 `yaml:"lease_type,omitempty" json:"lease_type,omitempty"`
-	Secret      string                 `yaml:"secret,omitempty" json:"secret,omitempty"`
-	ConfigMap   string                 `yaml:"config_map,omitempty" json:"config_map,omitempty"`
-}
-
-type ClusterProfileOwners struct {
-	Org   string   `yaml:"org" json:"org"`
-	Repos []string `yaml:"repos,omitempty" json:"repos,omitempty"`
-}
-type ClusterClaimOwnersMap map[string]ClusterClaimDetails
 
 type ClusterClaimDetails struct {
 	Claim  string                     `yaml:"claim"`

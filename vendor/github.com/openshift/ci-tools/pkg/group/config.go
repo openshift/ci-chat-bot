@@ -34,6 +34,14 @@ type Target struct {
 	ClusterGroups []string `json:"cluster_groups,omitempty" yaml:"cluster_groups,omitempty"`
 	// SecretCollections are the secret collections the group has access to.
 	SecretCollections []string `json:"secret_collections,omitempty" yaml:"secret_collections,omitempty"`
+	// Unclaimed marks a group as a holding area for secret collections that no team owns yet.
+	// The gsm-secret-sync reconciler keeps these collections' secrets alive but creates no
+	// updater service account and no IAM bindings for them until they are moved under a normal group.
+	Unclaimed bool `json:"unclaimed,omitempty" yaml:"unclaimed,omitempty"`
+	// UpdaterServiceAccounts lists the secret collections, a subset of SecretCollections, that
+	// get their own updater service account. Group members can already write to every collection
+	// the group owns; a service account is for automation that cannot authenticate as one of them.
+	UpdaterServiceAccounts []string `json:"updater_service_accounts,omitempty" yaml:"updater_service_accounts,omitempty"`
 }
 
 func (t Target) ResolveClusters(cg map[string][]string) sets.Set[string] {
@@ -76,10 +84,28 @@ func (c *Config) validate() error {
 		if k == OpenshiftPrivAdminsGroup || v.RenameTo == OpenshiftPrivAdminsGroup {
 			return fmt.Errorf("cannot use the group name %s in the configuration file", OpenshiftPrivAdminsGroup)
 		}
+		seen := sets.New[string]()
 		for _, collection := range v.SecretCollections {
 			if !validation.ValidateCollectionName(collection) {
 				return fmt.Errorf("invalid collection name '%s' in the configuration file: must be at most %d characters, contain only lowercase letters, numbers, hyphens, and underscores (no double underscores), and end with a lowercase letter or number", collection, validation.MaxCollectionLength)
 			}
+			if seen.Has(collection) {
+				return fmt.Errorf("secret collection '%s' is listed more than once for group '%s' in the configuration file", collection, k)
+			}
+			seen.Insert(collection)
+		}
+		withSA := sets.New[string]()
+		for _, collection := range v.UpdaterServiceAccounts {
+			if !seen.Has(collection) {
+				return fmt.Errorf("group '%s' requests an updater service account for '%s', which is not one of its secret collections", k, collection)
+			}
+			if withSA.Has(collection) {
+				return fmt.Errorf("secret collection '%s' is listed more than once under updater_service_accounts for group '%s' in the configuration file", collection, k)
+			}
+			withSA.Insert(collection)
+		}
+		if v.Unclaimed && len(v.UpdaterServiceAccounts) > 0 {
+			return fmt.Errorf("unclaimed group '%s' cannot request updater service accounts", k)
 		}
 	}
 	return nil

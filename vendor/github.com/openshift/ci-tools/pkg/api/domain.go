@@ -16,7 +16,10 @@ const (
 	// routed for the current service cluster.
 	ServiceDomainCI    = "ci.openshift.org"
 	ServiceDomainAPPCI = "apps.ci.l2s4.p1.openshiftapps.com"
-	ServiceDomainGCS   = "googleapis.com"
+
+	// GCSWebPublicHost is the vanity hostname for the public gcsweb browser on core-ci.
+	GCSWebPublicHost = "gcs.ci.openshift.org"
+	ServiceDomainGCS = "googleapis.com"
 
 	ServiceDomainAPPCIRegistry     = "registry.ci.openshift.org"
 	ServiceDomainVSphere02Registry = "registry.apps.build02.vmc.ci.openshift.org"
@@ -34,7 +37,7 @@ const (
 type Service string
 
 const (
-	ServiceBoskos     Service = "boskos-ci"
+	ServiceBoskos     Service = "boskos"
 	ServiceRegistry   Service = "registry"
 	ServiceRPMs       Service = "artifacts-rpms-openshift-origin-ci-rpms"
 	ServiceProw       Service = "prow"
@@ -52,7 +55,7 @@ func URLForService(service Service) string {
 func DomainForService(service Service) string {
 	var serviceDomain string
 	switch service {
-	case ServiceBoskos, ServiceGCSWeb:
+	case ServiceGCSWeb:
 		serviceDomain = ServiceDomainAPPCI
 	case ServiceRPMs:
 		serviceDomain = ServiceDomainAPPCI

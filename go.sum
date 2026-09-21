@@ -765,8 +765,8 @@ github.com/openshift/baremetal-operator/pkg/hardwareutils v0.0.0-20231128154154-
 github.com/openshift/baremetal-operator/pkg/hardwareutils v0.0.0-20231128154154-6736c9b9c6c8/go.mod h1:399nvdaqoU9rTI25UdFw2EWcVjmJPpeZPIhfDAIx/XU=
 github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee h1:+Sp5GGnjHDhT/a/nQ1xdp43UscBMr7G5wxsYotyhzJ4=
 github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee/go.mod h1:8jcm8UPtg2mCAsxfqKil1xrmRMI3a+XU2TZ9fF8A7TE=
-github.com/openshift/ci-tools v0.0.0-20260401181544-dbe3f838b8a0 h1:FAV3iOqk/eDIh5Y6nbTS2GMFWufuklVHZnMJyWd8Zcg=
-github.com/openshift/ci-tools v0.0.0-20260401181544-dbe3f838b8a0/go.mod h1:HKaH1JIfgh44LGy/7azBG0Ie7DcP1hLSGw6U8iCqPEQ=
+github.com/openshift/ci-tools v0.0.0-20260921153601-f2e7eb1f3261 h1:g8cXQuqmxiwJGoMlyiIjdmCF6AttrkOKEe/asPnfMSk=
+github.com/openshift/ci-tools v0.0.0-20260921153601-f2e7eb1f3261/go.mod h1:CIyWQV5XjpsZfYYp3U+AGpFkybvV4Z1+C+3Q3AmiXGE=
 github.com/openshift/client-go v0.0.0-20260603140539-6892dc3e1ffc h1:yCLc/pmoZ4YZbMWlAnvYZ2YWkLZoPCilO4Fk/oAu2/E=
 github.com/openshift/client-go v0.0.0-20260603140539-6892dc3e1ffc/go.mod h1:eqfaEX/V7xHMZ8Mpf72J03RnnY/kEqoZVLpkpjy5p6s=
 github.com/openshift/cluster-api-provider-ovirt v0.1.1-0.20220323121149-e3f2850dd519 h1:foU7/s6DQczTFdZ/8H++pUC2Pzygqdz5ZgqUakksR5w=

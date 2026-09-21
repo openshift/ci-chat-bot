@@ -6,14 +6,16 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	coreapi "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 type OKDInclusion bool
 
 const (
-	okdPromotionNamespace = "origin"
-	ocpPromotionNamespace = "ocp"
+	okdPromotionNamespace     = "origin"
+	ocpPromotionNamespace     = "ocp"
+	ocpPrivPromotionNamespace = "ocp-priv"
 
 	WithOKD    OKDInclusion = true
 	WithoutOKD OKDInclusion = false
@@ -71,6 +73,19 @@ func PromotesOfficialImage(configSpec *ReleaseBuildConfiguration, includeOKD OKD
 	return false
 }
 
+// TargetsOfficialImage determines if a configuration targets promotionName in an
+// official stream, regardless of whether promotion is disabled. Use this instead
+// of PromotesOfficialImage when the disabled flag is irrelevant, e.g. for branch
+// forwarding where release branches always have promotion disabled.
+func TargetsOfficialImage(configSpec *ReleaseBuildConfiguration, includeOKD OKDInclusion, promotionName string) bool {
+	for _, target := range PromotionTargets(configSpec.PromotionConfiguration) {
+		if BuildsOfficialImages(target, includeOKD) && target.Name == promotionName {
+			return true
+		}
+	}
+	return false
+}
+
 // BuildsOfficialImages determines if a configuration will result in official images
 // being built.
 func BuildsOfficialImages(configSpec PromotionTarget, includeOKD OKDInclusion) bool {
@@ -92,6 +107,37 @@ func RefersToOfficialImage(namespace string, includeOKD OKDInclusion) bool {
 	return (bool(includeOKD) && namespace == okdPromotionNamespace) || namespace == ocpPromotionNamespace
 }
 
+// RefersToQuayReferenceImage is true for namespaces that get app.ci IS source-refs to QCI.
+func RefersToQuayReferenceImage(namespace string, includeOKD OKDInclusion) bool {
+	return RefersToOfficialImage(namespace, includeOKD) || namespace == ocpPrivPromotionNamespace
+}
+
+// UsableImageStreamTagImportSource reports whether ref may be copied into a release snapshot tag From.
+func UsableImageStreamTagImportSource(from *coreapi.ObjectReference) bool {
+	if from == nil || from.Name == "" {
+		return false
+	}
+	switch from.Kind {
+	case "DockerImage":
+		return !isInternalAPPCIRegistryReference(from.Name)
+	case "ImageStreamTag", "ImageStreamImage":
+		return !officialPayloadNamespaces.Has(from.Namespace)
+	default:
+		return false
+	}
+}
+
+var officialPayloadNamespaces = sets.New[string](ocpPromotionNamespace, ocpPrivPromotionNamespace, okdPromotionNamespace)
+
+func isInternalAPPCIRegistryReference(name string) bool {
+	for _, ns := range []string{ocpPromotionNamespace, ocpPrivPromotionNamespace, okdPromotionNamespace} {
+		if strings.HasPrefix(name, ServiceDomainAPPCIRegistry+"/"+ns+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // QuayImage returns the image in quay.io for an image stream tag which is used to push the image
 func QuayImage(tag ImageStreamTagReference) string {
 	return fmt.Sprintf("%s:%s_%s_%s", QuayOpenShiftCIRepo, tag.Namespace, tag.Name, tag.Tag)
@@ -107,12 +153,11 @@ func quayImageWithTime(timestamp string, tag ImageStreamTagReference) string {
 	return fmt.Sprintf("%s:%s_prune_%s_%s_%s", QuayOpenShiftCIRepo, timestamp, tag.Namespace, tag.Name, tag.Tag)
 }
 
-// getQuayProxyTarget creates the quay-proxy target imagestream tag reference.
-// Format: namespace/imagestream-name-quay:tag
+// getQuayProxyTarget creates the quay-proxy app.ci imagestream tag reference.
+// Format: namespace/imagestream-name:tag (e.g. ocp/4.22:ovn-kubernetes).
 func getQuayProxyTarget(target string, tag ImageStreamTagReference) string {
 	if tag.Name != "" {
-		proxyTarget := fmt.Sprintf("%s/%s-quay:%s", tag.Namespace, tag.Name, tag.Tag)
-		return proxyTarget
+		return fmt.Sprintf("%s/%s:%s", tag.Namespace, tag.Name, tag.Tag)
 	}
 
 	// For tag-based promotion, parse the target string to extract component name
@@ -126,15 +171,28 @@ func getQuayProxyTarget(target string, tag ImageStreamTagReference) string {
 			tagStart := len(tagPart) - len(tagSuffix)
 			targetComponent := tagPart[first+1 : tagStart]
 			if targetComponent != "" {
-				proxyTarget := fmt.Sprintf("%s/%s-quay:%s", targetNamespace, targetComponent, tag.Tag)
-				return proxyTarget
+				return fmt.Sprintf("%s/%s:%s", targetNamespace, targetComponent, tag.Tag)
+			}
+		}
+		if first > 0 && tag.Tag != "" {
+			targetNamespace := tagPart[:first]
+			remainder := tagPart[first+1:]
+			if componentPrefix := tag.Tag + "_"; strings.HasPrefix(remainder, componentPrefix) {
+				return fmt.Sprintf("%s/%s:%s", targetNamespace, tag.Tag, remainder[len(componentPrefix):])
 			}
 		}
 	}
 
-	// Fallback: use namespace and tag
-	proxyTarget := fmt.Sprintf("%s/%s-quay:%s", tag.Namespace, tag.Tag, tag.Tag)
-	return proxyTarget
+	return fmt.Sprintf("%s/%s:%s", tag.Namespace, tag.Tag, tag.Tag)
+}
+
+func qciPullSpec(pipelineSource string) (string, bool) {
+	idx := strings.LastIndex(pipelineSource, "@sha256:")
+	if idx == -1 {
+		return "", false
+	}
+	digest := pipelineSource[idx+1:]
+	return fmt.Sprintf("%s/openshift/ci@%s", QCIAPPCIDomain, digest), true
 }
 
 var (
@@ -171,7 +229,6 @@ var (
 
 	// QuayCombinedMirrorFunc does both quay mirroring and quay-proxy tagging
 	QuayCombinedMirrorFunc = func(source, target string, tag ImageStreamTagReference, time string, mirror map[string]string) {
-		// quay mirroring
 		if time == "" {
 			logrus.Warn("Found time is empty string and skipped the promotion to quay for this image")
 		} else {
@@ -180,8 +237,13 @@ var (
 			mirror[quayImageWithTime(time, tag)] = t
 		}
 
+		if !RefersToQuayReferenceImage(tag.Namespace, WithOKD) {
+			return
+		}
 		proxyTarget := getQuayProxyTarget(target, tag)
-		quayProxySource := QuayImageReference(tag)
-		mirror[proxyTarget] = quayProxySource
+		mirror[proxyTarget] = source
+		if proxySrc, ok := qciPullSpec(source); ok {
+			mirror[proxyTarget] = proxySrc
+		}
 	}
 )

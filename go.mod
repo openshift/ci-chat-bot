@@ -43,7 +43,7 @@ require (
 	github.com/openshift-online/ocm-sdk-go v0.1.459
 	github.com/openshift/api v0.0.0-20260825094607-13a84dedc5a3
 	github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee
-	github.com/openshift/ci-tools v0.0.0-20260401181544-dbe3f838b8a0
+	github.com/openshift/ci-tools v0.0.0-20260921153601-f2e7eb1f3261
 	github.com/openshift/client-go v3.9.0+incompatible
 	github.com/openshift/hive v0.0.0-00010101000000-000000000000
 	github.com/openshift/oc v0.0.0-alpha.0.0.20230410203846-b68ac7c39057

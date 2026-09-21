@@ -145,6 +145,17 @@ func (config *ReleaseBuildConfiguration) WithPresubmitFrom(source *ReleaseBuildC
 
 	// TODO: handle resources, likely needs to be union, with max(config, source) on conflicts
 
+	// The source configuration governs how the injected test runs, so carry over the
+	// prowgen options that affect the generated pod spec. Configs assembled by the
+	// resolver's merge endpoint start from an empty base, and would otherwise lose the
+	// stanza entirely and be generated without GSM/CSI support.
+	if source.Prowgen != nil && source.Prowgen.EnableSecretsStoreCSIDriver {
+		if result.Prowgen == nil {
+			result.Prowgen = &ProwgenOverrides{}
+		}
+		result.Prowgen.EnableSecretsStoreCSIDriver = true
+	}
+
 	for i := range source.Tests {
 		if source.Tests[i].As == test {
 			test := source.Tests[i]
