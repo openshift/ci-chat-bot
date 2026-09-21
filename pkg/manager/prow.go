@@ -490,7 +490,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 	// For workflows, we configure the tests we run; for others, we need to load and modify the tests
 	if job.Mode == JobTypeWorkflowLaunch || job.Mode == JobTypeWorkflowUpgrade || job.Mode == JobTypeWorkflowTest {
 		// use "launch" test name to identify proper cluster profile
-		var profile citools.ClusterProfile
+		var profile string
 		var leases []citools.StepLease
 		for _, test := range sourceConfig.Tests {
 			if test.As == "launch" {
@@ -1832,6 +1832,6 @@ func applyClusterProfile(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBu
 	if matchedTarget.MultiStageTestConfiguration == nil {
 		return fmt.Errorf("invalid job; `launch` test is not a multistage test")
 	}
-	matchedTarget.MultiStageTestConfiguration.ClusterProfile = citools.ClusterProfile(profileName)
+	matchedTarget.MultiStageTestConfiguration.ClusterProfile = profileName
 	return nil
 }

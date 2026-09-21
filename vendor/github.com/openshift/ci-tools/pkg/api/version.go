@@ -11,7 +11,8 @@ import (
 // First entry is the primary previous. If not in map, natural progression (X.Y-1) is used.
 var VersionTransitionOverrides = map[string][]string{
 	"5.0": {"4.22"},
-	// "5.1": {"5.0", "4.23"},
+	"5.1": {"5.0", "4.23"},
+	"5.2": {"5.1"},
 }
 
 type ParsedVersion struct {

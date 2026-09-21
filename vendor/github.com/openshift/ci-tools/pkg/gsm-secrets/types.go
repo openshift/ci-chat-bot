@@ -3,8 +3,10 @@ package gsmsecrets
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
@@ -13,9 +15,9 @@ import (
 )
 
 const (
-	TestPlatform = "test platform"
-
 	GCPMaxServiceAccountIDLength = 30
+	// GCPMinServiceAccountIDLength is the minimum length GCP allows for a service account ID.
+	GCPMinServiceAccountIDLength = 6
 
 	UpdaterSASecretName   = "updater-service-account"
 	UpdaterSASecretSuffix = "__updater-service-account"
@@ -24,13 +26,11 @@ const (
 	ServiceAccountIDSuffix          = "-updater"
 	ServiceAccountDescriptionPrefix = "Updater service account for secret collection: "
 
-	// IAM binding condition title prefixes
-	SecretsViewerConditionTitlePrefix  = "Read access to secrets for "
-	SecretsUpdaterConditionTitlePrefix = "Create, update, and delete access for "
-
-	// IAM binding condition description templates
-	SecretsViewerConditionDescriptionTemplate  = "Managed by %s: Read access to secrets in %s collection"
-	SecretsUpdaterConditionDescriptionTemplate = "Managed by %s: Create, update, and delete access to secrets in %s collection"
+	// IAM binding condition title prefixes. These mark which bindings on the two custom roles
+	// belong to the reconciler, so they must stay distinctive: anything without one is treated
+	// as hand-made and left alone.
+	SecretsViewerConditionTitlePrefix  = "tp-viewer: "
+	SecretsUpdaterConditionTitlePrefix = "tp-updater: "
 )
 
 type Config struct {
@@ -147,10 +147,32 @@ func GetUpdaterSAEmail(collection string, config Config) string {
 	return fmt.Sprintf("%s@%s.iam.gserviceaccount.com", GetUpdaterSAId(collection), config.ProjectIdString)
 }
 
+var gcpServiceAccountIDRegex = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
+
+func isValidGCPServiceAccountID(id string) bool {
+	if len(id) < GCPMinServiceAccountIDLength || len(id) > GCPMaxServiceAccountIDLength {
+		return false
+	}
+	return gcpServiceAccountIDRegex.MatchString(id)
+}
+
 // GetUpdaterSAId returns the updater service account ID for a given collection name.
-// Uses the collection name directly if it fits within GCP's 30-character limit,
-// otherwise uses a hash-based approach.
+// It first tries the collection-derived ID (rawUpdaterSAId); if that ID is a valid GCP
+// service account ID it is returned unchanged. Otherwise, it falls back
+// to a guaranteed-valid hash-based ID.
 func GetUpdaterSAId(collection string) string {
+	id := rawUpdaterSAId(collection)
+	if isValidGCPServiceAccountID(id) {
+		return id
+	}
+	return fallbackUpdaterSAId(collection)
+}
+
+// rawUpdaterSAId derives the service account ID directly from the collection name:
+// the collection name itself if it fits within GCP's length limit, otherwise a
+// truncated base64url-encoded hash. The result may be invalid per GCP's rules (e.g. a
+// leading digit, or a '_' from the base64url alphabet); callers must validate it.
+func rawUpdaterSAId(collection string) string {
 	suffixLen := len(ServiceAccountIDSuffix)
 	directId := fmt.Sprintf("%s%s", collection, ServiceAccountIDSuffix)
 
@@ -167,6 +189,23 @@ func GetUpdaterSAId(collection string) string {
 	}
 
 	return fmt.Sprintf("%s%s", strings.ToLower(encodedHash), ServiceAccountIDSuffix)
+}
+
+// fallbackUpdaterSAId returns a deterministic, always-valid GCP service account ID for a
+// collection whose rawUpdaterSAId is invalid. It hex-encodes a sha256 of the collection
+// (so no '_'), prefixes a fixed letter (so no leading digit), and appends the standard
+// suffix. The collection remains recoverable from the SA description and secret name, so
+// the ID does not need to be reversible.
+func fallbackUpdaterSAId(collection string) string {
+	hash := sha256.Sum256([]byte(collection))
+	encodedHash := hex.EncodeToString(hash[:])
+
+	maxHashLen := GCPMaxServiceAccountIDLength - len("s") - len(ServiceAccountIDSuffix)
+	if len(encodedHash) > maxHashLen {
+		encodedHash = encodedHash[:maxHashLen]
+	}
+
+	return fmt.Sprintf("s%s%s", encodedHash, ServiceAccountIDSuffix)
 }
 
 // GetUpdaterSADisplayName returns the display name for the service account,

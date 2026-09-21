@@ -75,8 +75,8 @@ func Test_processOperatorPR(t *testing.T) {
 			Tests: []citools.TestStepConfiguration{{
 				As: "my-test",
 				MultiStageTestConfigurationLiteral: &citools.MultiStageTestConfigurationLiteral{
-					ClusterProfile: citools.ClusterProfileAWS,
-					Dependencies:   citools.TestDependencies{"OO_INDEX": "ci-index-test"},
+					ClusterProfileLiteral: &citools.ClusterProfileLiteral{Name: "aws"},
+					Dependencies:          citools.TestDependencies{"OO_INDEX": "ci-index-test"},
 					Environment: citools.TestEnvironment{
 						"OO_CHANNEL":           "dev",
 						"OO_INSTALL_NAMESPACE": "my-namespace",
@@ -184,7 +184,7 @@ func Test_processOperatorPR(t *testing.T) {
 			Tests: []citools.TestStepConfiguration{{
 				As: "my-test",
 				MultiStageTestConfigurationLiteral: &citools.MultiStageTestConfigurationLiteral{
-					ClusterProfile: citools.ClusterProfileAWS,
+					ClusterProfileLiteral: &citools.ClusterProfileLiteral{Name: "aws"},
 					Test: []citools.LiteralTestStep{{
 						As:           "install",
 						Dependencies: []citools.StepDependency{{Env: "OO_BUNDLE", Name: "test"}},

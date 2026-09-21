@@ -14,11 +14,17 @@ import (
 	"github.com/openshift/ci-tools/pkg/util/gzip"
 )
 
+const (
+	// DPTPGSMCollection is the default GSM collection for DPTP-managed secrets (dockerconfig items)
+	DPTPGSMCollection = "test-platform-infra"
+)
+
 // GSMConfig is the top-level configuration for GSM-based secrets
 type GSMConfig struct {
-	ClusterGroups map[string][]string       `json:"cluster_groups,omitempty"`
-	Components    map[string][]GSMSecretRef `json:"components,omitempty"`
-	Bundles       []GSMBundle               `json:"bundles"`
+	ClusterGroups  map[string][]string       `json:"cluster_groups,omitempty"`
+	DPTPCollection string                    `json:"dptp_collection,omitempty"`
+	Components     map[string][]GSMSecretRef `json:"components,omitempty"`
+	Bundles        []GSMBundle               `json:"bundles,omitempty"`
 }
 
 // GSMBundle defines a logical group of GSM secrets
@@ -27,6 +33,7 @@ type GSMBundle struct {
 	Components    []string          `json:"components,omitempty"`
 	DockerConfig  *DockerConfigSpec `json:"dockerconfig,omitempty"`
 	GSMSecrets    []GSMSecretRef    `json:"gsm_secrets,omitempty"`
+	Labels        []string          `json:"labels,omitempty"`
 	SyncToCluster bool              `json:"sync_to_cluster,omitempty"`
 	Targets       []TargetSpec      `json:"targets,omitempty"`
 }
@@ -67,8 +74,8 @@ type DockerConfigSpec struct {
 }
 
 // RegistryAuthData specifies registry credentials
+// Collection is always DPTPGSMCollection, which matches dptp_collection in the GSM config
 type RegistryAuthData struct {
-	Collection  string `json:"collection"`
 	Group       string `json:"group"`
 	RegistryURL string `json:"registry_url"`
 	AuthField   string `json:"auth_field"`
@@ -118,6 +125,15 @@ func (c *GSMConfig) UnmarshalJSON(d []byte) error {
 
 func (c *GSMConfig) resolve() error {
 	var errs []error
+
+	if c.DPTPCollection == "" {
+		for _, bundle := range c.Bundles {
+			if bundle.DockerConfig != nil {
+				c.DPTPCollection = DPTPGSMCollection
+				break
+			}
+		}
+	}
 
 	// Expand cluster_groups to concrete cluster names
 	for bundleIdx := range c.Bundles {
@@ -225,6 +241,7 @@ func (c *GSMConfig) resolve() error {
 				Name:          bundle.Name,
 				Components:    nil, // Already resolved in phase 2
 				DockerConfig:  bundle.DockerConfig,
+				Labels:        bundle.Labels,
 				SyncToCluster: bundle.SyncToCluster,
 				Targets:       targets,
 			}
@@ -262,6 +279,21 @@ type bundleKey struct {
 // Expects a resolved config (resolve() is called automatically during unmarshaling).
 func (c *GSMConfig) Validate() error {
 	var errs []error
+
+	// Validate that dptp_collection is set if any bundle uses dockerconfig
+	hasDockerConfig := false
+	for _, bundle := range c.Bundles {
+		if bundle.DockerConfig != nil {
+			hasDockerConfig = true
+			break
+		}
+	}
+	if hasDockerConfig && c.DPTPCollection == "" {
+		errs = append(errs, fmt.Errorf("dptp_collection must be set when bundles use dockerconfig"))
+	}
+	if c.DPTPCollection != "" && !gsmvalidation.ValidateCollectionName(c.DPTPCollection) {
+		errs = append(errs, fmt.Errorf("dptp_collection has invalid collection name: %s", c.DPTPCollection))
+	}
 
 	// Validate components
 	componentNames := make(map[string]bool)
@@ -301,6 +333,11 @@ func (c *GSMConfig) Validate() error {
 				}
 				if !gsmvalidation.ValidateSecretName(secret.Name) {
 					errs = append(errs, fmt.Errorf("component %s[%d].secrets[%d] has invalid name", componentName, j, k))
+				}
+				if secret.As != "" {
+					if err := gsmvalidation.ValidateMountFileName(secret.As); err != nil {
+						errs = append(errs, fmt.Errorf("component %s[%d].secrets[%d].as is invalid: %w", componentName, j, k, err))
+					}
 				}
 			}
 		}
@@ -396,6 +433,11 @@ func validateBundle(bundle *GSMBundle, idx int) error {
 			if !gsmvalidation.ValidateSecretName(field.Name) {
 				errs = append(errs, fmt.Errorf("bundle %s gsm_secrets[%d].secrets[%d] has invalid name", bundle.Name, j, k))
 			}
+			if field.As != "" {
+				if err := gsmvalidation.ValidateMountFileName(field.As); err != nil {
+					errs = append(errs, fmt.Errorf("bundle %s gsm_secrets[%d].fields[%d].as is invalid: %w", bundle.Name, j, k, err))
+				}
+			}
 		}
 	}
 
@@ -405,6 +447,15 @@ func validateBundle(bundle *GSMBundle, idx int) error {
 		}
 		if err := validateDockerConfig(bundle.DockerConfig, idx, bundle.Name); err != nil {
 			errs = append(errs, err)
+		}
+	}
+
+	for i, label := range bundle.Labels {
+		key, _, err := ParseLabel(label)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("bundle %s labels[%d]: %w", bundle.Name, i, err))
+		} else if key == DPTPRequesterLabel {
+			errs = append(errs, fmt.Errorf("bundle %s labels[%d]: %q is a reserved label key", bundle.Name, i, DPTPRequesterLabel))
 		}
 	}
 
@@ -418,14 +469,17 @@ func validateBundle(bundle *GSMBundle, idx int) error {
 func validateDockerConfig(dc *DockerConfigSpec, bundleIdx int, bundleName string) error {
 	var errs []error
 
+	if dc.As != "" {
+		if err := gsmvalidation.ValidateMountFileName(dc.As); err != nil {
+			errs = append(errs, fmt.Errorf("bundle[%d] %s dockerconfig.as is invalid: %w", bundleIdx, bundleName, err))
+		}
+	}
+
 	if len(dc.Registries) == 0 {
 		errs = append(errs, fmt.Errorf("bundle[%d] %s dockerconfig has no registries", bundleIdx, bundleName))
 	}
 
 	for i, reg := range dc.Registries {
-		if !gsmvalidation.ValidateCollectionName(reg.Collection) {
-			errs = append(errs, fmt.Errorf("bundle[%d] %s dockerconfig registry[%d] has invalid collection string", bundleIdx, bundleName, i))
-		}
 		if !gsmvalidation.ValidateGroupName(reg.Group) {
 			errs = append(errs, fmt.Errorf("bundle[%d] %s dockerconfig registry[%d] has invalid group string", bundleIdx, bundleName, i))
 		}

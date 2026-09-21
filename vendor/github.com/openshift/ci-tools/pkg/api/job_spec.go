@@ -30,6 +30,9 @@ type JobSpec struct {
 	Metadata               Metadata `json:"metadata,omitempty"`
 	Target                 string   `json:"target,omitempty"`
 	TargetAdditionalSuffix string   `json:"target_additional_suffix,omitempty"`
+
+	// DisablePodScaler opts workload pods in this job out of pod-scaler admission.
+	DisablePodScaler bool `json:"disable_pod_scaler,omitempty"`
 }
 
 // Namespace returns the namespace of the job. Must not be evaluated

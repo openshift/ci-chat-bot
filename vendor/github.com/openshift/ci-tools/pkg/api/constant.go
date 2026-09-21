@@ -2,8 +2,10 @@ package api
 
 import (
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 const (
@@ -34,8 +36,31 @@ const (
 	ReleaseAnnotationSoftDelete = "release.openshift.io/soft-delete"
 
 	// DPTPRequesterLabel is the label on a Kubernates CR whose value indicates the automated tool that requests the CR
-	DPTPRequesterLabel = "dptp.openshift.io/requester"
+	DPTPRequesterLabel    = "dptp.openshift.io/requester"
+	CISecretBootstrapName = "ci-secret-bootstrap"
+)
 
+// ParseLabel parses a "key:value" label string, returning the key and value.
+// Leading/trailing whitespace on the input is trimmed. The key is split on the
+// first ":" — the key is validated with validation.IsQualifiedName and the value
+// with validation.IsValidLabelValue. Returns an error if the format is invalid
+// or either component fails K8s label validation.
+func ParseLabel(label string) (string, string, error) {
+	label = strings.TrimSpace(label)
+	key, value, ok := strings.Cut(label, ":")
+	if !ok {
+		return "", "", fmt.Errorf("invalid label %q: expected key:value format", label)
+	}
+	if errs := validation.IsQualifiedName(key); len(errs) > 0 {
+		return "", "", fmt.Errorf("invalid label key %q: %s", key, errs[0])
+	}
+	if errs := validation.IsValidLabelValue(value); len(errs) > 0 {
+		return "", "", fmt.Errorf("invalid label value %q: %s", value, errs[0])
+	}
+	return key, value, nil
+}
+
+const (
 	KVMDeviceLabel           = "devices.kubevirt.io/kvm"
 	ClusterLabel             = "ci-operator.openshift.io/cluster"
 	CloudLabel               = "ci-operator.openshift.io/cloud"
@@ -45,7 +70,7 @@ const (
 	NoBuildsValue = "true"
 
 	// HiveCluster is the cluster where Hive is deployed
-	HiveCluster = ClusterHive
+	HiveCluster = ClusterHostedMgmt1
 
 	// HiveAdminKubeconfigSecret is the name of the secret in ci-op-<hash> namespace that stores the Admin's kubeconfig for the ephemeral cluster provisioned by Hive.
 	HiveAdminKubeconfigSecret = "hive-admin-kubeconfig"
@@ -63,6 +88,9 @@ const (
 
 	AutoScalePodsLabel = "ci.openshift.io/scale-pods"
 
+	// WorkloadAutoscalerScaleAnnotation opts a pod out of pod-scaler admission when set to "false".
+	WorkloadAutoscalerScaleAnnotation = "ci-workload-autoscaler.openshift.io/scale"
+
 	NamespaceDir = "build-resources"
 
 	APPCIKubeAPIURL = "https://api.ci.l2s4.p1.openshiftapps.com:6443"
@@ -72,11 +100,18 @@ const (
 	// `podStartTimeout`.
 	ReasonPending = "pod_pending"
 	// CliEnv if the env we use to expose the path to the cli
-	CliEnv                = "CLI_DIR"
-	DefaultLeaseEnv       = "LEASED_RESOURCE"
-	DefaultIPPoolLeaseEnv = "IP_POOL_AVAILABLE"
-	ClusterProfileSetEnv  = "CLUSTER_PROFILE_SET_NAME"
-	ClusterProfileParam   = "CLUSTER_PROFILE"
+	CliEnv                    = "CLI_DIR"
+	DefaultLeaseEnv           = "LEASED_RESOURCE"
+	DefaultIPPoolLeaseEnv     = "IP_POOL_AVAILABLE"
+	ClusterProfileSetEnv      = "CLUSTER_PROFILE_SET_NAME"
+	ClusterProfileParam       = "CLUSTER_PROFILE_DETAILS"
+	STSHomeRoleARNParam       = "CI_STS_HOME_ROLE_ARN"
+	STSHubRoleARNParam        = "CI_STS_HUB_ROLE_ARN"
+	STSTargetRoleARNParam     = "CI_STS_TARGET_ROLE_ARN"
+	STSHomeRoleARNKey         = "home_role_arn"
+	STSHubRoleARNSecretKey    = "hub_role_arn"
+	STSTargetRoleARNSecretKey = "target_role_arn"
+	STSClusterSecretName      = "aws-sts-cluster-config"
 
 	// SkipCensoringLabel is the label we use to mark a secret as not needing to be censored
 	SkipCensoringLabel = "ci.openshift.io/skip-censoring"

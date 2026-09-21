@@ -125,6 +125,26 @@ func (mr *MockSecretManagerClientMockRecorder) DeleteSecret(ctx, req any, opts .
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSecret", reflect.TypeOf((*MockSecretManagerClient)(nil).DeleteSecret), varargs...)
 }
 
+// DestroySecretVersion mocks base method.
+func (m *MockSecretManagerClient) DestroySecretVersion(ctx context.Context, req *secretmanagerpb.DestroySecretVersionRequest, opts ...gax.CallOption) (*secretmanagerpb.SecretVersion, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, req}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "DestroySecretVersion", varargs...)
+	ret0, _ := ret[0].(*secretmanagerpb.SecretVersion)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DestroySecretVersion indicates an expected call of DestroySecretVersion.
+func (mr *MockSecretManagerClientMockRecorder) DestroySecretVersion(ctx, req any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, req}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySecretVersion", reflect.TypeOf((*MockSecretManagerClient)(nil).DestroySecretVersion), varargs...)
+}
+
 // GetSecret mocks base method.
 func (m *MockSecretManagerClient) GetSecret(ctx context.Context, req *secretmanagerpb.GetSecretRequest, opts ...gax.CallOption) (*secretmanagerpb.Secret, error) {
 	m.ctrl.T.Helper()
@@ -143,6 +163,25 @@ func (mr *MockSecretManagerClientMockRecorder) GetSecret(ctx, req any, opts ...a
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, req}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecret", reflect.TypeOf((*MockSecretManagerClient)(nil).GetSecret), varargs...)
+}
+
+// ListSecretVersions mocks base method.
+func (m *MockSecretManagerClient) ListSecretVersions(ctx context.Context, req *secretmanagerpb.ListSecretVersionsRequest, opts ...gax.CallOption) *secretmanager.SecretVersionIterator {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, req}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ListSecretVersions", varargs...)
+	ret0, _ := ret[0].(*secretmanager.SecretVersionIterator)
+	return ret0
+}
+
+// ListSecretVersions indicates an expected call of ListSecretVersions.
+func (mr *MockSecretManagerClientMockRecorder) ListSecretVersions(ctx, req any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, req}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSecretVersions", reflect.TypeOf((*MockSecretManagerClient)(nil).ListSecretVersions), varargs...)
 }
 
 // ListSecrets mocks base method.
