@@ -3,7 +3,22 @@ package manager
 import (
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestDefaultMceUserConfigDuration(t *testing.T) {
+	config := defaultMceUserConfig()
+
+	if config.MaxClusters != 1 {
+		t.Errorf("MaxClusters = %d, want 1", config.MaxClusters)
+	}
+	if config.MaxClusterAge != int(MaxMCEDuration/time.Hour) {
+		t.Errorf("MaxClusterAge = %d, want %d hours", config.MaxClusterAge, int(MaxMCEDuration/time.Hour))
+	}
+	if got := defaultMceDuration(config.MaxClusterAge); got != MaxMCEDuration {
+		t.Errorf("defaultMceDuration() = %s, want %s", got, MaxMCEDuration)
+	}
+}
 
 func Test_platformProfileSets(t *testing.T) {
 	tests := []struct {
