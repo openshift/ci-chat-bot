@@ -2563,6 +2563,17 @@ func UseSpotInstances(job *Job) bool {
 	return job.Mode == JobTypeLaunch && len(job.JobParams) == 0 && (job.Platform == "aws" || job.Platform == "aws-2")
 }
 
+func defaultMceUserConfig() MceUser {
+	return MceUser{
+		MaxClusters:   1,
+		MaxClusterAge: int(MaxMCEDuration / time.Hour),
+	}
+}
+
+func defaultMceDuration(maxClusterAge int) time.Duration {
+	return min(time.Duration(maxClusterAge)*time.Hour, MaxMCEDuration)
+}
+
 func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]string, duration time.Duration) (string, error) {
 	m.mceClusters.lock.RLock()
 	var activeAwsMCEClusterCount, activeGcpMCEClusterCount int
@@ -2595,17 +2606,14 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 		userConfig, ok := m.mceConfig.Users[user]
 		if !ok {
 			// defaults configs for non-defined users
-			userConfig = MceUser{
-				MaxClusters:   1,
-				MaxClusterAge: int(MaxMCEDuration / time.Hour),
-			}
+			userConfig = defaultMceUserConfig()
 		}
 		// configure defaults
 		if platform == "" {
 			platform = "aws"
 		}
 		if duration == 0 {
-			duration = min(time.Duration(userConfig.MaxClusterAge)*time.Hour, MaxMCEDuration)
+			duration = defaultMceDuration(userConfig.MaxClusterAge)
 		}
 		m.mceClusters.lock.RLock()
 		defer m.mceClusters.lock.RUnlock()
