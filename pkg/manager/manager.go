@@ -2597,7 +2597,7 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 			// defaults configs for non-defined users
 			userConfig = MceUser{
 				MaxClusters:   1,
-				MaxClusterAge: int(MaxMCEDuration),
+				MaxClusterAge: int(MaxMCEDuration / time.Hour),
 			}
 		}
 		// configure defaults
