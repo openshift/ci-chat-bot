@@ -1239,6 +1239,13 @@ type OrgPlan struct {
 // OrgMembership contains Membership fields for user membership in an org.
 type OrgMembership struct {
 	Membership
+	// DirectMembership is true when the user is a direct member of the org, as opposed to
+	// having membership conferred only indirectly (e.g. via an enterprise team). Returned by
+	// GET /orgs/{org}/memberships/{username}. It is a pointer so a missing field decodes to nil
+	// (unknown) rather than false: callers must not treat "not reported" as "not a direct member".
+	// omitempty keeps it out of the request body of PUT (UpdateOrgMembership), where it is a
+	// read-only field.
+	DirectMembership *bool `json:"direct_membership,omitempty"`
 }
 
 // TeamMembership contains Membership fields for user membership on a team.
@@ -1819,4 +1826,39 @@ type BlameRange struct {
 	EndingLine   int
 	AuthorLogin  string
 	Date         time.Time
+}
+
+// OrganizationRole represents an organization role
+type OrganizationRole struct {
+	ID          int      `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Permissions []string `json:"permissions"`
+}
+
+// OrganizationRoleAssignmentType is how a team or user holds an organization role.
+type OrganizationRoleAssignmentType string
+
+// Possible organization role assignment types.
+const (
+	RoleAssignmentDirect   OrganizationRoleAssignmentType = "direct"
+	RoleAssignmentIndirect OrganizationRoleAssignmentType = "indirect"
+	RoleAssignmentMixed    OrganizationRoleAssignmentType = "mixed"
+)
+
+// OrganizationRoleAssignment represents a role assignment to a team or user.
+// For teams: id, slug, assignment are populated. For users: id, login, assignment are populated.
+type OrganizationRoleAssignment struct {
+	ID         int                            `json:"id"`
+	Login      string                         `json:"login,omitempty"`
+	Slug       string                         `json:"slug,omitempty"`
+	Assignment OrganizationRoleAssignmentType `json:"assignment,omitempty"`
+}
+
+// IsDirect reports whether the role is held directly, including "mixed" (direct +
+// inherited) assignments. Only a purely "indirect" assignment (inherited from a
+// parent team, or held via team membership) is not direct. Reconciliation manages
+// direct assignments and must leave indirect ones untouched.
+func (a OrganizationRoleAssignment) IsDirect() bool {
+	return a.Assignment != RoleAssignmentIndirect
 }

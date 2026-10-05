@@ -73,7 +73,19 @@ type OrganizationClient interface {
 	HasPermission(org, repo, user string, roles ...string) (bool, error)
 	GetUserPermission(org, repo, user string) (string, error)
 	UpdateOrgMembership(org, user string, admin bool) (*OrgMembership, error)
+	GetOrgMembership(org, user string) (*OrgMembership, error)
 	RemoveOrgMembership(org, user string) error
+}
+
+// OrganizationRolesClient interface for organization roles related API actions
+type OrganizationRolesClient interface {
+	ListOrganizationRoles(org string) ([]OrganizationRole, error)
+	AssignOrganizationRoleToTeam(org, teamSlug string, roleID int) error
+	RemoveOrganizationRoleFromTeam(org, teamSlug string, roleID int) error
+	AssignOrganizationRoleToUser(org, user string, roleID int) error
+	RemoveOrganizationRoleFromUser(org, user string, roleID int) error
+	ListTeamsWithRole(org string, roleID int) ([]OrganizationRoleAssignment, error)
+	ListUsersWithRole(org string, roleID int) ([]OrganizationRoleAssignment, error)
 }
 
 // HookClient interface for hook related API actions
@@ -279,6 +291,7 @@ type Client interface {
 	IssueClient
 	CommentClient
 	OrganizationClient
+	OrganizationRolesClient
 	TeamClient
 	ProjectClient
 	MilestoneClient
@@ -398,7 +411,9 @@ func (c *client) WithFields(fields logrus.Fields) Client {
 var (
 	teamRe = regexp.MustCompile(`^(.*)/(.*)$`)
 
-	passedWorkflowRunConclusions = []string{"success", "skipped"}
+	retestableWorkflowRunConclusions = []string{"failure", "cancelled", "timed_out", "startup_failure"}
+
+	pullRequestWorkflowRunEvents = []string{"pull_request", "pull_request_target"}
 )
 
 const (
@@ -616,7 +631,8 @@ func NewClientFromOptions(fields logrus.Fields, options ClientOptions) (TokenGen
 		Transport: options.BaseRoundTripper,
 		Timeout:   options.MaxRequestTime,
 	}
-	graphQLTransport := newAddHeaderTransport(options.BaseRoundTripper)
+	graphQLHeaderTransport := newAddHeaderTransport(options.BaseRoundTripper)
+	graphQLTransport := newGraphQLRetryTransport(graphQLHeaderTransport)
 	c := &client{
 		logger: logrus.WithFields(fields).WithField("client", "github"),
 		gqlc: &graphQLGitHubAppsAuthClientWrapper{Client: githubql.NewEnterpriseClient(
@@ -656,7 +672,7 @@ func NewClientFromOptions(fields logrus.Fields, options ClientOptions) (TokenGen
 			return nil, nil, nil, fmt.Errorf("failed to construct apps auth roundtripper: %w", err)
 		}
 		httpClient.Transport = appsTransport
-		graphQLTransport.upstream = appsTransport
+		graphQLHeaderTransport.upstream = appsTransport
 
 		// Use github apps auth for git actions
 		// https://docs.github.com/en/free-pro-team@latest/developers/apps/authenticating-with-github-apps#http-based-git-access-by-an-installation=
@@ -742,6 +758,134 @@ func (s *addHeaderTransport) RoundTrip(r *http.Request) (*http.Response, error) 
 	}
 
 	return s.upstream.RoundTrip(r)
+}
+
+const (
+	// graphQLMaxRetries is the number of times a GraphQL request is retried
+	// after a transient 5xx response. GitHub unavailability is not rare, so
+	// this rides out roughly a minute of backoff (2+4+8+16+32s). Worst case,
+	// with every attempt being a ~10s gateway timeout, a request takes ~2m,
+	// which stays within MaxRequestTime (the http.Client timeout covers all
+	// retries). Callers that can do better than resending the same request
+	// can opt out for 502/504 with WithCallerHandledGatewayTimeouts.
+	graphQLMaxRetries = 5
+	// graphQLRetryInitialDelay is the delay before the first retry; it doubles
+	// on every subsequent retry.
+	graphQLRetryInitialDelay = 2 * time.Second
+)
+
+// graphQLRetryTransport implements http.RoundTripper
+var _ http.RoundTripper = &graphQLRetryTransport{}
+
+// graphQLRetryTransport retries GraphQL requests that fail with a transient
+// server error (502, 503 or 504). The REST client has its own retry logic in
+// requestRetryWithContext, but the GraphQL client talks to the transport
+// directly and would otherwise surface every transient failure to callers.
+type graphQLRetryTransport struct {
+	upstream     http.RoundTripper
+	maxRetries   int
+	initialDelay time.Duration
+	// sleep waits for d or until ctx is done, whichever comes first. It is
+	// overridable for tests.
+	sleep func(ctx context.Context, d time.Duration) error
+}
+
+func newGraphQLRetryTransport(upstream http.RoundTripper) *graphQLRetryTransport {
+	return &graphQLRetryTransport{
+		upstream:     upstream,
+		maxRetries:   graphQLMaxRetries,
+		initialDelay: graphQLRetryInitialDelay,
+		sleep:        sleepWithContext,
+	}
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+func isRetryableGraphQLStatus(code int) bool {
+	switch code {
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
+type callerHandlesGatewayTimeoutsKey struct{}
+
+// WithCallerHandledGatewayTimeouts returns a context that disables the GraphQL
+// client's automatic retries of 502 Bad Gateway and 504 Gateway Timeout
+// responses for requests made with it. Use it when the caller has a better
+// recovery strategy than resending the identical request, e.g. requesting a
+// smaller page: GitHub returns these when a query cannot be resolved within its
+// time limit, so an identical retry usually just times out again.
+// Other transient errors (503) are still retried.
+func WithCallerHandledGatewayTimeouts(ctx context.Context) context.Context {
+	return context.WithValue(ctx, callerHandlesGatewayTimeoutsKey{}, true)
+}
+
+// CallerHandlesGatewayTimeouts reports whether ctx was created with
+// WithCallerHandledGatewayTimeouts.
+func CallerHandlesGatewayTimeouts(ctx context.Context) bool {
+	v, _ := ctx.Value(callerHandlesGatewayTimeoutsKey{}).(bool)
+	return v
+}
+
+func (t *graphQLRetryTransport) shouldRetry(r *http.Request, code int) bool {
+	if !isRetryableGraphQLStatus(code) {
+		return false
+	}
+	if (code == http.StatusBadGateway || code == http.StatusGatewayTimeout) && CallerHandlesGatewayTimeouts(r.Context()) {
+		return false
+	}
+	return true
+}
+
+func (t *graphQLRetryTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	// Without a way to rewind the body the request can only be sent once.
+	if r.Body != nil && r.Body != http.NoBody && r.GetBody == nil {
+		return t.upstream.RoundTrip(r)
+	}
+
+	backoff := t.initialDelay
+	for retries := 0; ; retries++ {
+		req := r
+		if retries > 0 && r.GetBody != nil {
+			body, err := r.GetBody()
+			if err != nil {
+				return nil, fmt.Errorf("failed to rewind GraphQL request body for retry: %w", err)
+			}
+			req = r.Clone(r.Context())
+			req.Body = body
+		}
+
+		resp, err := t.upstream.RoundTrip(req)
+		if err != nil || !t.shouldRetry(r, resp.StatusCode) || retries >= t.maxRetries {
+			return resp, err
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"client":      "github",
+			"status_code": resp.StatusCode,
+			"retry":       retries + 1,
+			"backoff":     backoff.String(),
+		}).Debug("Retrying GraphQL request after transient server error")
+		// Drain so the connection can be reused.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+
+		if err := t.sleep(r.Context(), backoff); err != nil {
+			return nil, err
+		}
+		backoff *= 2
+	}
 }
 
 // NewClient creates a new fully operational GitHub client.
@@ -1817,6 +1961,23 @@ func (c *client) UpdateOrgMembership(org, user string, admin bool) (*OrgMembersh
 	return &om, err
 }
 
+// GetOrgMembership returns the user's membership in the org, including whether it is a
+// direct membership (as opposed to one conferred only indirectly, e.g. via an enterprise
+// team).
+//
+// https://docs.github.com/en/rest/orgs/members#get-organization-membership-for-a-user
+func (c *client) GetOrgMembership(org, user string) (*OrgMembership, error) {
+	c.log("GetOrgMembership", org, user)
+	var om OrgMembership
+	_, err := c.request(&request{
+		method:    http.MethodGet,
+		path:      fmt.Sprintf("/orgs/%s/memberships/%s", org, user),
+		org:       org,
+		exitCodes: []int{200},
+	}, &om)
+	return &om, err
+}
+
 // RemoveOrgMembership removes the user from the org.
 //
 // https://developer.github.com/v3/orgs/members/#remove-organization-membership
@@ -2025,7 +2186,17 @@ func (c *client) readPaginatedResultsWithValuesWithContext(ctx context.Context, 
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode < 200 || resp.StatusCode > 299 {
-			return fmt.Errorf("return code not 2XX: %s", resp.Status)
+			// Return a typed requestError carrying the status code so callers can
+			// classify the failure (for example github.IsNotFound). Without the
+			// code a paginated 404/403 is indistinguishable from any other error,
+			// which silently defeats best-effort handling. The ErrorString keeps
+			// the historical "return code not 2XX" wording for existing callers.
+			b, _ := io.ReadAll(resp.Body)
+			return requestError{
+				StatusCode:  resp.StatusCode,
+				ClientError: unmarshalClientError(b),
+				ErrorString: fmt.Sprintf("return code not 2XX: %s", resp.Status),
+			}
 		}
 
 		b, err := io.ReadAll(resp.Body)
@@ -2195,45 +2366,52 @@ func (c *client) GetFailedActionRunsByHeadBranch(org, repo, branchName, headSHA 
 	durationLogger := c.log("GetJobsByHeadBranch", org, repo)
 	defer durationLogger()
 
-	var runs WorkflowRuns
-
-	u := url.URL{
-		Path: fmt.Sprintf("/repos/%s/%s/actions/runs", org, repo),
-	}
-	query := u.Query()
-	// Filter for the specific head SHA
-	query.Add("head_sha", headSHA)
-	// setting the OR condition to get both PR and PR target workflows, as well
-	// as workflows called via another workflow using workflow_call (matrix workflows)
-	query.Add("event", "pull_request OR pull_request_target OR workflow_call")
-	query.Add("branch", branchName)
-	u.RawQuery = query.Encode()
-
-	_, err := c.request(&request{
-		accept:    "application/vnd.github.v3+json",
-		method:    http.MethodGet,
-		path:      u.String(),
-		org:       org,
-		exitCodes: []int{200},
-	}, &runs)
+	runs, err := c.listWorkflowRuns(org, repo, url.Values{
+		"per_page": []string{"100"},
+		"head_sha": []string{headSHA},
+		"branch":   []string{branchName},
+	})
 
 	prRuns := []WorkflowRun{}
 
-	// We only want to get failed workflows.
-	// Note: The query parameter "status" is overloaded and used for both status and conclusion.
-	// See https://docs.github.com/en/rest/actions/workflow-runs?apiVersion=2022-11-28#list-workflow-runs-for-a-workflow
-	// This makes it hard to use directly. Instead, we loop through the runs and check them individually.
-	// A successful workflow will have status "completed" and conclusion "success".
-	// A skipped workflow will have status "completed" and conclusion "skipped".
-	// A failed workflow also have status "completed", but the conclusion can be either "failure" or "cancelled".
-	// We only want completed jobs that are not skipped and not successful.
-	for _, run := range runs.WorkflowRuns {
-		if run.Status == "completed" && !slices.Contains(passedWorkflowRunConclusions, run.Conclusion) {
+	// The query parameter "status" matches the status and the conclusion of a
+	// run, and it takes only one value, so the client filters the runs.
+	// See https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository
+	for _, run := range runs {
+		if !slices.Contains(pullRequestWorkflowRunEvents, run.Event) {
+			continue
+		}
+		if run.Status == "completed" && slices.Contains(retestableWorkflowRunConclusions, run.Conclusion) {
 			prRuns = append(prRuns, run)
 		}
 	}
 
 	return prRuns, err
+}
+
+// listWorkflowRuns reads all the pages of the workflow runs that agree with
+// the query.
+//
+// The GitHub API matches the "event" query parameter as an exact string, and
+// it has no syntax for more than one value. Thus the caller must filter the
+// events on the client.
+//
+// See https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository
+func (c *client) listWorkflowRuns(org, repo string, values url.Values) ([]WorkflowRun, error) {
+	var runs []WorkflowRun
+	err := c.readPaginatedResultsWithValues(
+		fmt.Sprintf("/repos/%s/%s/actions/runs", org, repo),
+		values,
+		"application/vnd.github.v3+json",
+		org,
+		func() interface{} {
+			return &WorkflowRuns{}
+		},
+		func(obj interface{}) {
+			runs = append(runs, obj.(*WorkflowRuns).WorkflowRuns...)
+		},
+	)
+	return runs, err
 }
 
 // TriggerGitHubWorkflow will rerun a workflow
@@ -2275,30 +2453,23 @@ func (c *client) GetPendingApprovalActionRuns(org, repo, branchName, headSHA str
 	durationLogger := c.log("GetPendingApprovalActionRuns", org, repo)
 	defer durationLogger()
 
-	var runs WorkflowRuns
+	// The "status" parameter is overloaded: the value "action_required" matches
+	// the conclusion of the run, not its status.
+	runs, err := c.listWorkflowRuns(org, repo, url.Values{
+		"per_page": []string{"100"},
+		"head_sha": []string{headSHA},
+		"branch":   []string{branchName},
+		"status":   []string{"action_required"},
+	})
 
-	u := url.URL{
-		Path: fmt.Sprintf("/repos/%s/%s/actions/runs", org, repo),
+	prRuns := []WorkflowRun{}
+	for _, run := range runs {
+		if slices.Contains(pullRequestWorkflowRunEvents, run.Event) {
+			prRuns = append(prRuns, run)
+		}
 	}
-	query := u.Query()
-	// Filter for the specific head SHA
-	query.Add("head_sha", headSHA)
-	// setting the OR condition to get both PR and PR target workflows
-	query.Add("event", "pull_request OR pull_request_target")
-	query.Add("branch", branchName)
-	// Filter for action_required status (workflows pending approval)
-	query.Add("status", "action_required")
-	u.RawQuery = query.Encode()
 
-	_, err := c.request(&request{
-		accept:    "application/vnd.github.v3+json",
-		method:    http.MethodGet,
-		path:      u.String(),
-		org:       org,
-		exitCodes: []int{200},
-	}, &runs)
-
-	return runs.WorkflowRuns, err
+	return prRuns, err
 }
 
 // ApproveGitHubWorkflowRun approves a pending workflow run
@@ -4349,46 +4520,17 @@ func (c *client) ListCollaborators(org, repo string) ([]User, error) {
 	return users, nil
 }
 
-// directCollaboratorsQuery defines the GraphQL query structure for fetching direct repository collaborators
-type directCollaboratorsQuery struct {
-	Repository struct {
-		Collaborators struct {
-			Edges []struct {
-				Permission githubql.String
-				Node       struct {
-					Login githubql.String
-				}
-			}
-			PageInfo struct {
-				HasNextPage githubql.Boolean
-				EndCursor   githubql.String
-			}
-		} `graphql:"collaborators(affiliation: DIRECT, first: $first, after: $after)"`
-	} `graphql:"repository(owner: $owner, name: $name)"`
-}
-
-// mapGraphQLPermissionToRepoLevel maps GraphQL permission strings to RepoPermissionLevel
-func mapGraphQLPermissionToRepoLevel(graphqlPerm string) RepoPermissionLevel {
-	switch graphqlPerm {
-	case "ADMIN":
-		return Admin
-	case "MAINTAIN":
-		return Maintain
-	case "WRITE":
-		return Write
-	case "TRIAGE":
-		return Triage
-	case "READ":
-		return Read
-	default:
-		return Read // Default fallback
-	}
-}
-
-// ListDirectCollaboratorsWithPermissions gets direct repository collaborators with their permissions using GraphQL.
-// This only returns users who were explicitly added as collaborators, not those with inherited org/team access.
+// ListDirectCollaboratorsWithPermissions gets direct repository collaborators with their permissions,
+// meaning users with an explicit repository-level grant rather than access inherited through org or
+// team membership. The REST reference for affiliation=direct is loose (it cannot distinguish an
+// org-level grant from a repository-level one in the response), so this direct-only behaviour was
+// confirmed empirically: affiliation=direct returned the same set as the GraphQL
+// collaborators(affiliation: DIRECT) connection on a repository with 280 collaborators.
 //
-// See GraphQL schema: repository.collaborators(affiliation: DIRECT)
+// It uses REST rather than that GraphQL connection because the GraphQL query has been observed to fail
+// with "Resource limits for this query exceeded" on repositories in large organizations.
+//
+// See https://docs.github.com/en/rest/collaborators/collaborators#list-repository-collaborators
 func (c *client) ListDirectCollaboratorsWithPermissions(org, repo string) (map[string]RepoPermissionLevel, error) {
 	durationLogger := c.log("ListDirectCollaboratorsWithPermissions", org, repo)
 	defer durationLogger()
@@ -4398,33 +4540,25 @@ func (c *client) ListDirectCollaboratorsWithPermissions(org, repo string) (map[s
 	}
 
 	result := make(map[string]RepoPermissionLevel)
-	vars := map[string]interface{}{
-		"owner": githubql.String(org),
-		"name":  githubql.String(repo),
-		"first": githubql.Int(100), // GitHub's max per page
-		"after": (*githubql.String)(nil),
+	path := fmt.Sprintf("/repos/%s/%s/collaborators", org, repo)
+	values := url.Values{"affiliation": []string{"direct"}, "per_page": []string{"100"}}
+	err := c.readPaginatedResultsWithValues(
+		path,
+		values,
+		"application/vnd.github+json",
+		org,
+		func() interface{} {
+			return &[]User{}
+		},
+		func(obj interface{}) {
+			for _, u := range *(obj.(*[]User)) {
+				result[u.Login] = LevelFromPermissions(u.Permissions)
+			}
+		},
+	)
+	if err != nil {
+		return nil, err
 	}
-
-	for {
-		var query directCollaboratorsQuery
-		if err := c.QueryWithGitHubAppsSupport(context.Background(), &query, vars, org); err != nil {
-			return nil, fmt.Errorf("GraphQL query failed: %w", err)
-		}
-
-		// Process this page of results
-		for _, edge := range query.Repository.Collaborators.Edges {
-			login := string(edge.Node.Login)
-			permission := mapGraphQLPermissionToRepoLevel(string(edge.Permission))
-			result[login] = permission
-		}
-
-		// Check if there are more pages
-		if !query.Repository.Collaborators.PageInfo.HasNextPage {
-			break
-		}
-		vars["after"] = query.Repository.Collaborators.PageInfo.EndCursor
-	}
-
 	return result, nil
 }
 
@@ -5503,4 +5637,134 @@ func (c *client) ListRepoInvitations(org, repo string) ([]CollaboratorRepoInvita
 		return nil, err
 	}
 	return ret, nil
+}
+
+// orgRolesResponse is the wrapper object returned by the list organization roles API.
+type orgRolesResponse struct {
+	TotalCount int                `json:"total_count"`
+	Roles      []OrganizationRole `json:"roles"`
+}
+
+// ListOrganizationRoles lists all organization roles
+//
+// https://docs.github.com/en/rest/orgs/organization-roles#list-organization-roles
+func (c *client) ListOrganizationRoles(org string) ([]OrganizationRole, error) {
+	c.log("ListOrganizationRoles", org)
+	if c.fake {
+		return nil, nil
+	}
+
+	path := fmt.Sprintf("/orgs/%s/organization-roles", org)
+	var roles []OrganizationRole
+	err := c.readPaginatedResults(
+		path,
+		acceptNone,
+		org,
+		func() interface{} {
+			return &orgRolesResponse{}
+		},
+		func(obj interface{}) {
+			roles = append(roles, obj.(*orgRolesResponse).Roles...)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return roles, nil
+}
+
+// AssignOrganizationRoleToTeam assigns an organization role to a team
+//
+// https://docs.github.com/en/rest/orgs/organization-roles#assign-an-organization-role-to-a-team
+func (c *client) AssignOrganizationRoleToTeam(org, teamSlug string, roleID int) error {
+	c.log("AssignOrganizationRoleToTeam", org, teamSlug, roleID)
+	_, err := c.request(&request{
+		method:    http.MethodPut,
+		path:      fmt.Sprintf("/orgs/%s/organization-roles/teams/%s/%d", org, teamSlug, roleID),
+		org:       org,
+		exitCodes: []int{204},
+	}, nil)
+	return err
+}
+
+// RemoveOrganizationRoleFromTeam removes an organization role from a team
+//
+// https://docs.github.com/en/rest/orgs/organization-roles#remove-an-organization-role-from-a-team
+func (c *client) RemoveOrganizationRoleFromTeam(org, teamSlug string, roleID int) error {
+	c.log("RemoveOrganizationRoleFromTeam", org, teamSlug, roleID)
+	_, err := c.request(&request{
+		method:    http.MethodDelete,
+		path:      fmt.Sprintf("/orgs/%s/organization-roles/teams/%s/%d", org, teamSlug, roleID),
+		org:       org,
+		exitCodes: []int{204},
+	}, nil)
+	return err
+}
+
+// AssignOrganizationRoleToUser assigns an organization role to a user
+//
+// https://docs.github.com/en/rest/orgs/organization-roles#assign-an-organization-role-to-a-user
+func (c *client) AssignOrganizationRoleToUser(org, user string, roleID int) error {
+	c.log("AssignOrganizationRoleToUser", org, user, roleID)
+	_, err := c.request(&request{
+		method:    http.MethodPut,
+		path:      fmt.Sprintf("/orgs/%s/organization-roles/users/%s/%d", org, user, roleID),
+		org:       org,
+		exitCodes: []int{204},
+	}, nil)
+	return err
+}
+
+// RemoveOrganizationRoleFromUser removes an organization role from a user
+//
+// https://docs.github.com/en/rest/orgs/organization-roles#remove-an-organization-role-from-a-user
+func (c *client) RemoveOrganizationRoleFromUser(org, user string, roleID int) error {
+	c.log("RemoveOrganizationRoleFromUser", org, user, roleID)
+	_, err := c.request(&request{
+		method:    http.MethodDelete,
+		path:      fmt.Sprintf("/orgs/%s/organization-roles/users/%s/%d", org, user, roleID),
+		org:       org,
+		exitCodes: []int{204},
+	}, nil)
+	return err
+}
+
+// listRoleAssignments is a shared helper for listing teams or users assigned to a role.
+func (c *client) listRoleAssignments(org string, roleID int, entityType string) ([]OrganizationRoleAssignment, error) {
+	c.log("listRoleAssignments", org, roleID, entityType)
+	if c.fake {
+		return nil, nil
+	}
+
+	path := fmt.Sprintf("/orgs/%s/organization-roles/%d/%s", org, roleID, entityType)
+	var assignments []OrganizationRoleAssignment
+	err := c.readPaginatedResults(
+		path,
+		acceptNone,
+		org,
+		func() interface{} {
+			return &[]OrganizationRoleAssignment{}
+		},
+		func(obj interface{}) {
+			assignments = append(assignments, *(obj.(*[]OrganizationRoleAssignment))...)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return assignments, nil
+}
+
+// ListTeamsWithRole lists all teams assigned to a specific organization role
+//
+// https://docs.github.com/en/rest/orgs/organization-roles#list-teams-assigned-to-an-organization-role
+func (c *client) ListTeamsWithRole(org string, roleID int) ([]OrganizationRoleAssignment, error) {
+	return c.listRoleAssignments(org, roleID, "teams")
+}
+
+// ListUsersWithRole lists all users assigned to a specific organization role
+//
+// https://docs.github.com/en/rest/orgs/organization-roles#list-users-assigned-to-an-organization-role
+func (c *client) ListUsersWithRole(org string, roleID int) ([]OrganizationRoleAssignment, error) {
+	return c.listRoleAssignments(org, roleID, "users")
 }
