@@ -1,6 +1,4 @@
----
-description: Run a test instance of the ci-chat-bot
----
+# Local Test Instance Workflow
 
 You are helping the user run a test instance of the ci-chat-bot. Follow these steps:
 
@@ -13,7 +11,7 @@ You are helping the user run a test instance of the ci-chat-bot. Follow these st
 - The ngrok tunnel exposes your local bot instance to the internet - only use test/development Slack apps
 - Logs at `/tmp/ci-chat-bot/bot.log` may contain sensitive information
 - For production deployments, use proper secret management (Kubernetes secrets, vault, etc.) instead of environment variables
-- **Process management**: this workflow tracks the bot session and ngrok process via PID files (`/tmp/ci-chat-bot/bot.pid`, `/tmp/ci-chat-bot/ngrok.pid`). The bot runs in its own session/process group so `make run` and its child processes can be stopped together. **Never** use broad-match kill commands (`pkill -f <generic substring>`, `killall`, `pkill node`, `pkill go`, `pkill ngrok`, etc.) in this workflow — a broad pattern can match unrelated processes, including the Claude Code CLI's own process tree, and kill it.
+- **Process management**: this workflow tracks the bot session and ngrok process via PID files (`/tmp/ci-chat-bot/bot.pid`, `/tmp/ci-chat-bot/ngrok.pid`). The bot runs in its own session/process group so `make run` and its child processes can be stopped together. **Never** use broad-match kill commands (`pkill -f <generic substring>`, `killall`, `pkill node`, `pkill go`, `pkill ngrok`, etc.) in this workflow — a broad pattern can match unrelated processes, including the coding agent's own process tree, and kill it.
 
 0. **Prepare the working directory**: Set a restrictive umask before creating any files and ensure the directory is owned by you with owner-only permissions, even if it already exists:
    ```bash
@@ -284,7 +282,7 @@ fi
      - Verify BigQuery audit logs are still being created
      - Confirm IAM policy remains unchanged in GCP Console
      - If testing credentials command, use: `credentials openshift gcp "test message"`
-   - **Process management**: the bot session and ngrok are tracked via `/tmp/ci-chat-bot/bot.pid` and `/tmp/ci-chat-bot/ngrok.pid`. Before stopping the bot, verify its recorded ID matches both the process-group ID and session ID and that a bot launch command is in that session; signal only that process group. Verify ngrok's PID separately. Never use broad-match kill commands (`pkill -f <generic substring>`, `killall`, `pkill node`/`pkill go`/`pkill ngrok`) — they can match unrelated processes, including the Claude Code CLI's own process.
+   - **Process management**: the bot session and ngrok are tracked via `/tmp/ci-chat-bot/bot.pid` and `/tmp/ci-chat-bot/ngrok.pid`. Before stopping the bot, verify its recorded ID matches both the process-group ID and session ID and that a bot launch command is in that session; signal only that process group. Verify ngrok's PID separately. Never use broad-match kill commands (`pkill -f <generic substring>`, `killall`, `pkill node`/`pkill go`/`pkill ngrok`) — they can match unrelated processes, including the coding agent's own process.
 
 ## Creating an Environment File Template
 

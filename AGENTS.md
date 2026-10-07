@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 ## Project Overview
 
@@ -337,7 +337,7 @@ This ensures that:
 - **Release Repository**: https://github.com/openshift/release
 - **CI Documentation**: https://docs.ci.openshift.org/
 
-## Notes for Claude
+## Notes for Coding Agents
 
 - This is a production service used by OpenShift developers
 - Changes should be thoroughly tested before deployment
@@ -348,9 +348,9 @@ This ensures that:
 
 ### Build Tag: `-tags gcs`
 
-This repo requires the `-tags gcs` build flag. The vendored `cyborg-data` package gates GCS client code behind this tag. Both the Makefile and `.claude/settings.json` (via `GOFLAGS`) handle this automatically, so `make` commands and direct `go` commands within Claude Code work without any extra flags.
+This repo requires the `-tags gcs` build flag. The vendored `cyborg-data` package gates GCS client code behind this tag. The Makefile sets this flag. Direct Go commands inherit `GOFLAGS=-tags=gcs` from `.codex/config.toml` (`shell_environment_policy.set`) in Codex or `.claude/settings.json` (`env`) in Claude Code. If the project config is not loaded, set `GOFLAGS=-tags=gcs` explicitly for direct `go` commands.
 
-### Testing and Verification Guidelines for Claude
+### Testing and Verification Guidelines for Coding Agents
 
 **When to run verification commands:**
 
@@ -383,3 +383,11 @@ After running verification commands, inform the user of the results:
 - ✅ "All verification checks passed: verify, lint, test, and build successful"
 - ⚠️ "Verification passed with warnings: [describe warnings]"
 - ❌ "Verification failed: [describe failures and fixes needed]"
+
+## Communication
+
+Keep responses concise.
+
+## Local Test Instance
+
+Use the `run-test` skill (`$run-test` in Codex or `/run-test` in Claude Code) when asked to launch, relaunch, or stop a local test instance of ci-chat-bot with ngrok. Read `.agents/skills/run-test/SKILL.md` for the workflow.

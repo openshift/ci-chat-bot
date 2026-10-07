@@ -1,0 +1,5 @@
+# Migrated from .claude/settings.json.
+personality = "friendly"
+
+[shell_environment_policy.set]
+GOFLAGS = "-tags=gcs"
