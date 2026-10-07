@@ -101,17 +101,23 @@ You are helping the user run a test instance of the ci-chat-bot. Follow these st
 6. **Verify the Bot is Running**:
    - **Check the whole session, not just the wrapper PID.** The session leader (`make run`) can exit while the bot child remains alive. Validate the recorded ID, then check for non-zombie processes with both the recorded process-group ID and session ID:
      ```bash
-     BOT_SESSION=$(cat /tmp/ci-chat-bot/bot.pid)
-     if [[ ! "$BOT_SESSION" =~ ^[1-9][0-9]*$ ]]; then
-       echo "Invalid bot session ID; inspect manually before proceeding."
-       exit 1
+     BOT_SESSION=
+     BOT_SESSION_LIVE=false
+     if [ -f /tmp/ci-chat-bot/bot.pid ]; then
+       BOT_SESSION=$(cat /tmp/ci-chat-bot/bot.pid)
+       if [[ ! "$BOT_SESSION" =~ ^[1-9][0-9]*$ ]]; then
+         echo "Invalid bot session ID; inspect manually before proceeding."
+         exit 1
+       fi
+       if ps -eo pgid=,sid=,stat= | awk -v sid="$BOT_SESSION" '
+         $1 == sid && $2 == sid && $3 !~ /^Z/ { found=1 }
+         END { exit !found }
+       '; then
+         BOT_SESSION_LIVE=true
+       fi
      fi
-     ps -eo pgid=,sid=,stat= | awk -v sid="$BOT_SESSION" '
-       $1 == sid && $2 == sid && $3 !~ /^Z/ { found=1 }
-       END { exit !found }
-     '
      ```
-     Exit status 0 means the session is still live, even if `ps -p "$BOT_SESSION"` finds no process. Inspect session members using `ps -eo pid=,pgid=,sid=,stat=,comm=`; avoid printing credential-bearing command lines.
+     `BOT_SESSION_LIVE=true` means the session is still live, even if `ps -p "$BOT_SESSION"` finds no process. A missing `bot.pid` leaves `BOT_SESSION` empty and `BOT_SESSION_LIVE=false`; continue to the listener checks in step 3. An existing PID file with an invalid ID stops the workflow. Inspect session members using `ps -eo pid=,pgid=,sid=,stat=,comm=`; avoid printing credential-bearing command lines.
    - **Allow initialization to finish.** Secret extraction, building, organizational data loading, and cache synchronization can delay the port 8080 listener. `Waiting for caches to sync` indicates initialization, not failure. Poll session liveness and HTTP readiness every 5 seconds for up to 120 seconds, using tool waits of at most 30 seconds so progress can be reported. A refused connection during this period does not justify a retry.
    - Check `curl --max-time 5 -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/` and confirm that the listener belongs to the bot in the recorded session. Port 8081 is the health listener and can appear before port 8080; its presence alone does not mean Slack serving is ready. Metrics use port 9090 by default.
    - If the deadline expires while the session is live, report that initialization is still pending and inspect recent sanitized logs. Do not declare the process dead or launch a duplicate. If no live session members remain, inspect the logs and identify the exit cause before retrying. An `address already in use` error requires checking port ownership and resolving the conflict through the narrow relaunch procedure, rather than starting another instance.
