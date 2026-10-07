@@ -10,4 +10,4 @@ Invoke as `$run-test` in Codex or `/run-test` in Claude Code, or use when the us
 
 Before taking action, read [the workflow](references/workflow.md) with the file-reading tool and follow the section matching the user's requested action. Run shell commands from the repository root.
 
-The reference contains the credential setup, launch, readiness, relaunch, and shutdown procedures. Read it as a file; shell and awk parameters in its code examples must retain their literal syntax.
+The reference contains the environment-file setup, launch, readiness, relaunch, and shutdown procedures. Read it as a file; shell and awk parameters in its code examples must retain their literal syntax.

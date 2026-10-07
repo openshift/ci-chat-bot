@@ -4,10 +4,10 @@ You are helping the user run a test instance of the ci-chat-bot. Follow these st
 
 ## Security Warning
 
-**IMPORTANT - Security Notice**: This command will ask you to provide Slack credentials during setup.
+**IMPORTANT - Security Notice**: This command loads Slack credentials from an environment file during setup.
 
 - Do NOT share the chat transcript or logs containing these credentials with others
-- Credentials will be visible in process listings (`ps aux`) while the bot is running
+- Do not print environment-file contents or credential values
 - The ngrok tunnel exposes your local bot instance to the internet - only use test/development Slack apps
 - Logs at `/tmp/ci-chat-bot/bot.log` may contain sensitive information
 - For production deployments, use proper secret management (Kubernetes secrets, vault, etc.) instead of environment variables
@@ -24,11 +24,7 @@ You are helping the user run a test instance of the ci-chat-bot. Follow these st
    ```
    Use `umask 077` in every shell that creates workflow files. All logs and PID files for this workflow live under this one directory rather than scattered directly in `/tmp`.
 
-1. **Check Environment Variables**: First ask the user if they want to load environment variables from a file.
-
-   **Option A: Load from Environment File (Recommended)**
-
-   Ask the user for the path to their environment file (e.g., `.env`, `.env.local`, etc.).
+1. **Load from an Environment File**: Use an environment file for credentials and configuration. Ask the user for its path (e.g., `.env`, `.env.local`, etc.) unless they already provided it. If they do not have a file, use the environment-file template instructions below before continuing.
 
    The file should contain one variable per line in the format:
    ```bash
@@ -36,30 +32,13 @@ You are helping the user run a test instance of the ci-chat-bot. Follow these st
    BOT_SIGNING_SECRET=your-signing-secret
    GITHUB_TOKEN=ghp_your-github-token
    GCP_ACCESS_DRY_RUN=true
-   GCP_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
+   GCP_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
    ORG_DATA_BUCKET=your-org-data-bucket
    ```
 
-   If the user provides a file path:
    - Verify the file exists
-   - Load the environment variables using `source` or `export $(cat file | xargs)`
-   - Store the file path to use in step 5
-
-   **Option B: Manual Entry (if no env file)**
-
-   If they do NOT have an env file or prefer manual entry, ask the user to provide:
-   - `BOT_TOKEN`: Slack Bot Token (required) - starts with `xoxb-`
-   - `BOT_SIGNING_SECRET`: Slack App Signing Secret (required)
-   - `GITHUB_TOKEN`: GitHub token (optional but recommended)
-   - `GCP_ACCESS_DRY_RUN`: Set to `true` to enable dry-run mode for GCP credentials (optional)
-   - `GCP_SERVICE_ACCOUNT_JSON`: GCP service account JSON for credentials command (optional)
-   - `ORG_DATA_BUCKET`: GCS bucket for organizational data (optional)
-
-   Store these values to use in step 5. Tell the user where to find these values:
-   - Go to https://api.slack.com/apps
-   - Select their app
-   - **BOT_TOKEN**: OAuth & Permissions → Bot User OAuth Token
-   - **BOT_SIGNING_SECRET**: Basic Information → App Credentials → Signing Secret
+   - `BOT_TOKEN` and `BOT_SIGNING_SECRET` are required; the other variables above are optional
+   - Store the file path for the launch command in step 5, which sources the file and exports its variables
 
    **About GCP_ACCESS_DRY_RUN**:
    - When set to `true`, the bot will skip all IAM policy changes for the `credentials` command
@@ -72,8 +51,13 @@ You are helping the user run a test instance of the ci-chat-bot. Follow these st
    - Run `oc --context app.ci whoami` to verify access
    - If this fails, the user needs to authenticate to the OpenShift CI cluster first
 
-3. **Setup ngrok Tunnel**: Start ngrok to expose the bot to Slack:
-   - Run ngrok in the background, capturing its output and PID so it can be managed later:
+3. **Check Existing Processes and Set Up ngrok**:
+
+   Before any launch or retry, check the recorded bot session using the session liveness check in step 6 and listeners on ports 8080 (Slack HTTP), 8081 (health), 9090 (metrics), and 4040 (ngrok API): `ss -ltnp '( sport = :8080 or sport = :8081 or sport = :9090 or sport = :4040 )'`. If any of these ports is occupied by an unidentified process, investigate its owner before launching. Preserve the existing PID files and logs until the previous processes have been accounted for.
+
+   - Check `/tmp/ci-chat-bot/ngrok.pid`: validate that its PID is numeric and belongs to `ngrok http 8080`. Check `http://127.0.0.1:4040/api/tunnels` for the tunnel forwarding to local port 8080. Reuse a live tracked tunnel and its public URL, preserving `ngrok.pid` and `ngrok.log`. If the tracked process is live but the API is temporarily unavailable, inspect its logs and wait; do not start another tunnel. If a tunnel exists without valid tracking, investigate its ownership before proceeding.
+   - If the bot session is already live, reuse its tracked tunnel and skip steps 4 and 5; continue verifying it in step 6, or use the relaunch procedure below if a restart was requested. If its tunnel cannot be verified, stop and inspect the existing processes rather than starting another ngrok process or overwriting `ngrok.pid`.
+   - Only when no live bot session or tunnel remains and the previous processes have been accounted for, run ngrok in the background, capturing its output and PID so it can be managed later:
      ```bash
      ngrok http 8080 > /tmp/ci-chat-bot/ngrok.log 2>&1 &
      echo $! > /tmp/ci-chat-bot/ngrok.pid
@@ -91,34 +75,16 @@ You are helping the user run a test instance of the ci-chat-bot. Follow these st
 
 5. **Run the Full Setup**: Execute the complete setup with log redirection.
 
-   Before any launch or retry, check the recorded bot session and listeners on ports 8080 (Slack HTTP), 8081 (health), and 9090 (metrics): `ss -ltnp '( sport = :8080 or sport = :8081 or sport = :9090 )'`. If a bot session is still live, continue verifying it or use the relaunch procedure below; never start a second instance. If any of these ports is occupied by an unidentified process, investigate its owner before launching. Preserve the existing PID file and logs until the previous session has been accounted for.
+   Repeat the bot session and listener checks from step 3 immediately before launching or retrying; never start a second bot instance.
 
    In an agent tool environment, use a persistent managed command session if background processes do not reliably survive tool completion. Run the launch command below with `setsid --wait` and without the trailing `&`, and retain the tool's session handle. `--wait` keeps the launcher attached when `setsid` forks because it is a process-group leader. The tool handle is separate from the OS session ID in `bot.pid`. `nohup` alone does not guarantee survival when the tool runner cleans up processes. Use the same persistent-session approach for ngrok when needed, recording its actual process PID. A tool timeout or wrapper exit does not prove its child processes exited.
 
-   **If using an environment file (Option A from step 1):**
+   **Load the environment file from step 1:**
    ```bash
    setsid bash -c 'set -e; set -a; source "$1"; set +a; printf "%s\n" "$$" > "$2"; exec make run' _ \
      "/path/to/.env" /tmp/ci-chat-bot/bot.pid > /tmp/ci-chat-bot/bot.log 2>&1 &
    ```
    Replace `/path/to/.env` with the actual file path provided by the user.
-
-   **If using manual entry (Option B from step 1):**
-
-   Normal mode (with IAM changes):
-   ```bash
-   setsid env BOT_TOKEN='<token-from-step-1>' BOT_SIGNING_SECRET='<secret-from-step-1>' \
-     bash -c 'printf "%s\n" "$$" > "$1"; exec make run' _ /tmp/ci-chat-bot/bot.pid \
-     > /tmp/ci-chat-bot/bot.log 2>&1 &
-   ```
-
-   Dry-run mode (recommended for testing credentials command):
-   ```bash
-   setsid env GCP_ACCESS_DRY_RUN=true BOT_TOKEN='<token-from-step-1>' BOT_SIGNING_SECRET='<secret-from-step-1>' \
-     bash -c 'printf "%s\n" "$$" > "$1"; exec make run' _ /tmp/ci-chat-bot/bot.pid \
-     > /tmp/ci-chat-bot/bot.log 2>&1 &
-   ```
-
-   Use the actual values provided by the user in step 1.
 
    This will:
    - Extract kubeconfig files from the `ci-chat-bot-kubeconfigs` secret
@@ -299,7 +265,7 @@ GITHUB_TOKEN=ghp_your-github-token-here
 
 # Optional: GCP Credentials feature
 GCP_ACCESS_DRY_RUN=true
-GCP_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"your-project",...}
+GCP_SERVICE_ACCOUNT_JSON='{"type":"service_account","project_id":"your-project",...}'
 ORG_DATA_BUCKET=your-org-data-bucket
 
 # Add any other environment variables your bot needs
@@ -311,6 +277,11 @@ Tell the user to:
 2. Fill in their actual values
 3. Never commit `.env` to git (add it to `.gitignore`)
 4. Use `.env` when running the bot with the command from step 5
+
+The required Slack values are available at https://api.slack.com/apps after selecting the test app:
+
+- **BOT_TOKEN**: OAuth & Permissions → Bot User OAuth Token
+- **BOT_SIGNING_SECRET**: Basic Information → App Credentials → Signing Secret
 
 ## Testing the Credentials Command
 
