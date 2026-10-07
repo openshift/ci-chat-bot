@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -9,6 +10,153 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	prowapiv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 )
+
+func Test_childImageConfiguration(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name             string
+		image            citools.ProjectDirectoryImageBuildStepConfiguration
+		wantCapabilities []string
+	}{
+		{
+			name:  "additional architectures",
+			image: citools.ProjectDirectoryImageBuildStepConfiguration{AdditionalArchitectures: []string{"arm64", "ppc64le", "s390x"}},
+		},
+		{
+			name:  "multi arch",
+			image: citools.ProjectDirectoryImageBuildStepConfiguration{MultiArch: true},
+		},
+		{
+			name:  "architecture capabilities",
+			image: citools.ProjectDirectoryImageBuildStepConfiguration{Capabilities: []string{"amd64", "arm64", "ppc64le", "s390x"}},
+		},
+		{
+			name: "all architecture overrides",
+			image: citools.ProjectDirectoryImageBuildStepConfiguration{
+				AdditionalArchitectures: []string{"arm64", "ppc64le"},
+				MultiArch:               true,
+				Capabilities:            []string{"amd64", "s390x"},
+			},
+		},
+		{
+			name:             "mixed capabilities preserve order and duplicates",
+			image:            citools.ProjectDirectoryImageBuildStepConfiguration{Capabilities: []string{"privileged", "arm64", "network", "amd64", "privileged", "s390x", "ppc64le", "custom"}},
+			wantCapabilities: []string{"privileged", "network", "privileged", "custom"},
+		},
+		{
+			name: "all overrides with non architecture capabilities",
+			image: citools.ProjectDirectoryImageBuildStepConfiguration{
+				AdditionalArchitectures: []string{"arm64"},
+				MultiArch:               true,
+				Capabilities:            []string{"privileged", "ppc64le", "network"},
+			},
+			wantCapabilities: []string{"privileged", "network"},
+		},
+		{
+			name:             "non architecture capabilities only",
+			image:            citools.ProjectDirectoryImageBuildStepConfiguration{Capabilities: []string{"network", "privileged"}},
+			wantCapabilities: []string{"network", "privileged"},
+		},
+		{
+			name: "no overrides",
+		},
+		{
+			name: "empty overrides",
+			image: citools.ProjectDirectoryImageBuildStepConfiguration{
+				AdditionalArchitectures: []string{},
+				Capabilities:            []string{},
+			},
+		},
+	}
+	modes := []string{
+		JobTypeAroHcp, JobTypeBuild, JobTypeCatalog, JobTypeInstall, JobTypeLaunch,
+		JobTypeTest, JobTypeUpgrade, JobTypeWorkflowLaunch, JobTypeWorkflowTest,
+		JobTypeWorkflowUpgrade, JobTypeMCECustomImage,
+	}
+	for _, tc := range testCases {
+		for _, mode := range modes {
+			t.Run(tc.name+"/"+mode, func(t *testing.T) {
+				t.Parallel()
+				image := *tc.image.DeepCopy()
+				image.From = "base"
+				image.To = "child-image"
+				image.Ref = "org.repo"
+				image.Optional = true
+				image.ProjectDirectoryImageBuildInputs = citools.ProjectDirectoryImageBuildInputs{
+					ContextDir:     "component",
+					DockerfilePath: "Dockerfile.child",
+					Inputs:         map[string]citools.ImageBuildInputs{"src": {As: []string{"builder"}}},
+					BuildArgs:      []citools.BuildArg{{Name: "VERSION", Value: "test"}},
+				}
+				original := *image.DeepCopy()
+				want := *image.DeepCopy()
+				want.Optional = false
+				if mode == JobTypeAroHcp {
+					want.AdditionalArchitectures = nil
+					want.MultiArch = false
+					want.Capabilities = tc.wantCapabilities
+				}
+				got := childImageConfiguration(image, mode)
+				cmpOptions := cmp.AllowUnexported(citools.ProjectDirectoryImageBuildStepConfiguration{})
+				if diff := cmp.Diff(want, got, cmpOptions); diff != "" {
+					t.Errorf("child image differs (-want +got):\n%s", diff)
+				}
+				if diff := cmp.Diff(original, image, cmpOptions); diff != "" {
+					t.Errorf("input image was changed (-want +got):\n%s", diff)
+				}
+
+				config := citools.ReleaseBuildConfiguration{
+					Images: citools.ImageConfiguration{Items: []citools.ProjectDirectoryImageBuildStepConfiguration{got}},
+				}
+				data, err := json.MarshalIndent(config, "", "  ")
+				if err != nil {
+					t.Fatalf("serialize child config: %v", err)
+				}
+				var serialized struct {
+					Images struct {
+						Items []map[string]json.RawMessage `json:"items"`
+					} `json:"images"`
+				}
+				if err := json.Unmarshal(data, &serialized); err != nil {
+					t.Fatalf("read serialized child config: %v", err)
+				}
+				if len(serialized.Images.Items) != 1 {
+					t.Fatalf("serialized config has %d images, want 1", len(serialized.Images.Items))
+				}
+				fields := serialized.Images.Items[0]
+				if _, ok := fields["optional"]; ok {
+					t.Error("serialized child image contains optional")
+				}
+				if mode == JobTypeAroHcp {
+					for _, field := range []string{"additional_architectures", "multi_arch"} {
+						if _, ok := fields[field]; ok {
+							t.Errorf("serialized ARO-HCP child image contains %s", field)
+						}
+					}
+					if len(tc.wantCapabilities) == 0 {
+						if _, ok := fields["capabilities"]; ok {
+							t.Error("serialized ARO-HCP child image contains empty capabilities")
+						}
+					}
+				}
+				var roundTrip citools.ReleaseBuildConfiguration
+				if err := json.Unmarshal(data, &roundTrip); err != nil {
+					t.Fatalf("deserialize child config: %v", err)
+				}
+				// Empty slices are omitted by JSON and deserialize as nil.
+				if len(want.AdditionalArchitectures) == 0 {
+					want.AdditionalArchitectures = nil
+				}
+				if len(want.Capabilities) == 0 {
+					want.Capabilities = nil
+				}
+				if diff := cmp.Diff([]citools.ProjectDirectoryImageBuildStepConfiguration{want}, roundTrip.Images.Items, cmpOptions); diff != "" {
+					t.Errorf("serialized child images differ (-want +got):\n%s", diff)
+				}
+			})
+		}
+	}
+}
 
 func Test_processOperatorPR(t *testing.T) {
 	t.Parallel()

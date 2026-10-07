@@ -30,6 +30,7 @@ const (
 	HelpCategoryBuild  = "build"
 	HelpCategoryManage = "manage"
 	HelpCategoryMce    = "mce"
+	HelpCategoryAroHcp = "aro-hcp"
 )
 
 // HelpCategories defines the standard help categories (excluding MCE which is private)
@@ -39,6 +40,7 @@ var HelpCategories = []string{
 	HelpCategoryTest,
 	HelpCategoryBuild,
 	HelpCategoryManage,
+	HelpCategoryAroHcp,
 }
 
 func Handle(client *slack.Client, manager manager.JobManager, botCommands []parser.BotCommand, recorders ...chatmetrics.CommandRecorder) events.PartialHandler {
@@ -185,6 +187,11 @@ func GenerateHelpOverviewMessage(allowPrivate bool) string {
 	helpMessage += "• `rosa lookup <version>` - Find supported ROSA versions by prefix\n"
 	helpMessage += "• `rosa describe <cluster>` - Display details of ROSA cluster\n"
 
+	helpMessage += "\n*ARO-HCP Clusters:*\n"
+	helpMessage += "• `aro-hcp create <image_or_version_or_prs>` - Create an ARO-HCP managed service environment from a branch or pull requests\n"
+	helpMessage += "• `aro-hcp auth` - Re-send credentials for your running ARO-HCP environment\n"
+	helpMessage += "• `aro-hcp delete` - Tear down your running ARO-HCP environment\n"
+
 	helpMessage += "\n*Cluster Management:*\n"
 	helpMessage += "• `list` - See who is using all the clusters\n"
 	helpMessage += "• `done` - Terminate your running cluster\n"
@@ -219,6 +226,7 @@ func GenerateHelpOverviewMessage(allowPrivate bool) string {
 	helpMessage += "\n*Category Help:*\n"
 	helpMessage += "• `help launch` - Cluster launching\n"
 	helpMessage += "• `help rosa` - ROSA clusters\n"
+	helpMessage += "• `help aro-hcp` - ARO-HCP clusters\n"
 	helpMessage += "• `help test` - Testing & workflows\n"
 	helpMessage += "• `help build` - Build images\n"
 	helpMessage += "• `help manage` - Cluster management\n"
@@ -544,24 +552,8 @@ func HelpSpecific(client *slack.Client, event *slackevents.MessageEvent, categor
 		}
 	}
 
-	// Try to find a specific command for unknown categories
-	var relevantCommands []parser.BotCommand
-	var categoryTitle string
-
-	// Try to find a specific command
-	for _, cmd := range botCommands {
-		if cmd.IsPrivate() && !allowPrivate {
-			continue
-		}
-		tokens := cmd.Tokenize()
-		if len(tokens) > 0 && strings.ToLower(tokens[0].Word) == category {
-			relevantCommands = append(relevantCommands, cmd)
-			categoryTitle = fmt.Sprintf("Command: %s", tokens[0].Word)
-			break
-		}
-	}
-
-	if len(relevantCommands) == 0 {
+	helpMessage, found := generateSpecificCommandHelpMessage(category, botCommands, allowPrivate)
+	if !found {
 		suggestion := findCommandSuggestion(category, botCommands, allowPrivate)
 		helpMessage := fmt.Sprintf("❓ Unknown help topic: '%s'\n", category)
 		if suggestion != "" {
@@ -570,6 +562,7 @@ func HelpSpecific(client *slack.Client, event *slackevents.MessageEvent, categor
 		helpMessage += "Available help topics:\n"
 		helpMessage += "• `help launch` - Cluster launching\n"
 		helpMessage += "• `help rosa` - ROSA clusters\n"
+		helpMessage += "• `help aro-hcp` - ARO-HCP clusters\n"
 		helpMessage += "• `help test` - Testing commands\n"
 		helpMessage += "• `help build` - Build commands\n"
 		helpMessage += "• `help manage` - Management commands\n"
@@ -582,13 +575,35 @@ func HelpSpecific(client *slack.Client, event *slackevents.MessageEvent, categor
 		return
 	}
 
-	helpMessage := fmt.Sprintf("*%s*\n\n", categoryTitle)
+	if err := postResponse(client, event, helpMessage); err != nil {
+		klog.Errorf("failed to post specific help: %v", err)
+	}
+}
 
-	for _, command := range relevantCommands {
-		if command.IsPrivate() && !allowPrivate {
+func generateSpecificCommandHelpMessage(category string, botCommands []parser.BotCommand, allowPrivate bool) (string, bool) {
+	category = strings.ToLower(category)
+	var relevantCommands []parser.BotCommand
+	var categoryTitle string
+
+	for _, cmd := range botCommands {
+		if cmd.IsPrivate() && !allowPrivate {
 			continue
 		}
+		tokens := cmd.Tokenize()
+		if len(tokens) > 0 && strings.ToLower(tokens[0].Word) == category {
+			relevantCommands = append(relevantCommands, cmd)
+			if categoryTitle == "" {
+				categoryTitle = fmt.Sprintf("Command: %s", tokens[0].Word)
+			}
+		}
+	}
 
+	if len(relevantCommands) == 0 {
+		return "", false
+	}
+
+	helpMessage := fmt.Sprintf("*%s*\n\n", categoryTitle)
+	for _, command := range relevantCommands {
 		tokens := command.Tokenize()
 
 		// Command name
@@ -624,9 +639,7 @@ func HelpSpecific(client *slack.Client, event *slackevents.MessageEvent, categor
 		helpMessage = helpMessage[:SlackMessageTruncateLimit] + "...\n\n_Message truncated - try a more specific help topic_"
 	}
 
-	if err := postResponse(client, event, helpMessage); err != nil {
-		klog.Errorf("failed to post specific help: %v", err)
-	}
+	return helpMessage, true
 }
 
 func findCommandSuggestion(input string, botCommands []parser.BotCommand, allowPrivate bool) string {

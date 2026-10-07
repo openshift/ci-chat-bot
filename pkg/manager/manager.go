@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/mail"
 	"net/url"
 	"regexp"
 	"sort"
@@ -79,6 +80,10 @@ const (
 	// prevent saturating the infrastructure account.
 	maxTotalClusters = 80
 
+	// maxTotalAroHcpClusters limits the number of simultaneous ARO-HCP environments
+	// across all users.
+	maxTotalAroHcpClusters = 5
+
 	maxTotalMCEAWSClusters = 10 // AWS VPC capacity shared across MCE clusters
 	maxTotalMCEGCPClusters = 10
 	MaxMCEDuration         = time.Duration(8 * time.Hour)
@@ -96,7 +101,38 @@ const (
 	JobTypeWorkflowTest    = "workflow-test"
 	JobTypeWorkflowUpgrade = "workflow-upgrade"
 	JobTypeMCECustomImage  = "mce-custom-image"
+	JobTypeAroHcp          = "aro-hcp"
+
+	// ARO-HCP launch jobs configured in openshift/release.
+	AroHcpAzureProwJobName      = "release-openshift-origin-installer-launch-aro-hcp"
+	AroHcpHypershiftProwJobName = "release-openshift-origin-installer-launch-aro-hcp-hypershift"
+	AroHcpCombinedProwJobName   = "release-openshift-origin-installer-launch-aro-hcp-combined"
 )
+
+func isClusterLaunchMode(mode string) bool {
+	return mode == JobTypeLaunch || mode == JobTypeWorkflowLaunch || mode == JobTypeAroHcp
+}
+
+func isActiveAroHcpJob(job *Job) bool {
+	return job != nil && job.Mode == JobTypeAroHcp && !job.Complete && len(job.Failure) == 0
+}
+
+func checkAroHcpLimits(jobs map[string]*Job, user string) error {
+	activeAroHcpClusters := 0
+	for _, activeJob := range jobs {
+		if !isActiveAroHcpJob(activeJob) {
+			continue
+		}
+		if activeJob.RequestedBy == user {
+			return errors.New("you already have an active ARO-HCP environment")
+		}
+		activeAroHcpClusters++
+	}
+	if activeAroHcpClusters >= maxTotalAroHcpClusters {
+		return fmt.Errorf("the maximum number of active ARO-HCP environments (%d) has been reached; please try again later", maxTotalAroHcpClusters)
+	}
+	return nil
+}
 
 var CurrentRelease = semver.Version{
 	Major: 4,
@@ -766,6 +802,7 @@ func (m *jobManager) sync() error {
 			RequestedChannel: job.Annotations["ci-chat-bot.openshift.io/channel"],
 			RequestedAt:      job.CreationTimestamp.Time,
 			RequesterUserID:  job.Annotations["ci-chat-bot.openshift.io/requesterUserID"],
+			RequesterEmail:   job.Annotations["ci-chat-bot.openshift.io/requesterEmail"],
 			Architecture:     architecture,
 			BuildCluster:     buildCluster,
 			Operator: OperatorInfo{
@@ -891,8 +928,14 @@ func (m *jobManager) sync() error {
 		case prowapiv1.SchedulingState, prowapiv1.TriggeredState, prowapiv1.PendingState, "":
 			j.State = prowapiv1.PendingState
 			j.Failure = ""
+			if previous != nil && isClusterLaunchMode(j.Mode) && previous.Mode == j.Mode && !previous.Complete && len(previous.Credentials) > 0 && len(previous.Failure) == 0 {
+				j.Credentials = previous.Credentials
+				j.Credentials2 = previous.Credentials2
+				j.CredentialsSnippet = previous.CredentialsSnippet
+				j.StartDuration = previous.StartDuration
+			}
 
-			if j.Mode == JobTypeLaunch || j.Mode == JobTypeWorkflowLaunch {
+			if isClusterLaunchMode(j.Mode) {
 				if user := j.RequestedBy; len(user) > 0 {
 					// Check if the user has an existing request.  If they do, then move on
 					if _, ok := m.requests[user]; !ok {
@@ -932,6 +975,8 @@ func (m *jobManager) sync() error {
 								OriginalMessage: job.Annotations["ci-chat-bot.openshift.io/originalMessage"],
 
 								User:         user,
+								UserName:     job.Annotations["ci-chat-bot.openshift.io/requesterUserID"],
+								UserEmail:    job.Annotations["ci-chat-bot.openshift.io/requesterEmail"],
 								Name:         job.Name,
 								JobName:      job.Spec.Job,
 								Platform:     job.Annotations["ci-chat-bot.openshift.io/platform"],
@@ -1015,7 +1060,7 @@ func (m *jobManager) GetUserCluster(user string) *Job {
 	defer m.lock.RUnlock()
 
 	for _, job := range m.jobs {
-		if user == job.RequestedBy && (job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch) && (job.State != prowapiv1.SuccessState && !job.Complete) {
+		if user == job.RequestedBy && isClusterLaunchMode(job.Mode) && (job.State != prowapiv1.SuccessState && !job.Complete) {
 			return job
 		}
 	}
@@ -1031,7 +1076,7 @@ func (m *jobManager) ListJobs(user string, filters ListFilters) (string, string,
 	var totalJobs int
 	var runningClusters int
 	for _, job := range m.jobs {
-		if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
+		if isClusterLaunchMode(job.Mode) {
 			if !job.Complete {
 				runningClusters++
 			}
@@ -1087,6 +1132,8 @@ func (m *jobManager) ListJobs(user string, filters ListFilters) (string, string,
 			var imageOrVersion string
 			var inputParts []string
 			switch {
+			case job.Mode == JobTypeAroHcp:
+				// aro-hcp jobs: skip version, show branch refs instead
 			case len(jobInput.Version) > 0:
 				inputParts = append(inputParts, fmt.Sprintf("<https://%s.ocp.releases.ci.openshift.org/releasetag/%s|%s>", job.Architecture, url.PathEscape(jobInput.Version), jobInput.Version))
 			case len(jobInput.Image) > 0:
@@ -1095,6 +1142,9 @@ func (m *jobManager) ListJobs(user string, filters ListFilters) (string, string,
 			for _, ref := range jobInput.Refs {
 				for _, pull := range ref.Pulls {
 					inputParts = append(inputParts, fmt.Sprintf(" <https://github.com/%s/%s/pull/%d|%s/%s#%d>", url.PathEscape(ref.Org), url.PathEscape(ref.Repo), pull.Number, ref.Org, ref.Repo, pull.Number))
+				}
+				if job.Mode == JobTypeAroHcp && len(ref.Pulls) == 0 && len(ref.BaseRef) > 0 {
+					inputParts = append(inputParts, fmt.Sprintf(" <https://github.com/%s/%s/tree/%s|%s/%s@%s>", url.PathEscape(ref.Org), url.PathEscape(ref.Repo), url.PathEscape(ref.BaseRef), ref.Org, ref.Repo, ref.BaseRef))
 				}
 			}
 			imageOrVersion = strings.Join(inputParts, ",")
@@ -1592,7 +1642,7 @@ func (m *jobManager) GetMceUserConfig() *MceConfig {
 }
 
 func (m *jobManager) LookupInputs(inputs []string, architecture string) (string, error) {
-	jobInputs, defaultedVersion, err := m.lookupInputs([][]string{inputs}, architecture)
+	jobInputs, defaultedVersion, err := m.lookupInputs([][]string{inputs}, architecture, false)
 	if err != nil {
 		return "", err
 	}
@@ -1619,7 +1669,7 @@ func (m *jobManager) LookupInputs(inputs []string, architecture string) (string,
 	return strings.Join(out, "\n"), nil
 }
 
-func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]JobInput, string, error) {
+func (m *jobManager) lookupInputs(inputs [][]string, architecture string, allowBranchRefs bool) ([]JobInput, string, error) {
 	// LookupInputs needs len(inputs) to match len(JobInputs), so we need to return the defaulted version for it
 	defaultedVersion := ""
 	// default lookups to "nightly"
@@ -1645,6 +1695,9 @@ func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]Job
 				var existing bool
 				for i, ref := range jobInput.Refs {
 					if ref.Org == pr.Org && ref.Repo == pr.Repo {
+						if ref.BaseRef != pr.BaseRef {
+							return nil, defaultedVersion, fmt.Errorf("pull request %s conflicts with existing base branch %s/%s@%s", part, ref.Org, ref.Repo, ref.BaseRef)
+						}
 						jobInput.Refs[i].Pulls = append(jobInput.Refs[i].Pulls, pr.Pulls...)
 						existing = true
 						break
@@ -1653,25 +1706,51 @@ func (m *jobManager) lookupInputs(inputs [][]string, architecture string) ([]Job
 				if !existing {
 					jobInput.Refs = append(jobInput.Refs, *pr)
 				}
-			} else {
-				// otherwise, resolve as a semantic version (as a tag on the release image stream) or as an image
-				image, version, runImage, err := m.ResolveImageOrVersion(part, "", architecture)
+				continue
+			} else if allowBranchRefs {
+				branchRef, err := m.ResolveAsBranch(part)
 				if err != nil {
 					return nil, defaultedVersion, err
 				}
-				if len(image) == 0 {
-					return nil, defaultedVersion, fmt.Errorf("unable to resolve %q to an image", part)
+				if branchRef != nil {
+					var existing bool
+					for i, ref := range jobInput.Refs {
+						if ref.Org == branchRef.Org && ref.Repo == branchRef.Repo {
+							if len(ref.Pulls) > 0 && ref.BaseRef != branchRef.BaseRef {
+								return nil, defaultedVersion, fmt.Errorf(
+									"branch reference %s conflicts with pull requests for %s/%s@%s",
+									branchRef.BaseRef, ref.Org, ref.Repo, ref.BaseRef,
+								)
+							}
+							branchRef.Pulls = ref.Pulls
+							jobInput.Refs[i] = *branchRef
+							existing = true
+							break
+						}
+					}
+					if !existing {
+						jobInput.Refs = append(jobInput.Refs, *branchRef)
+					}
+					continue
 				}
-				if len(jobInput.Image) > 0 {
-					return nil, defaultedVersion, fmt.Errorf("only one image or version may be specified in a list of installs")
-				}
-				if architecture == "arm64" && (len(runImage) == 0 || len(version) == 0) && !strings.Contains(image, "konflux") {
-					return nil, defaultedVersion, fmt.Errorf("only version numbers (like: 4.19.0) may be used for arm64 based clusters")
-				}
-				jobInput.Image = image
-				jobInput.Version = version
-				jobInput.RunImage = runImage
 			}
+			// otherwise, resolve as a semantic version (as a tag on the release image stream) or as an image
+			image, version, runImage, err := m.ResolveImageOrVersion(part, "", architecture)
+			if err != nil {
+				return nil, defaultedVersion, err
+			}
+			if len(image) == 0 {
+				return nil, defaultedVersion, fmt.Errorf("unable to resolve %q to an image", part)
+			}
+			if len(jobInput.Image) > 0 {
+				return nil, defaultedVersion, fmt.Errorf("only one image or version may be specified in a list of installs")
+			}
+			if architecture == "arm64" && (len(runImage) == 0 || len(version) == 0) && !strings.Contains(image, "konflux") {
+				return nil, defaultedVersion, fmt.Errorf("only version numbers (like: 4.19.0) may be used for arm64 based clusters")
+			}
+			jobInput.Image = image
+			jobInput.Version = version
+			jobInput.RunImage = runImage
 		}
 		if len(jobInput.Version) == 0 && len(jobInput.Refs) > 0 {
 			jobInput.Version = versionForRefs(&jobInput.Refs[0])
@@ -1748,10 +1827,47 @@ func (m *jobManager) ResolveAsPullRequest(spec string) (*prowapiv1.Refs, error) 
 	}, nil
 }
 
+func (m *jobManager) ResolveAsBranch(spec string) (*prowapiv1.Refs, error) {
+	if !strings.Contains(spec, "@") || strings.Contains(spec, "#") {
+		return nil, nil
+	}
+	parts := strings.SplitN(spec, "@", 2)
+	// Image digests contain a colon after @, which cannot occur in a Git branch name.
+	if strings.Contains(parts[1], ":") {
+		return nil, nil
+	}
+	locationParts := strings.Split(parts[0], "/")
+	if len(locationParts) != 2 || len(locationParts[0]) == 0 || len(locationParts[1]) == 0 {
+		return nil, fmt.Errorf("when specifying a branch reference, you must provide ORG/REPO@BRANCH")
+	}
+	branch := parts[1]
+	if len(branch) == 0 {
+		return nil, fmt.Errorf("when specifying a branch reference, you must provide ORG/REPO@BRANCH")
+	}
+
+	org := locationParts[0]
+	repo := locationParts[1]
+
+	baseRefSHA, err := m.githubClient.GetRef(url.PathEscape(org), url.PathEscape(repo), "heads/"+branch)
+	if err != nil {
+		return nil, fmt.Errorf("unable to lookup branch ref %s: %v", spec, err)
+	}
+
+	return &prowapiv1.Refs{
+		Org:     org,
+		Repo:    repo,
+		BaseRef: branch,
+		BaseSHA: baseRefSHA,
+	}, nil
+}
+
 func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 	user := req.User
 	if len(user) == 0 {
 		return nil, fmt.Errorf("must specify the name of the user who requested this cluster")
+	}
+	if req.Type == JobTypeAroHcp && !validRequesterEmail(req.UserEmail) {
+		return nil, fmt.Errorf("aro-hcp create requires a valid requester email")
 	}
 
 	if len(req.Type) == 0 {
@@ -1780,6 +1896,7 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 
 		RequestedBy:      user,
 		RequesterUserID:  req.UserName,
+		RequesterEmail:   req.UserEmail,
 		RequestedChannel: req.Channel,
 		RequestedAt:      req.RequestedAt,
 
@@ -1791,7 +1908,7 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 		ManagedClusterName: req.ManagedClusterName,
 	}
 
-	jobInputs, _, err := m.lookupInputs(req.Inputs, job.Architecture)
+	jobInputs, _, err := m.lookupInputs(req.Inputs, job.Architecture, req.Type == JobTypeAroHcp)
 	if err != nil {
 		return nil, err
 	}
@@ -1936,12 +2053,29 @@ func (m *jobManager) resolveToJob(req *JobRequest) (*Job, error) {
 			return nil, fmt.Errorf("launching a cluster requires one image, version, or pull request")
 		}
 		job.Mode = JobTypeWorkflowTest
+	case JobTypeAroHcp:
+		var refs int
+		for _, input := range jobInputs {
+			refs += len(input.Refs)
+		}
+		if refs == 0 {
+			return nil, fmt.Errorf("at least one pull request or branch reference is required for aro-hcp create")
+		}
+		if len(jobInputs) != 1 {
+			return nil, fmt.Errorf("aro-hcp create requires one image, version, or pull request group")
+		}
+		job.Mode = JobTypeAroHcp
 	default:
 		return nil, fmt.Errorf("unexpected job type: %q", req.Type)
 	}
 	job.Inputs = jobInputs
 
 	return job, nil
+}
+
+func validRequesterEmail(email string) bool {
+	address, err := mail.ParseAddress(email)
+	return err == nil && address.Address == email
 }
 
 func multistageParamsForPlatform(platform string) sets.Set[string] {
@@ -1955,7 +2089,7 @@ func multistageParamsForPlatform(platform string) sets.Set[string] {
 }
 
 func multistageNameFromParams(params map[string]string, platform, jobType string) (string, error) {
-	if jobType == JobTypeWorkflowLaunch || jobType == JobTypeBuild || jobType == JobTypeCatalog || jobType == JobTypeMCECustomImage {
+	if jobType == JobTypeWorkflowLaunch || jobType == JobTypeBuild || jobType == JobTypeCatalog || jobType == JobTypeMCECustomImage || jobType == JobTypeAroHcp {
 		return "launch", nil
 	}
 	if jobType == JobTypeWorkflowUpgrade {
@@ -1993,7 +2127,7 @@ func multistageNameFromParams(params map[string]string, platform, jobType string
 }
 
 func configContainsVariant(params map[string]string, platform, unresolvedConfig, jobType string) (bool, string, error) {
-	if jobType == JobTypeWorkflowLaunch {
+	if jobType == JobTypeWorkflowLaunch || jobType == JobTypeAroHcp {
 		return true, "launch", nil
 	}
 	if jobType == JobTypeWorkflowTest {
@@ -2164,6 +2298,32 @@ func containsValidVersion(listOfImageOrVersionOrPRs []string) bool {
 	return false
 }
 
+func aroHcpJobNameFromInputs(inputs []JobInput) (string, error) {
+	var azure, hypershift bool
+	for _, input := range inputs {
+		for _, ref := range input.Refs {
+			org := strings.ToLower(ref.Org)
+			repo := strings.ToLower(ref.Repo)
+			if org == "azure" && repo == "aro-hcp" {
+				azure = true
+			}
+			if org == "openshift" && repo == "hypershift" {
+				hypershift = true
+			}
+		}
+	}
+	if azure && hypershift {
+		return AroHcpCombinedProwJobName, nil
+	}
+	if azure {
+		return AroHcpAzureProwJobName, nil
+	}
+	if hypershift {
+		return AroHcpHypershiftProwJobName, nil
+	}
+	return "", fmt.Errorf("input must reference Azure/ARO-HCP or openshift/hypershift")
+}
+
 func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	if cluster, _ := m.getROSAClusterForUser(req.User); cluster != nil {
 		return "", fmt.Errorf("you have already requested a cluster via the `rosa create` command; %d minutes have elapsed", int(time.Since(cluster.CreationTimestamp())/time.Minute))
@@ -2173,9 +2333,11 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	if len(req.Inputs) == 0 {
 		return "", fmt.Errorf("the `image_or_version_or_prs` parameter must be specified")
 	}
-	for _, input := range req.Inputs {
-		if !containsValidVersion(input) {
-			return "", fmt.Errorf("each use of the `image_or_version_or_prs` parameter must specify a valid OpenShift version.\n\n`%s` has no valid OpenShift version", input)
+	if req.Type != JobTypeAroHcp {
+		for _, input := range req.Inputs {
+			if !containsValidVersion(input) {
+				return "", fmt.Errorf("each use of the `image_or_version_or_prs` parameter must specify a valid OpenShift version.\n\n`%s` has no valid OpenShift version", input)
+			}
 		}
 	}
 
@@ -2187,41 +2349,52 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 	// try to pick a job that matches the install version, if we can, otherwise use the first that
 	// matches us (we can do better)
 	var prowJob *prowapiv1.ProwJob
-	jobType := JobTypeLaunch
-	if req.Type == JobTypeWorkflowUpgrade {
-		jobType = JobTypeUpgrade
-	}
-	selector := labels.Set{"job-env": req.Platform, "job-type": jobType, "job-architecture": req.Architecture} // TODO: handle versioned variants better
-	if len(job.Inputs[0].Version) > 0 {
-		if v, err := semver.ParseTolerant(job.Inputs[0].Version); err == nil {
-			withRelease := labels.Merge(selector, labels.Set{"job-release": fmt.Sprintf("%d.%d", v.Major, v.Minor)})
-			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(withRelease))
+	if req.Type == JobTypeAroHcp {
+		jobName, err := aroHcpJobNameFromInputs(job.Inputs)
+		if err != nil {
+			return "", err
 		}
-	}
+		prowJob, err = prow.JobForConfig(m.prowConfigLoader, jobName)
+		if err != nil {
+			return "", fmt.Errorf("configuration error, unable to find prow job %s: %v", jobName, err)
+		}
+	} else {
+		jobType := JobTypeLaunch
+		if req.Type == JobTypeWorkflowUpgrade {
+			jobType = JobTypeUpgrade
+		}
+		selector := labels.Set{"job-env": req.Platform, "job-type": jobType, "job-architecture": req.Architecture} // TODO: handle versioned variants better
+		if len(job.Inputs[0].Version) > 0 {
+			if v, err := semver.ParseTolerant(job.Inputs[0].Version); err == nil {
+				withRelease := labels.Merge(selector, labels.Set{"job-release": fmt.Sprintf("%d.%d", v.Major, v.Minor)})
+				prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(withRelease))
+			}
+		}
 
-	if prowJob == nil {
-		architectureLabel := req.Architecture
-		// multiarch image launches use amd64 jobs
-		if architectureLabel == "multi" {
-			architectureLabel = "amd64"
-		}
-		selector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "modern", "job-architecture": architectureLabel} // these jobs will only contain configs using non-deprecated features
-		prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(selector))
-		if prowJob != nil {
-			if sourceEnv, _, ok := firstEnvVar(prowJob.Spec.PodSpec, "UNRESOLVED_CONFIG"); ok { // all multistage configs will be unresolved
-				configHasVariant, _, err := configContainsVariant(req.JobParams, req.Platform, sourceEnv.Value, job.Mode)
-				if err != nil {
-					return "", err
-				}
-				// if the config does not contain the wanted variant, reset prowjob to cause configuration error
-				if !configHasVariant {
-					prowJob = nil
+		if prowJob == nil {
+			architectureLabel := req.Architecture
+			// multiarch image launches use amd64 jobs
+			if architectureLabel == "multi" {
+				architectureLabel = "amd64"
+			}
+			selector := labels.Set{"job-env": req.Platform, "job-type": JobTypeLaunch, "config-type": "modern", "job-architecture": architectureLabel} // these jobs will only contain configs using non-deprecated features
+			prowJob, _ = prow.JobForLabels(m.prowConfigLoader, labels.SelectorFromSet(selector))
+			if prowJob != nil {
+				if sourceEnv, _, ok := firstEnvVar(prowJob.Spec.PodSpec, "UNRESOLVED_CONFIG"); ok { // all multistage configs will be unresolved
+					configHasVariant, _, err := configContainsVariant(req.JobParams, req.Platform, sourceEnv.Value, job.Mode)
+					if err != nil {
+						return "", err
+					}
+					// if the config does not contain the wanted variant, reset prowjob to cause configuration error
+					if !configHasVariant {
+						prowJob = nil
+					}
 				}
 			}
 		}
-	}
-	if prowJob == nil {
-		return "", fmt.Errorf("configuration error, unable to find prow job matching %s with parameters=%v", selector, paramsToString(job.JobParams))
+		if prowJob == nil {
+			return "", fmt.Errorf("configuration error, unable to find prow job matching %s with parameters=%v", selector, paramsToString(job.JobParams))
+		}
 	}
 	job.JobName = prowJob.Spec.Job
 	job.BuildCluster, err = m.schedule(prowJob)
@@ -2244,7 +2417,13 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		defer m.lock.Unlock()
 
 		user := req.User
-		if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
+		if isClusterLaunchMode(job.Mode) {
+			if job.Mode == JobTypeAroHcp {
+				if err := checkAroHcpLimits(m.jobs, user); err != nil {
+					return "", err
+				}
+			}
+
 			existing, ok := m.requests[user]
 			if ok {
 				if len(existing.Name) == 0 {
@@ -2270,7 +2449,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 
 			launchedClusters := 0
 			for _, job := range m.jobs {
-				if job != nil && (job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch) && !job.Complete && len(job.Failure) == 0 {
+				if job != nil && isClusterLaunchMode(job.Mode) && !job.Complete && len(job.Failure) == 0 {
 					launchedClusters++
 				}
 			}
@@ -2278,7 +2457,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 				klog.Infof("user %q is will have to wait", user)
 				var waitUntil time.Time
 				for _, c := range m.jobs {
-					if c == nil || (c.Mode != JobTypeLaunch && c.Mode != JobTypeWorkflowLaunch) {
+					if c == nil || !isClusterLaunchMode(c.Mode) {
 						continue
 					}
 					if waitUntil.Before(c.ExpiresAt) {
@@ -2294,7 +2473,7 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		} else {
 			running := 0
 			for _, job := range m.jobs {
-				if job != nil && job.Mode != JobTypeLaunch && job.Mode != JobTypeWorkflowLaunch && job.RequestedBy == user {
+				if job != nil && !isClusterLaunchMode(job.Mode) && job.RequestedBy == user {
 					running++
 				}
 			}
@@ -2348,7 +2527,11 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 		msg = fmt.Sprintf("%s\n\nNote: the `build` command creates release images; if you want to build an operator catalog to test the defined optional operators instead, use `catalog build`.\n\n", msg)
 	}
 
-	if job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch {
+	if isClusterLaunchMode(job.Mode) {
+		if job.Mode == JobTypeAroHcp {
+			msg = fmt.Sprintf("%sa <%s|ARO-HCP managed service environment is being created> - I'll send you the credentials when it is ready.", msg, prowJobUrl)
+			return "", errors.New(msg)
+		}
 		msg = fmt.Sprintf("%sa <%s|cluster is being created>", msg, prowJobUrl)
 		if job.Operator.Is {
 			msg = fmt.Sprintf("%s - On completion of the creation of the cluster, your optional operator will begin installation", msg)
@@ -2520,7 +2703,7 @@ func (m *jobManager) finishedJob(job Job) {
 	defer m.lock.Unlock()
 
 	// track the 10 most recent starts in sorted order
-	if (job.Mode == JobTypeLaunch || job.Mode == JobTypeWorkflowLaunch) && len(job.Credentials) > 0 && job.StartDuration > 0 {
+	if isClusterLaunchMode(job.Mode) && len(job.Credentials) > 0 && job.StartDuration > 0 {
 		m.recentStartEstimates = append(m.recentStartEstimates, job.StartDuration)
 		if len(m.recentStartEstimates) > 10 {
 			m.recentStartEstimates = m.recentStartEstimates[:10]

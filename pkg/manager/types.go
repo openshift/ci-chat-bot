@@ -268,6 +268,8 @@ type OrgDataService interface {
 	IsSlackUserInOrg(slackID string, orgName string) bool
 	// GetEmployeeByEmail retrieves an employee by their email address
 	GetEmployeeByEmail(email string) *orgdatacore.Employee
+	// GetUserMemberships retrieves all memberships for an employee by UID.
+	GetUserMemberships(uid string) []orgdatacore.MembershipInfo
 	// IsEmployeeInOrg checks if an employee (by UID) belongs to an organization
 	IsEmployeeInOrg(uid string, orgName string) bool
 }
@@ -362,8 +364,9 @@ type jobManager struct {
 type JobRequest struct {
 	OriginalMessage string
 
-	User     string
-	UserName string
+	User      string
+	UserName  string
+	UserEmail string
 
 	// Inputs is one or more list of inputs to build a release image. For each input there may be zero or one images or versions, and
 	// zero or more pull requests. If a base image or version is present, the PRs are built relative to that version. If no build
@@ -471,11 +474,13 @@ type Job struct {
 	Inputs []JobInput
 
 	Credentials        string
+	Credentials2       string
 	CredentialsSnippet string
 	Failure            string
 
 	RequestedBy      string
 	RequesterUserID  string
+	RequesterEmail   string
 	RequestedChannel string
 
 	RequestedAt   time.Time

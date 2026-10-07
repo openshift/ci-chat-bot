@@ -28,6 +28,10 @@ func process(updater *slack.Client, jobManager manager.JobManager) interactions.
 				modals.OverwriteView(updater, modals.ErrorView("getting launch job", err), callback, logger)
 				return
 			}
+			if job.Mode == manager.JobTypeAroHcp {
+				modals.OverwriteView(updater, modals.SubmissionView(title, "To retrieve both ARO-HCP kubeconfigs, type `aro-hcp auth` in the Messages tab."), callback, logger)
+				return
+			}
 			msg, kubeconfig := localslack.NotifyJob(updater, job, false)
 			submission := modals.SubmissionView(title, msg)
 			common.AppendKubeconfigBlock(&submission, kubeconfig, "KubeConfig File (to download the kubeconfig as a file, type `auth` in the Messages tab):")

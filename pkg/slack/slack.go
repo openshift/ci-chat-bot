@@ -43,6 +43,15 @@ func (b *Bot) JobResponder(s *slack.Client) func(manager.Job) {
 				klog.Infof("no credentials or failure, still pending")
 				return
 			}
+		case manager.JobTypeAroHcp:
+			if len(job.Credentials) == 0 && len(job.Failure) == 0 {
+				klog.Infof("no credentials or failure, still pending")
+				return
+			}
+			if _, _, err := NotifyAroHcp(s, &job, true); err != nil {
+				klog.Errorf("Failed to notify ARO-HCP job %s: %v", job.Name, err)
+			}
+			return
 		default:
 			if len(job.URL) == 0 && len(job.Failure) == 0 {
 				klog.Infof("no URL or failure, still pending")
@@ -223,6 +232,19 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 			Description: "List available versions for MCE clusters.",
 			Handler:     MceImageSets,
 		}, false),
+		parser.NewBotCommand("aro-hcp create <image_or_version_or_prs>", &parser.CommandDefinition{
+			Description: "Create an ARO-HCP managed service environment from a branch (Azure/ARO-HCP@main) or pull requests in Azure/ARO-HCP, openshift/hypershift, or both.",
+			Example:     "aro-hcp create Azure/ARO-HCP#123,openshift/hypershift#456",
+			Handler:     AroHcpCreate,
+		}, false),
+		parser.NewBotCommand("aro-hcp auth", &parser.CommandDefinition{
+			Description: "Re-send the service-cluster and management-cluster kubeconfigs for your running ARO-HCP managed service environment.",
+			Handler:     AroHcpAuth,
+		}, false),
+		parser.NewBotCommand("aro-hcp delete", &parser.CommandDefinition{
+			Description: "Teardown your running ARO-HCP managed service environment.",
+			Handler:     AroHcpDelete,
+		}, false),
 		parser.NewBotCommand("request <resource?> <justification?>", &parser.CommandDefinition{
 			Description:       "Request access to workspace. Access is granted for 7 days. Must be member of Hybrid Platforms organization.",
 			Example:           "request gcp-access \"Need to debug CI infrastructure issues\"",
@@ -358,6 +380,13 @@ func parseParameterValue(value string) string {
 func NotifyJob(client parser.SlackClient, job *manager.Job, postMessage bool) (string, string) {
 	var msg, kubeconfig string
 	switch job.Mode {
+	case manager.JobTypeAroHcp:
+		msg, kubeconfig, err := NotifyAroHcp(client, job, postMessage)
+		if err != nil {
+			klog.Errorf("Failed to notify ARO-HCP job %s: %v", job.Name, err)
+			return err.Error(), ""
+		}
+		return msg, kubeconfig
 	case manager.JobTypeLaunch, manager.JobTypeWorkflowLaunch:
 		switch {
 		case len(job.Failure) > 0 && len(job.URL) > 0:
@@ -529,6 +558,84 @@ func SendKubeConfig(client parser.SlackClient, channel, contents, comment, ident
 	}
 	klog.Infof("successfully uploaded file to %s", channel)
 	return summary.ID
+}
+
+func NotifyAroHcp(client parser.SlackClient, job *manager.Job, postMessage bool) (string, string, error) {
+	var msg string
+	switch {
+	case len(job.Failure) > 0 && len(job.URL) > 0:
+		msg = fmt.Sprintf("your ARO-HCP managed service environment failed to create: %s (<%s|logs>)", job.Failure, job.URL)
+		if postMessage {
+			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+			if err != nil {
+				klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+			}
+		}
+	case len(job.Failure) > 0:
+		msg = fmt.Sprintf("your ARO-HCP managed service environment failed to create: %s", job.Failure)
+		if postMessage {
+			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+			if err != nil {
+				klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+			}
+		}
+	case len(job.Credentials) == 0 && len(job.URL) > 0:
+		msg = fmt.Sprintf("ARO-HCP managed service environment is still being created (started %d minutes ago, <%s|logs>)", time.Since(job.RequestedAt)/time.Minute, job.URL)
+		if postMessage {
+			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+			if err != nil {
+				klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+			}
+		}
+	case len(job.Credentials) == 0:
+		msg = fmt.Sprintf("ARO-HCP managed service environment is still being created (started %d minutes ago)", time.Since(job.RequestedAt)/time.Minute)
+		if postMessage {
+			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+			if err != nil {
+				klog.Warningf("Failed to post the msg: %s\nto the channel: %s.", msg, job.RequestedChannel)
+			}
+		}
+	default:
+		msg = fmt.Sprintf(
+			"Your ARO-HCP managed service environment is ready, it will be torn down automatically in ~%d minutes.",
+			time.Until(job.ExpiresAt)/time.Minute,
+		)
+		if postMessage {
+			if _, _, err := SendAroHcpKubeconfigs(client, job.RequestedChannel, job.Credentials, job.Credentials2, job.RequestedAt.Format("2006-01-02-150405")); err != nil {
+				return "", "", err
+			}
+			_, _, err := client.PostMessage(job.RequestedChannel, slack.MsgOptionText(msg, false))
+			if err != nil {
+				return "", "", fmt.Errorf("unable to post ARO-HCP ready message: %w", err)
+			}
+		}
+	}
+	return msg, job.Credentials, nil
+}
+
+func SendAroHcpKubeconfigs(client parser.SlackClient, channel, svc, mgmt, identifier string) (string, string, error) {
+	params := slack.UploadFileParameters{
+		Content:  mgmt,
+		FileSize: len(mgmt),
+		Channel:  channel,
+		Filename: fmt.Sprintf("mgmt-kubeconfig-%s", identifier),
+	}
+	summary, err := client.UploadFile(params)
+	if err != nil {
+		return "", "", fmt.Errorf("unable to upload ARO-HCP management kubeconfig: %w", err)
+	}
+	params2 := slack.UploadFileParameters{
+		Content:  svc,
+		FileSize: len(svc),
+		Channel:  channel,
+		Filename: fmt.Sprintf("svc-kubeconfig-%s", identifier),
+	}
+	summary2, err := client.UploadFile(params2)
+	if err != nil {
+		return summary.ID, "", fmt.Errorf("unable to upload ARO-HCP service kubeconfig: %w", err)
+	}
+	klog.Infof("successfully uploaded ARO-HCP credentials to %s", channel)
+	return summary.ID, summary2.ID, nil
 }
 
 func SendGCPServiceAccountKey(client parser.SlackClient, channel, keyJSON, email string) error {

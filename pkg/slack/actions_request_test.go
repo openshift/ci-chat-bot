@@ -120,6 +120,7 @@ type mockOrgDataService struct {
 	getEmployeeBySlackIDFunc func(slackID string) *orgdatacore.Employee
 	isSlackUserInOrgFunc     func(slackID, orgName string) bool
 	getEmployeeByEmailFunc   func(email string) *orgdatacore.Employee
+	getUserMembershipsFunc   func(uid string) []orgdatacore.MembershipInfo
 	isEmployeeInOrgFunc      func(uid, orgName string) bool
 }
 
@@ -154,6 +155,13 @@ func (m *mockOrgDataService) IsSlackUserInOrg(slackID, orgName string) bool {
 func (m *mockOrgDataService) GetEmployeeByEmail(email string) *orgdatacore.Employee {
 	if m.getEmployeeByEmailFunc != nil {
 		return m.getEmployeeByEmailFunc(email)
+	}
+	return nil
+}
+
+func (m *mockOrgDataService) GetUserMemberships(uid string) []orgdatacore.MembershipInfo {
+	if m.getUserMembershipsFunc != nil {
+		return m.getUserMembershipsFunc(uid)
 	}
 	return nil
 }

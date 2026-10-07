@@ -2,12 +2,14 @@ package slack
 
 import (
 	"fmt"
+	"net/mail"
 	"slices"
 	"strings"
 	"time"
 
 	botversion "github.com/openshift/ci-chat-bot/pkg/version"
 
+	orgdatacore "github.com/openshift-eng/cyborg-data/go"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	chatmetrics "github.com/openshift/ci-chat-bot/pkg/metrics"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
@@ -748,6 +750,105 @@ func MceList(client parser.SlackClient, jobManager manager.JobManager, event *sl
 	}
 	list, _, _ := jobManager.ListManagedClusters(event.User)
 	return list
+}
+
+func AroHcpCreate(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	orgDataService := jobManager.GetOrgDataService()
+	if orgDataService == nil {
+		return "ARO-HCP creation is unavailable because organizational data is not available. Please try again later."
+	}
+
+	var profileEmail string
+	user, userErr := client.GetUserInfo(event.User)
+	if userErr == nil && user != nil {
+		profileEmail = user.Profile.Email
+	} else if userErr != nil {
+		klog.Warningf("Failed to get the User Info for ARO-HCP requester %s: %v", event.User, userErr)
+	}
+
+	employee := employeeForSlackUser(orgDataService, event.User, profileEmail)
+	if employee == nil || employee.UID == "" || !validEmail(employee.Email) {
+		return "Unable to determine a valid employee identity for ARO-HCP creation. Please ensure your Slack profile has an email configured."
+	}
+	if !hasAroHcpMembership(orgDataService.GetUserMemberships(employee.UID)) {
+		return "You are not authorized to create ARO-HCP environments. You must be a member of ARO or Continuous Release Tooling (CRT)."
+	}
+
+	from, err := ParseImageInput(properties.StringParam("image_or_version_or_prs", ""))
+	if err != nil {
+		return err.Error()
+	}
+	var inputs [][]string
+	if len(from) > 0 {
+		inputs = [][]string{from}
+	}
+
+	msg, err := jobManager.LaunchJobForUser(&manager.JobRequest{
+		OriginalMessage: event.Text,
+		User:            event.User,
+		UserName:        employee.UID,
+		UserEmail:       employee.Email,
+		Inputs:          inputs,
+		Type:            manager.JobTypeAroHcp,
+		Channel:         event.Channel,
+		Architecture:    "amd64",
+	})
+	if err != nil {
+		return err.Error()
+	}
+	return msg
+}
+
+const (
+	aroHcpOrganizationMembership = "ARO"
+	crtOrganizationMembership    = "Continuous Release Tooling (CRT)"
+)
+
+func hasAroHcpMembership(memberships []orgdatacore.MembershipInfo) bool {
+	for _, membership := range memberships {
+		if membership.Name == aroHcpOrganizationMembership || membership.Name == crtOrganizationMembership {
+			return true
+		}
+	}
+	return false
+}
+
+func validEmail(email string) bool {
+	address, err := mail.ParseAddress(email)
+	return err == nil && address.Address == email
+}
+
+func AroHcpAuth(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	job, err := jobManager.GetLaunchJob(event.User)
+	if err != nil {
+		return err.Error()
+	}
+	if job.Mode != manager.JobTypeAroHcp {
+		return "You don't have a running ARO-HCP managed service environment."
+	}
+	if len(job.Credentials) == 0 {
+		return "Your ARO-HCP managed service environment credentials are not ready yet."
+	}
+	job.RequestedChannel = event.Channel
+	if _, _, err := NotifyAroHcp(client, job, true); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+func AroHcpDelete(client parser.SlackClient, jobManager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
+	job, err := jobManager.GetLaunchJob(event.User)
+	if err != nil {
+		return err.Error()
+	}
+	if job.Mode != manager.JobTypeAroHcp {
+		return "You don't have a running ARO-HCP managed service environment."
+	}
+	msg, err := jobManager.TerminateJobForUser(event.User)
+	if err != nil {
+		return err.Error()
+	}
+	return msg
 }
 
 // isUserInOrg preserves the boolean authorization helper for callers that only

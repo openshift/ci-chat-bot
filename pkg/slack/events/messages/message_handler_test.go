@@ -275,6 +275,10 @@ func TestHelpOverview(t *testing.T) {
 		"Most Used Commands:",
 		"help launch",
 		"help rosa",
+		"aro-hcp create <image_or_version_or_prs>",
+		"aro-hcp auth",
+		"aro-hcp delete",
+		"help aro-hcp",
 		"All Commands:",
 		"Category Help:",
 		"Examples:",
@@ -300,6 +304,40 @@ func TestHelpOverviewWithPrivate(t *testing.T) {
 	// Should contain MCE when private
 	if !strings.Contains(message, "help mce") {
 		t.Errorf("Should contain MCE help for private user, got: %s", message)
+	}
+}
+
+func TestHelpSpecificCommandIncludesAllCommandsForCategory(t *testing.T) {
+	commands := []parser.BotCommand{
+		parser.NewBotCommand("aro-hcp create <image_or_version_or_prs>", &parser.CommandDefinition{
+			Description: "Create an ARO-HCP environment.",
+			Example:     "aro-hcp create Azure/ARO-HCP#123",
+		}, false),
+		parser.NewBotCommand("aro-hcp auth", &parser.CommandDefinition{
+			Description: "Re-send ARO-HCP credentials.",
+		}, false),
+		parser.NewBotCommand("aro-hcp delete", &parser.CommandDefinition{
+			Description: "Delete the ARO-HCP environment.",
+		}, false),
+	}
+
+	message, found := generateSpecificCommandHelpMessage(HelpCategoryAroHcp, commands, false)
+	if !found {
+		t.Fatal("expected ARO-HCP help to match configured commands")
+	}
+
+	for _, expected := range []string{
+		"Command: aro-hcp",
+		"*aro-hcp create *",
+		"Create an ARO-HCP environment.",
+		"*aro-hcp auth *",
+		"Re-send ARO-HCP credentials.",
+		"*aro-hcp delete *",
+		"Delete the ARO-HCP environment.",
+	} {
+		if !strings.Contains(message, expected) {
+			t.Errorf("expected ARO-HCP help to contain %q, got: %s", expected, message)
+		}
 	}
 }
 
