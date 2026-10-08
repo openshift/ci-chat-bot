@@ -5,8 +5,19 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/utils/ptr"
 	prowv1 "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 )
+
+// SecretsStoreCSIDriverEnabled reports whether generated jobs should source their
+// multi-stage credentials from Google Secret Manager via the Secrets Store CSI
+// driver. An absent stanza or an unset field both mean enabled.
+func (p *ProwgenOverrides) SecretsStoreCSIDriverEnabled() bool {
+	if p == nil {
+		return true
+	}
+	return ptr.Deref(p.EnableSecretsStoreCSIDriver, true)
+}
 
 // Default sets default values after loading but before validation
 func (config *ReleaseBuildConfiguration) Default() {
@@ -149,11 +160,11 @@ func (config *ReleaseBuildConfiguration) WithPresubmitFrom(source *ReleaseBuildC
 	// prowgen options that affect the generated pod spec. Configs assembled by the
 	// resolver's merge endpoint start from an empty base, and would otherwise lose the
 	// stanza entirely and be generated without GSM/CSI support.
-	if source.Prowgen != nil && source.Prowgen.EnableSecretsStoreCSIDriver {
+	if source.Prowgen != nil && source.Prowgen.EnableSecretsStoreCSIDriver != nil {
 		if result.Prowgen == nil {
 			result.Prowgen = &ProwgenOverrides{}
 		}
-		result.Prowgen.EnableSecretsStoreCSIDriver = true
+		result.Prowgen.EnableSecretsStoreCSIDriver = source.Prowgen.EnableSecretsStoreCSIDriver
 	}
 
 	for i := range source.Tests {

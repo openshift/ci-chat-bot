@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-
-	"github.com/openshift/ci-tools/pkg/api/utils"
 )
 
 // IsComplete returns an error if at least one of Org, Repo, Branch members is
@@ -137,22 +135,6 @@ func LogFieldsFor(metadata Metadata) logrus.Fields {
 		"branch":  metadata.Branch,
 		"variant": metadata.Variant,
 	}
-}
-
-func BuildCacheFor(metadata Metadata) ImageStreamTagReference {
-	tag := metadata.Branch
-	if metadata.Variant != "" {
-		tag = fmt.Sprintf("%s-%s", tag, metadata.Variant)
-	}
-	return ImageStreamTagReference{
-		Namespace: "build-cache",
-		Name:      fmt.Sprintf("%s-%s", metadata.Org, metadata.Repo),
-		Tag:       tag,
-	}
-}
-
-func ImageVersionLabel(fromTag PipelineImageStreamTagReference) string {
-	return utils.Trim63(fmt.Sprintf("io.openshift.ci.from.%s", fromTag))
 }
 
 var testPathRegex = regexp.MustCompile(`(?P<org>[^/]+)/(?P<repo>[^@]+)@(?P<branch>[^:]+):(?P<test>.+)`)
