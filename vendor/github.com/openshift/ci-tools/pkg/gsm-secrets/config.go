@@ -19,8 +19,7 @@ import (
 //
 // A collection additionally gets an updater service account, its SA secret, and
 // service-account-scoped viewer/updater bindings only if the group opted into one for it via
-// group.Target.UpdaterServiceAccounts. Group members are unaffected either way: the group
-// bindings already cover every collection the group owns.
+// group.Target.UpdaterServiceAccounts.
 //
 // Collections owned only by an "unclaimed" group (see group.Target.Unclaimed) get an index
 // secret and nothing else: no service account, no SA secret and no bindings, until they are
@@ -134,7 +133,7 @@ func GetDesiredState(configFile string, config Config) ([]ServiceAccountInfo, ma
 			Role:    config.GetSecretAccessorRole(),
 			Members: groupMembers,
 			Condition: &expr.Expr{
-				Expression: BuildSecretAccessorRoleConditionExpressionForCollections(collections),
+				Expression: BuildSecretAccessorRoleConditionExpressionForCollections(collections, collectionsWithSA),
 				Title:      GetSecretsViewerGroupConditionTitle(name),
 			},
 		})

@@ -10,6 +10,8 @@ import (
 
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"github.com/sirupsen/logrus"
+
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // The two roles need different templates because GCP checks their permissions on different
@@ -30,9 +32,11 @@ const (
 	updaterSecretNameTemplate = `resource.name.extract("secrets/{c}__")`
 )
 
-// BuildSecretAccessorRoleConditionExpression builds the IAM condition expression for secret accessor role
+// BuildSecretAccessorRoleConditionExpression builds the IAM condition expression for secret accessor role.
+// Only the service-account-scoped binding uses it, and that account exists precisely because the
+// collection has one, so the collection always counts as SA-enabled here.
 func BuildSecretAccessorRoleConditionExpression(collection string) string {
-	return BuildSecretAccessorRoleConditionExpressionForCollections([]string{collection})
+	return BuildSecretAccessorRoleConditionExpressionForCollections([]string{collection}, sets.New(collection))
 }
 
 // BuildSecretUpdaterRoleConditionExpression builds the IAM condition expression for secret updater role
@@ -40,16 +44,15 @@ func BuildSecretUpdaterRoleConditionExpression(collection string) string {
 	return BuildSecretUpdaterRoleConditionExpressionForCollections([]string{collection})
 }
 
-// BuildSecretAccessorRoleConditionExpressionForCollections builds the viewer IAM condition
-// expression covering multiple collections: each collection's updater service account secret
-// and its index secret, never its data secrets.
-func BuildSecretAccessorRoleConditionExpressionForCollections(collections []string) string {
+// BuildSecretAccessorRoleConditionExpressionForCollections builds the viewer IAM condition expression:
+// each collection's updater service account secret (if enabled) and its index secret, never its data secrets.
+func BuildSecretAccessorRoleConditionExpressionForCollections(collections []string, collectionsWithSA sets.Set[string]) string {
 	var names []string
 	for _, collection := range collections {
-		names = append(names,
-			fmt.Sprintf("%s%s", collection, UpdaterSASecretSuffix),
-			fmt.Sprintf("%s%s", collection, IndexSecretSuffix),
-		)
+		if collectionsWithSA.Has(collection) {
+			names = append(names, fmt.Sprintf("%s%s", collection, UpdaterSASecretSuffix))
+		}
+		names = append(names, fmt.Sprintf("%s%s", collection, IndexSecretSuffix))
 	}
 	return fmt.Sprintf("%s in [%s]", viewerSecretNameTemplate, quoteJoin(names))
 }

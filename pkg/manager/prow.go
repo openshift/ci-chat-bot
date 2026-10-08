@@ -811,8 +811,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 								Namespace: "$(NAMESPACE)",
 							},
 						},
-						RegistryOverride:  registryHost,
-						DisableBuildCache: true,
+						RegistryOverride: registryHost,
 					}
 					targetConfig.ReleaseTagConfiguration = nil
 					targetConfig.Releases = map[string]citools.UnresolvedRelease{
@@ -838,8 +837,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 								Namespace: "$(NAMESPACE)",
 							},
 						},
-						RegistryOverride:  registryHost,
-						DisableBuildCache: true,
+						RegistryOverride: registryHost,
 					}
 					targetConfig.Releases = map[string]citools.UnresolvedRelease{
 						"initial": {

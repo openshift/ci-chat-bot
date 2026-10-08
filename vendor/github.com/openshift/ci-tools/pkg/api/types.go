@@ -43,9 +43,13 @@ type SlackReporterConfig struct {
 }
 
 type ProwgenOverrides struct {
-	DisableRehearsals           bool `json:"disable_rehearsals,omitempty"`
-	SkipOperatorPresubmits      bool `json:"skip_operator_presubmits,omitempty"`
-	EnableSecretsStoreCSIDriver bool `json:"enable_secrets_store_csi_driver,omitempty"`
+	DisableRehearsals      bool `json:"disable_rehearsals,omitempty"`
+	SkipOperatorPresubmits bool `json:"skip_operator_presubmits,omitempty"`
+	// EnableSecretsStoreCSIDriver makes generated jobs source their multi-stage
+	// credentials from Google Secret Manager via the Secrets Store CSI driver. When
+	// unset it defaults to true; repositories still on the legacy Vault secret paths
+	// opt out by explicitly setting it to false.
+	EnableSecretsStoreCSIDriver *bool `json:"enable_secrets_store_csi_driver,omitempty"`
 	// Private indicates that generated jobs should be marked as hidden
 	// from display in deck and that they should mount appropriate git credentials
 	// to clone the repository under test.
@@ -514,18 +518,12 @@ type CIOperatorInrepoConfig struct {
 	BuildRootImage ImageStreamTagReference `json:"build_root_image"`
 }
 
-// BuildRootImageConfiguration holds the two ways of using a base image
-// that the pipeline will caches on.
+// BuildRootImageConfiguration defines the base image used to build source and artifacts.
 type BuildRootImageConfiguration struct {
 	ImageStreamTagReference *ImageStreamTagReference          `json:"image_stream_tag,omitempty"`
 	ProjectImageBuild       *ProjectDirectoryImageBuildInputs `json:"project_image,omitempty"`
 	// If the BuildRoot images pullspec should be read from a file in the repository (BuildRootImageFileName).
 	FromRepository bool `json:"from_repository,omitempty"`
-
-	// UseBuildCache enables the import and use of the prior `bin` image
-	// as a build cache, if the underlying build root has not changed since
-	// the previous cache was published.
-	UseBuildCache bool `json:"use_build_cache,omitempty"`
 }
 
 // ImageStreamTagReference identifies an ImageStreamTag
@@ -598,12 +596,6 @@ type PromotionConfiguration struct {
 	// should *not* be used in common test workflows. The CI chat
 	// bot uses this option to facilitate image sharing.
 	RegistryOverride string `json:"registry_override,omitempty"`
-
-	// DisableBuildCache stops us from uploading the build cache.
-	// This is useful (only) for CI chat bot invocations where
-	// promotion does not imply output artifacts are being created
-	// for posterity.
-	DisableBuildCache bool `json:"disable_build_cache,omitempty"`
 
 	// Cron generates promotion periodic alongside with promotion
 	// postsubmit
