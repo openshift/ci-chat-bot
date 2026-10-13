@@ -109,7 +109,7 @@ func MceAuth(client parser.SlackClient, jobManager manager.JobManager, event *sl
 	} else if len(nameInput) > 1 {
 		return "mce auth take only 0 or 1 argument (cluster name)"
 	}
-	managed, deployments, provisions, kubeconfigs, passwords := jobManager.GetManagedClustersForUser(event.User)
+	managed, deployments, kubeconfigs, passwords := jobManager.GetManagedClustersForUser(event.User)
 	if name == "" {
 		if len(managed) == 0 {
 			return "You have no running MCE clusters."
@@ -124,7 +124,7 @@ func MceAuth(client parser.SlackClient, jobManager manager.JobManager, event *sl
 	} else if _, ok := managed[name]; !ok {
 		return fmt.Sprintf("No cluster called `%s` for your user found", name)
 	}
-	NotifyMce(client, managed[name], deployments[name], provisions[name], kubeconfigs[name], passwords[name], true, nil)
+	NotifyMce(client, managed[name], deployments[name], jobManager.GetClusterProvisionForNotification(name), kubeconfigs[name], passwords[name], true, nil)
 	return ""
 }
 
@@ -715,7 +715,7 @@ func MceDelete(client parser.SlackClient, jobManager manager.JobManager, event *
 		return "mce delete take only 0 or 1 argument (cluster name)"
 	}
 	if name == "" {
-		managed, _, _, _, _ := jobManager.GetManagedClustersForUser(event.User)
+		managed, _, _, _ := jobManager.GetManagedClustersForUser(event.User)
 		if len(managed) == 1 {
 			// we need to get the key of the 1 cluster the user has
 			for clusterName := range managed {

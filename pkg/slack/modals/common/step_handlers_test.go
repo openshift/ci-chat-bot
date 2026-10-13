@@ -61,8 +61,11 @@ func (m *mockJobManager) CreateMceCluster(user, channel, platform string, from [
 func (m *mockJobManager) DeleteMceCluster(user, clusterName string) (string, error) {
 	return "", nil
 }
-func (m *mockJobManager) GetManagedClustersForUser(user string) (map[string]*clusterv1.ManagedCluster, map[string]*hivev1.ClusterDeployment, map[string]*hivev1.ClusterProvision, map[string]string, map[string]string) {
-	return nil, nil, nil, nil, nil
+func (m *mockJobManager) GetClusterProvisionForNotification(name string) *hivev1.ClusterProvision {
+	return nil
+}
+func (m *mockJobManager) GetManagedClustersForUser(user string) (map[string]*clusterv1.ManagedCluster, map[string]*hivev1.ClusterDeployment, map[string]string, map[string]string) {
+	return nil, nil, nil, nil
 }
 func (m *mockJobManager) ListManagedClusters(user string) (string, string, []string) {
 	return "", "", nil

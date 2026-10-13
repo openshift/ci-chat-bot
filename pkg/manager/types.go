@@ -322,6 +322,7 @@ type jobManager struct {
 	rosaClusterAdminUsername string
 	rosaSubnets              *RosaSubnets
 	rosaErrorReported        sets.Set[string]
+	rosaErrorReportedMu      sync.Mutex
 	rosaOidcConfigId         string
 	rosaBillingAccount       string
 
@@ -347,8 +348,21 @@ type jobManager struct {
 		clusterPasswords   map[string]string
 		imagesets          sets.Set[string]
 	}
-	mceNotifierFn MCECallbackFunc
-	mceConfig     MceConfig
+	// mceNotifierLock guards mceNotifierFn. It is a leaf lock, separate from
+	// lock, so that mceSync never blocks on lock.
+	mceNotifierLock sync.RWMutex
+	mceNotifierFn   MCECallbackFunc
+	mceConfig       MceConfig
+	// mceSyncLock serializes mceSync runs.
+	mceSyncLock sync.Mutex
+	// mceFailureNotifyAttempts counts failure notifications that have not been
+	// delivered yet, keyed by cluster. It is only accessed from mceSync, which
+	// mceSyncLock serializes.
+	mceFailureNotifyAttempts map[string]int
+	// mceReadyNotifyAttempts counts undelivered readiness notifications, keyed
+	// by cluster. Like mceFailureNotifyAttempts, it is only accessed from
+	// mceSync.
+	mceReadyNotifyAttempts map[string]int
 
 	// GCP access manager
 	gcpAccessManager *GCPAccessManager
@@ -416,7 +430,8 @@ type JobManager interface {
 
 	CreateMceCluster(user, channel, platform string, from [][]string, duration time.Duration) (string, error)
 	DeleteMceCluster(user, clusterName string) (string, error)
-	GetManagedClustersForUser(user string) (map[string]*clusterv1.ManagedCluster, map[string]*hivev1.ClusterDeployment, map[string]*hivev1.ClusterProvision, map[string]string, map[string]string)
+	GetClusterProvisionForNotification(name string) *hivev1.ClusterProvision
+	GetManagedClustersForUser(user string) (map[string]*clusterv1.ManagedCluster, map[string]*hivev1.ClusterDeployment, map[string]string, map[string]string)
 	ListManagedClusters(user string) (string, string, []string)
 	ListMceVersions() string
 	GetMceUserConfig() *MceConfig
@@ -439,9 +454,12 @@ type JobCallbackFunc func(Job)
 // way. Takes the cluster object and admin password.
 type RosaCallbackFunc func(*clustermgmtv1.Cluster, string)
 
-// RosaCallbackFunc is invoked when the rosa cluster changes state in a significant
-// way. Takes the ManagedCluster object, kubeconfig, and admin password.
-type MCECallbackFunc func(*clusterv1.ManagedCluster, *hivev1.ClusterDeployment, *hivev1.ClusterProvision, string, string, error)
+// MCECallbackFunc is invoked when the mce cluster changes state in a significant
+// way. Takes the ManagedCluster, ClusterDeployment, and ClusterProvision objects,
+// kubeconfig, admin password, and an optional error. It reports whether a
+// notification was actually delivered to the user, so callers persist
+// "already notified" markers only on success and arrange a retry otherwise.
+type MCECallbackFunc func(*clusterv1.ManagedCluster, *hivev1.ClusterDeployment, *hivev1.ClusterProvision, string, string, error) bool
 
 // JobInput defines the input to a job. Different modes need different inputs.
 type JobInput struct {

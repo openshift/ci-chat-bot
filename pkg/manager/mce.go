@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -29,6 +30,32 @@ import (
 )
 
 var MCEPlatforms = sets.New([]string{"aws", "gcp"}...)
+
+// errClusterMetadataNotReady is returned by getClusterAuth when the cluster
+// deployment exists but Hive has not yet populated its cluster metadata (and
+// with it the admin credential secret references). This is an expected
+// transient state while the cluster is provisioning, not an error.
+var errClusterMetadataNotReady = errors.New("cluster deployment has no cluster metadata yet")
+
+// GetClusterProvisionForNotification returns the provision for the named
+// cluster as notifications should present it: failed provisions are
+// re-fetched so the complete install log can be uploaded, while other stages
+// return the cached copy (which does not retain install logs). It returns nil
+// when no provision is cached for the cluster.
+func (m *jobManager) GetClusterProvisionForNotification(name string) *hivev1.ClusterProvision {
+	m.mceClusters.lock.RLock()
+	cached := m.mceClusters.provisions[name]
+	m.mceClusters.lock.RUnlock()
+	if cached == nil || cached.Spec.Stage != hivev1.ClusterProvisionStageFailed {
+		return cached
+	}
+	full := &hivev1.ClusterProvision{}
+	if err := m.dpcrHiveClient.Get(context.TODO(), client.ObjectKey{Namespace: cached.Namespace, Name: cached.Name}, full); err != nil {
+		klog.Errorf("Failed to get cluster provision %s/%s, using cached copy: %v", cached.Namespace, cached.Name, err)
+		return cached
+	}
+	return full
+}
 
 // mceClusterIsAWS reports whether the managed cluster runs on AWS. Hive ClusterDeployment may be
 // absent while a custom image build is in progress; ManagedCluster labels are set at creation.
@@ -393,7 +420,7 @@ func (m *jobManager) getClusterAuth(name string) (string, string, error) {
 		return "", "", err
 	}
 	if clusterDeployment.Spec.ClusterMetadata == nil {
-		return "", "", nil
+		return "", "", fmt.Errorf("%w: %s", errClusterMetadataNotReady, name)
 	}
 	secretsClient := m.dpcrCoreClient.Secrets(name)
 	kubeconfigSecret, err := secretsClient.Get(context.TODO(), clusterDeployment.Spec.ClusterMetadata.AdminKubeconfigSecretRef.Name, metav1.GetOptions{})

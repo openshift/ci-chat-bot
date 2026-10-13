@@ -26,7 +26,7 @@ func process(updater *slack.Client, jobManager manager.JobManager, httpclient *h
 	return interactions.HandlerFunc(identifier, func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		common.SafeGo(func() {
 			var name, msg, kubeconfig string
-			managed, deployments, provisions, kubeconfigs, passwords := jobManager.GetManagedClustersForUser(callback.User.ID)
+			managed, deployments, kubeconfigs, passwords := jobManager.GetManagedClustersForUser(callback.User.ID)
 			if len(managed) == 0 {
 				msg = "You have no running MCE clusters."
 			} else if len(managed) == 1 {
@@ -38,7 +38,7 @@ func process(updater *slack.Client, jobManager manager.JobManager, httpclient *h
 				msg = "You have multiple running clusters. Please specify the name of the cluster you are requesting credentials for."
 			}
 			if msg == "" {
-				msg, kubeconfig = localslack.NotifyMce(updater, managed[name], deployments[name], provisions[name], kubeconfigs[name], passwords[name], false, nil)
+				msg, kubeconfig, _ = localslack.NotifyMce(updater, managed[name], deployments[name], jobManager.GetClusterProvisionForNotification(name), kubeconfigs[name], passwords[name], false, nil)
 			}
 			submission := modals.SubmissionView(title, msg)
 			common.AppendKubeconfigBlock(&submission, kubeconfig, "KubeConfig File (to download the kubeconfig as a file, type `mce auth` in the Messages tab):")

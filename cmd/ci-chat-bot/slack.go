@@ -53,7 +53,13 @@ func Start(bot *slack.Bot, jobManager manager.JobManager, httpclient *http.Clien
 	mux.Handle("/readyz", handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))) // report ready once the server is up and responding
 	mux.Handle("/slack/events-endpoint", handler(handleEvent(bot.BotSigningSecret, eventrouter.ForEvents(slackclient, jobManager, bot.SupportedCommands(), commandRecorders...))))
 	mux.Handle("/slack/interactive-endpoint", handler(handleInteraction(bot.BotSigningSecret, interactionrouter.ForModals(slackclient, jobManager, httpclient))))
-	server := &http.Server{Addr: ":" + strconv.Itoa(bot.Port), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	server := &http.Server{
+		Addr:              ":" + strconv.Itoa(bot.Port),
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
 	health.ServeReady(func() bool {
 		resp, err := http.DefaultClient.Get("http://127.0.0.1:" + strconv.Itoa(bot.Port) + "/readyz")
 		if resp != nil {
@@ -73,9 +79,8 @@ func Start(bot *slack.Bot, jobManager manager.JobManager, httpclient *http.Clien
 func handleEvent(signingSecret string, handler eventhandler.Handler) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		logger := logrus.WithField("api", "events")
-		body, ok := slack.VerifiedBody(request, signingSecret)
+		body, ok := slack.VerifiedBody(writer, request, signingSecret)
 		if !ok {
-			writer.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		event, err := slackevents.ParseEvent(body, slackevents.OptionNoVerifyToken())
@@ -115,8 +120,7 @@ func handleEvent(signingSecret string, handler eventhandler.Handler) http.Handle
 func handleInteraction(signingSecret string, handler interactionhandler.Handler) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		logger := logrus.WithField("api", "interactionhandler")
-		if _, ok := slack.VerifiedBody(request, signingSecret); !ok {
-			writer.WriteHeader(http.StatusInternalServerError)
+		if _, ok := slack.VerifiedBody(writer, request, signingSecret); !ok {
 			return
 		}
 

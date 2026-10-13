@@ -82,6 +82,12 @@ const (
 	maxTotalMCEAWSClusters = 10 // AWS VPC capacity shared across MCE clusters
 	maxTotalMCEGCPClusters = 10
 	MaxMCEDuration         = time.Duration(8 * time.Hour)
+
+	// maxMCENotificationAttempts bounds how often an undelivered MCE readiness
+	// or provisioning-failure notification is retried. Each failure retry
+	// re-fetches the provision with its install log and each readiness retry
+	// re-uploads the kubeconfig, so neither may repeat forever.
+	maxMCENotificationAttempts = 3
 )
 
 const (
@@ -175,7 +181,7 @@ func NewJobManager(
 		prowLister:       prowInformer.Lister(),
 		imageClient:      imageClient,
 		clusterClients:   buildClusterClientConfigMap,
-		prowNamespace:    "ci",
+		prowNamespace:    utils.ProwJobNamespace,
 		forcePROwner:     forcePROwner,
 
 		configResolver: configResolver,
@@ -363,6 +369,11 @@ func paramsToString(params map[string]string) string {
 }
 
 func (m *jobManager) mceSync() error {
+	// syncs are started from several goroutines; serialize them so that a
+	// cluster is not notified twice and an older sync cannot overwrite the
+	// cache written by a newer one
+	m.mceSyncLock.Lock()
+	defer m.mceSyncLock.Unlock()
 	start := time.Now()
 	// wrap Observe function into inline function so that time.Since doesn't get immediately evaluated
 	defer func() { mceSyncTimeMetric.Observe(time.Since(start).Seconds()) }()
@@ -373,51 +384,51 @@ func (m *jobManager) mceSync() error {
 	now := time.Now()
 	managedClusters := map[string]*clusterv1.ManagedCluster{}
 	for _, cluster := range clusters {
+		// per-cluster failures must not abort the sync: the remaining clusters
+		// still need to be cached, notified, and expired
 		expiryString := cluster.Annotations[utils.ExpiryTimeTag]
 		expiryTime, err := time.Parse(time.RFC3339, expiryString)
 		if err != nil {
-			return err
+			// the expiry annotation is written by this bot as RFC3339, so a parse
+			// failure means it is missing or corrupted; bound such a cluster by
+			// the maximum MCE lifetime from its creation so it cannot leak forever
+			klog.Errorf("Failed to parse expiry time of managed cluster %s, falling back to its creation time plus %s: %v", cluster.Name, MaxMCEDuration, err)
+			expiryTime = cluster.CreationTimestamp.Add(MaxMCEDuration)
 		}
 		if expiryTime.Before(now) {
+			// the cluster is kept so that the deletion is retried next sync if it fails
 			if err := m.deleteManagedCluster(cluster); err != nil {
-				return err
+				klog.Errorf("Failed to delete expired managed cluster %s: %v", cluster.Name, err)
 			}
 		}
 		managedClusters[cluster.Name] = cluster
 	}
 	clusterDeployments := map[string]*hivev1.ClusterDeployment{}
-	provisions := map[string]*hivev1.ClusterProvision{}
 	for _, deployment := range deployments {
 		clusterDeployments[deployment.Name] = deployment
-		provisionList := &hivev1.ClusterProvisionList{}
-		if err := m.dpcrHiveClient.List(context.TODO(), provisionList, &crclient.ListOptions{LabelSelector: labels.SelectorFromSet(labels.Set{"hive.openshift.io/cluster-deployment-name": deployment.Name})}); err != nil {
-			metrics.RecordError(errorMCEListClusterProvisions, m.errorMetric)
-			klog.Errorf("Failed to get cluster provision ref: %v", err)
-			continue
-		}
-		if len(provisionList.Items) == 0 {
-			klog.Warningf("No matching provision found for cluster %s", deployment.Name)
-			continue
-		}
-		newestProvision := &provisionList.Items[0]
-		for _, extraProvision := range provisionList.Items {
-			if extraProvision.CreationTimestamp.After(newestProvision.CreationTimestamp.Time) {
-				newestProvision = &extraProvision
-			}
-		}
-		provisions[deployment.Name] = newestProvision
 	}
+	// the cached map is only ever replaced wholesale, never modified in place,
+	// so the reference is a consistent snapshot of the previous sync
+	m.mceClusters.lock.RLock()
+	previousProvisions := m.mceClusters.provisions
+	m.mceClusters.lock.RUnlock()
+	provisions, freshProvisions := m.syncProvisions(deployments, previousProvisions)
 	for name, cluster := range managedClusters {
 		m.mceClusters.lock.RLock()
 		_, ok := m.mceClusters.clusterKubeconfigs[name]
 		_, ok2 := m.mceClusters.clusterPasswords[name]
-		previousProvision := m.mceClusters.provisions[name]
+		previousProvision := previousProvisions[name]
 		previousDeployment := m.mceClusters.deployments[name]
 		m.mceClusters.lock.RUnlock()
 		if !ok || !ok2 {
-			_, _, err := m.getClusterAuth(name)
-			if err != nil {
-				klog.Errorf("Failed to get cluster auth for %s: %v", name, err)
+			// warm the credential cache; missing cluster metadata is expected
+			// while the cluster is still provisioning
+			if _, _, err := m.getClusterAuth(name); err != nil {
+				if errors.Is(err, errClusterMetadataNotReady) {
+					klog.V(2).Infof("Cluster auth for %s is not ready yet: %v", name, err)
+				} else {
+					klog.Errorf("Failed to get cluster auth for %s: %v", name, err)
+				}
 			}
 		}
 
@@ -429,58 +440,68 @@ func (m *jobManager) mceSync() error {
 		}
 
 		if availability == "True" {
-			if notified, ok := cluster.Annotations[utils.UserNotifiedTag]; !ok || notified != "true" {
-				if cloud, ok := cluster.Labels["cloud"]; ok {
-					switch cloud {
+			notified := cluster.Annotations[utils.UserNotifiedTag] == "true"
+			// a cluster without a requesting user and channel can never be
+			// notified, so do not retry it every sync
+			if !notified && MceClusterNotifiable(cluster) {
+				// notify that the cluster is available and retrieve auth
+				kubeconfig, password, err := m.getClusterAuth(name)
+				if err != nil {
+					// getClusterAuth records error metrics for API failures; the
+					// cluster is not annotated as notified, so the next sync retries
+					if errors.Is(err, errClusterMetadataNotReady) {
+						klog.V(2).Infof("Cluster auth for %s is not ready yet: %v", name, err)
+					} else {
+						klog.Errorf("Failed to get mce cluster auth for %s: %v", name, err)
+					}
+					continue
+				}
+				if kubeconfig == "" || password == "" || clusterDeployments[name] == nil {
+					klog.V(2).Infof("Credentials for cluster %s are not available yet, retrying next sync", name)
+					continue
+				}
+				// only mark the cluster as notified once a notification was
+				// actually delivered or retries were given up; otherwise the
+				// next sync retries
+				delivered := m.notifyMce(cluster, clusterDeployments[name], provisions[name], kubeconfig, password, nil)
+				if delivered {
+					delete(m.mceReadyNotifyAttempts, name)
+					// observed here so that each cluster is counted once
+					switch cluster.Labels["cloud"] {
 					case "Amazon":
 						mceAWSReadyTimeMetric.Observe(time.Since(cluster.CreationTimestamp.Time).Minutes())
 					case "Google":
 						mceGCPReadyTimeMetric.Observe(time.Since(cluster.CreationTimestamp.Time).Minutes())
 					}
 				}
-				// notify that the cluster is available and retrieve auth
-				kubeconfig, password, err := m.getClusterAuth(name)
-				if err != nil {
-					return fmt.Errorf("failed to get mce cluster auth: %v", err)
-				}
-				m.mceNotifierFn(cluster, clusterDeployments[name], provisions[name], kubeconfig, password, nil)
-				cluster.Annotations[utils.UserNotifiedTag] = "true"
-				if err := m.dpcrOcmClient.Update(context.TODO(), cluster); err != nil {
-					metrics.RecordError(errorMCEAnnotateNotify, m.errorMetric)
-					klog.Errorf("Failed to update managed cluster annotations: %v", err)
+				if delivered || recordMceNotifyAttempt(&m.mceReadyNotifyAttempts, "readiness", name) {
+					cluster.Annotations[utils.UserNotifiedTag] = "true"
+					if err := m.dpcrOcmClient.Update(context.TODO(), cluster); err != nil {
+						metrics.RecordError(errorMCEAnnotateNotify, m.errorMetric)
+						klog.Errorf("Failed to update managed cluster annotations: %v", err)
+					}
 				}
 			}
 		} else {
 			if provision, ok := provisions[name]; ok {
-				if previousProvision != nil && previousProvision.Spec.Stage != provision.Spec.Stage && provision.Spec.Stage == hivev1.ClusterProvisionStageFailed {
-					metrics.RecordError(errorMCEProvisionFailed, m.errorMetric)
-					m.mceNotifierFn(cluster, clusterDeployments[name], provisions[name], "", "", nil)
+				if provision.Spec.Stage == hivev1.ClusterProvisionStageFailed {
+					// record a failure once per transition; retrying an
+					// undelivered notification is not a new failure
+					transitioned := provisionFailureIsNew(previousProvision, provision)
+					if transitioned {
+						metrics.RecordError(errorMCEProvisionFailed, m.errorMetric)
+					}
+					m.notifyMceFailure(name, cluster, clusterDeployments[name], provision, transitioned, freshProvisions.Has(name))
 				}
 			} else {
 				// in some cases, an early provisioning fail may result in a ClusterProvision not being created
-				if currentDeployment, ok := clusterDeployments[name]; ok {
-					for _, provisionCondition := range currentDeployment.Status.Conditions {
-						if provisionCondition.Type == hivev1.ProvisionFailedCondition {
-							if provisionCondition.Status == "True" {
-								var prevFailed bool
-								if previousDeployment != nil {
-									for _, previousCondition := range previousDeployment.Status.Conditions {
-										if previousCondition.Type == hivev1.ProvisionFailedCondition {
-											if previousCondition.Status == "True" {
-												prevFailed = true
-											}
-											break
-										}
-									}
-								}
-								if !prevFailed {
-									metrics.RecordError(errorMCEProvisionFailed, m.errorMetric)
-									m.mceNotifierFn(cluster, currentDeployment, provision, "", "", nil)
-								}
-							}
-							break
-						}
+				if currentDeployment, ok := clusterDeployments[name]; ok && deploymentProvisionFailed(currentDeployment) {
+					transitioned := previousDeployment != nil && !deploymentProvisionFailed(previousDeployment)
+					if transitioned {
+						metrics.RecordError(errorMCEProvisionFailed, m.errorMetric)
 					}
+					// there is no provision, so there is no install log to fetch
+					m.notifyMceFailure(name, cluster, currentDeployment, nil, transitioned, true)
 				}
 			}
 		}
@@ -514,13 +535,47 @@ func (m *jobManager) mceSync() error {
 		}
 	}
 	m.lock.RUnlock()
+	// stop retrying failure notifications for clusters that are gone or that
+	// are no longer failed: a failed newest provision, or a failed deployment
+	// without any provision
+	for name := range m.mceFailureNotifyAttempts {
+		_, clusterExists := managedClusters[name]
+		provision, provisionExists := provisions[name]
+		failed := (provisionExists && provision.Spec.Stage == hivev1.ClusterProvisionStageFailed) ||
+			(!provisionExists && deploymentProvisionFailed(clusterDeployments[name]))
+		if !clusterExists || !failed {
+			delete(m.mceFailureNotifyAttempts, name)
+		}
+	}
+	for name := range m.mceReadyNotifyAttempts {
+		if _, clusterExists := managedClusters[name]; !clusterExists {
+			delete(m.mceReadyNotifyAttempts, name)
+		}
+	}
 	klog.Infof("Found %d chat-bot owned mce clusters", len(managedClusters))
 	mceAWSClustersMetric.Set(float64(awsClusters))
 	mceGCPClustersMetric.Set(float64(gcpClusters))
+	// install logs are only needed when a failure is first observed (above,
+	// from the freshly fetched object) or on user request
+	// (GetClusterProvisionForNotification re-fetches the full object), so drop
+	// them from the copies that are about to be cached
+	stripInstallLogs(provisions, freshProvisions)
 	m.mceClusters.lock.Lock()
 	m.mceClusters.clusters = managedClusters
 	m.mceClusters.deployments = clusterDeployments
 	m.mceClusters.provisions = provisions
+	// drop cached credentials for clusters that no longer exist so the maps
+	// do not grow without bound over the bot's lifetime
+	for name := range m.mceClusters.clusterKubeconfigs {
+		if _, ok := managedClusters[name]; !ok {
+			delete(m.mceClusters.clusterKubeconfigs, name)
+		}
+	}
+	for name := range m.mceClusters.clusterPasswords {
+		if _, ok := managedClusters[name]; !ok {
+			delete(m.mceClusters.clusterPasswords, name)
+		}
+	}
 	m.mceClusters.lock.Unlock()
 	userConfig, err := m.dpcrCoreClient.ConfigMaps("crt-argocd").Get(context.TODO(), "users", metav1.GetOptions{})
 	if err != nil {
@@ -538,6 +593,95 @@ func (m *jobManager) mceSync() error {
 	return nil
 }
 
+// syncProvisions builds the map of the newest ClusterProvision for each of the
+// given deployments. It lists only provision metadata and fetches the full
+// object solely when its resource version changed, so the (potentially
+// multi-megabyte) install logs of unchanged provisions are never fetched.
+// Freshly fetched provisions keep their install logs, because the caller needs
+// them for failure notifications, and their names are returned in the fresh
+// set; the caller must strip the logs of fresh entries with stripInstallLogs
+// once they are no longer needed. When a provision cannot be retrieved, the
+// previously cached one is carried over, so a transient API error neither
+// drops the cluster's provision nor makes a later stage change look new.
+func (m *jobManager) syncProvisions(deployments []*hivev1.ClusterDeployment, previousProvisions map[string]*hivev1.ClusterProvision) (map[string]*hivev1.ClusterProvision, sets.Set[string]) {
+	provisions := map[string]*hivev1.ClusterProvision{}
+	// carryOverProvision keeps the previously cached provision when the current
+	// one cannot be retrieved
+	carryOverProvision := func(name string) {
+		if previous := previousProvisions[name]; previous != nil {
+			provisions[name] = previous
+		}
+	}
+	freshProvisions := sets.New[string]()
+	for _, deployment := range deployments {
+		// list only metadata so that install logs of older provisions are never
+		// fetched, then get the full object for the newest provision
+		provisionList := &metav1.PartialObjectMetadataList{}
+		provisionList.SetGroupVersionKind(hivev1.SchemeGroupVersion.WithKind("ClusterProvisionList"))
+		if err := m.dpcrHiveClient.List(context.TODO(), provisionList, &crclient.ListOptions{LabelSelector: labels.SelectorFromSet(labels.Set{"hive.openshift.io/cluster-deployment-name": deployment.Name})}); err != nil {
+			metrics.RecordError(errorMCEListClusterProvisions, m.errorMetric)
+			klog.Errorf("Failed to get cluster provision ref: %v", err)
+			carryOverProvision(deployment.Name)
+			continue
+		}
+		if len(provisionList.Items) == 0 {
+			klog.Warningf("No matching provision found for cluster %s", deployment.Name)
+			continue
+		}
+		newest := 0
+		for i := range provisionList.Items {
+			if provisionList.Items[i].CreationTimestamp.After(provisionList.Items[newest].CreationTimestamp.Time) {
+				newest = i
+			}
+		}
+		newestMeta := provisionList.Items[newest]
+		// an unchanged resource version means the cached copy is still current,
+		// so skip fetching the full object
+		if cached := previousProvisions[deployment.Name]; cached != nil && cached.Name == newestMeta.Name && cached.Namespace == newestMeta.Namespace && cached.ResourceVersion == newestMeta.ResourceVersion {
+			provisions[deployment.Name] = cached
+			continue
+		}
+		provision := hivev1.ClusterProvision{}
+		if err := m.dpcrHiveClient.Get(context.TODO(), crclient.ObjectKey{Namespace: newestMeta.Namespace, Name: newestMeta.Name}, &provision); err != nil {
+			metrics.RecordError(errorMCEListClusterProvisions, m.errorMetric)
+			klog.Errorf("Failed to get cluster provision %s/%s: %v", newestMeta.Namespace, newestMeta.Name, err)
+			carryOverProvision(deployment.Name)
+			continue
+		}
+		provisions[deployment.Name] = &provision
+		freshProvisions.Insert(deployment.Name)
+	}
+	return provisions, freshProvisions
+}
+
+// stripInstallLogs drops the install logs of the given freshly fetched
+// provisions: install logs can be several megabytes and are only needed when a
+// failure is first observed or on user request, so they must not be cached.
+// Only freshly fetched provisions may be modified here; reused entries are
+// already shared with readers of the previous cache.
+func stripInstallLogs(provisions map[string]*hivev1.ClusterProvision, freshProvisions sets.Set[string]) {
+	for name, provision := range provisions {
+		if freshProvisions.Has(name) {
+			provision.Spec.InstallLog = nil
+		}
+	}
+}
+
+// markRosaErrorReported records that the cluster's error was reported and
+// returns false the first time it is called for the cluster, true afterwards.
+func (m *jobManager) markRosaErrorReported(id string) bool {
+	m.rosaErrorReportedMu.Lock()
+	defer m.rosaErrorReportedMu.Unlock()
+	if m.rosaErrorReported == nil {
+		m.rosaErrorReported = sets.New[string]()
+	}
+	if m.rosaErrorReported.Has(id) {
+		return true
+	}
+	m.rosaErrorReported.Insert(id)
+	return false
+}
+
 func (m *jobManager) rosaSync() error {
 	if m.rClient == nil {
 		return nil
@@ -549,7 +693,10 @@ func (m *jobManager) rosaSync() error {
 	clusterList, err := m.rClient.OCMClient.GetAllClusters(m.rClient.Creator)
 	if err != nil {
 		metrics.RecordError(errorRosaGetAll, m.errorMetric)
-		klog.Warningf("Failed to get clusters: %v", err)
+		// do not proceed with an empty cluster list: it would wipe the cached
+		// clusters, forget reported errors, and make the secret cleanup below
+		// delete the AWS resources of live clusters
+		return fmt.Errorf("failed to get rosa clusters: %v", err)
 	}
 	klog.Infof("Found %d rosa clusters", len(clusterList))
 	rosaClustersMetric.Set(float64(len(clusterList)))
@@ -614,13 +761,9 @@ func (m *jobManager) rosaSync() error {
 				if previous != nil {
 					metrics.RecordError(errorRosaFailure, m.errorMetric)
 				}
-				if m.rosaErrorReported == nil {
-					m.rosaErrorReported = sets.New[string]()
-				}
-				if !m.rosaErrorReported.Has(cluster.ID()) {
+				if !m.markRosaErrorReported(cluster.ID()) {
 					klog.Infof("Reporting failure for cluster %s", cluster.ID())
 					m.rosaNotifierFn(cluster, "")
-					m.rosaErrorReported.Insert(cluster.ID())
 				}
 			}
 		}
@@ -643,13 +786,22 @@ func (m *jobManager) rosaSync() error {
 		clustersByID[cluster.ID()] = cluster
 	}
 	klog.Infof("Found %d chat-bot owned rosa clusters", len(clustersByID))
+	// forget reported errors for clusters that no longer exist so the set does
+	// not grow without bound
+	m.rosaErrorReportedMu.Lock()
+	for id := range m.rosaErrorReported {
+		if _, ok := clustersByID[id]; !ok {
+			m.rosaErrorReported.Delete(id)
+		}
+	}
+	m.rosaErrorReportedMu.Unlock()
 
 	activeRosaIDs, err := m.rosaSecretClient.Get(context.TODO(), RosaClusterSecretName, metav1.GetOptions{})
 	if k8serrors.IsNotFound(err) {
 		activeRosaIDs, err = m.rosaSecretClient.Create(context.TODO(), &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      RosaClusterSecretName,
-				Namespace: "ci",
+				Namespace: utils.ProwJobNamespace,
 			},
 			Data: map[string][]byte{},
 			Type: corev1.SecretTypeOpaque,
@@ -816,7 +968,7 @@ func (m *jobManager) sync() error {
 					klog.Errorf("Failed to delete managed cluster %s: %v", j.ManagedClusterName, err)
 				}
 				go m.mceSync() // nolint:errcheck
-				m.mceNotifierFn(mCluster, nil, nil, "", "", errors.New(errMsg))
+				m.notifyMce(mCluster, nil, nil, "", "", errors.New(errMsg))
 				m.mceClusters.lock.RUnlock()
 				break
 			}
@@ -845,7 +997,7 @@ func (m *jobManager) sync() error {
 							klog.Errorf("Failed to delete managed cluster %s: %v", j.ManagedClusterName, err)
 						}
 						go m.mceSync() // nolint:errcheck
-						m.mceNotifierFn(mCluster, nil, nil, "", "", errors.New(msg))
+						m.notifyMce(mCluster, nil, nil, "", "", errors.New(msg))
 						m.mceClusters.lock.RUnlock()
 						break
 					}
@@ -859,7 +1011,7 @@ func (m *jobManager) sync() error {
 							klog.Errorf("Failed to delete managed cluster %s: %v", j.ManagedClusterName, err)
 						}
 						go m.mceSync() // nolint:errcheck
-						m.mceNotifierFn(mCluster, nil, nil, "", "", errors.New(msg))
+						m.notifyMce(mCluster, nil, nil, "", "", errors.New(msg))
 						m.mceClusters.lock.RUnlock()
 						break
 					}
@@ -879,7 +1031,7 @@ func (m *jobManager) sync() error {
 							klog.Errorf("Failed to delete managed cluster %s: %v", j.ManagedClusterName, err)
 						}
 						go m.mceSync() // nolint:errcheck
-						m.mceNotifierFn(mCluster, nil, nil, "", "", errors.New(msg))
+						m.notifyMce(mCluster, nil, nil, "", "", errors.New(msg))
 						m.mceClusters.lock.RUnlock()
 						break
 					}
@@ -983,10 +1135,109 @@ func (m *jobManager) SetRosaNotifier(fn RosaCallbackFunc) {
 	m.rosaNotifierFn = fn
 }
 
+// SetMceNotifier registers the MCE notifier. It uses a dedicated lock rather
+// than m.lock because sync() holds m.lock while starting mceSync goroutines,
+// which read the notifier.
 func (m *jobManager) SetMceNotifier(fn MCECallbackFunc) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+	m.mceNotifierLock.Lock()
+	defer m.mceNotifierLock.Unlock()
 	m.mceNotifierFn = fn
+}
+
+// notifyMce invokes the MCE notifier if one is registered and reports whether
+// a notification was delivered. The Slack bot registers the notifier after
+// the sync loops have already started, so the field may legitimately be nil
+// during startup; callers must treat false as "not notified" and arrange a
+// retry.
+func (m *jobManager) notifyMce(cluster *clusterv1.ManagedCluster, deployment *hivev1.ClusterDeployment, provision *hivev1.ClusterProvision, kubeconfig, password string, errMsg error) bool {
+	m.mceNotifierLock.RLock()
+	fn := m.mceNotifierFn
+	m.mceNotifierLock.RUnlock()
+	if fn == nil {
+		klog.Warningf("MCE notifier has not been set, skipping notification for cluster %s", cluster.Name)
+		return false
+	}
+	return fn(cluster, deployment, provision, kubeconfig, password, errMsg)
+}
+
+// MceClusterNotifiable reports whether the managed cluster records the user
+// and channel that requested it; a cluster without them can never be notified.
+func MceClusterNotifiable(cluster *clusterv1.ManagedCluster) bool {
+	return len(cluster.Annotations[utils.UserTag]) != 0 && len(cluster.Annotations[utils.ChannelTag]) != 0
+}
+
+// deploymentProvisionFailed reports whether the deployment has a true
+// ProvisionFailed condition. A nil deployment has not failed.
+func deploymentProvisionFailed(deployment *hivev1.ClusterDeployment) bool {
+	if deployment == nil {
+		return false
+	}
+	for _, condition := range deployment.Status.Conditions {
+		if condition.Type == hivev1.ProvisionFailedCondition {
+			return condition.Status == "True"
+		}
+	}
+	return false
+}
+
+// provisionFailureIsNew reports whether the failed provision was not already
+// failed in the previous sync, either because the stage changed or because
+// Hive created a new provision (a retry) that failed between two syncs. With
+// no previous provision, as after a restart, the failure is not considered
+// new so that users who were already told are not notified again.
+func provisionFailureIsNew(previous, current *hivev1.ClusterProvision) bool {
+	return previous != nil && (previous.Name != current.Name || previous.Spec.Stage != current.Spec.Stage)
+}
+
+// notifyMceFailure reports a provisioning failure to the requesting user. It
+// sends the notification when the failure was just observed or when a previous
+// attempt was not delivered, and does nothing otherwise. When the cached
+// provision no longer carries its install log it is fetched again so the
+// failure can be reported with it. Retries are bounded because each one
+// re-fetches the (potentially multi-megabyte) install log, and a cluster
+// without a requesting user or channel can never be notified at all. The
+// provision is nil when the deployment failed before creating one.
+func (m *jobManager) notifyMceFailure(name string, cluster *clusterv1.ManagedCluster, deployment *hivev1.ClusterDeployment, provision *hivev1.ClusterProvision, transitioned, hasInstallLog bool) {
+	if !transitioned && m.mceFailureNotifyAttempts[name] == 0 {
+		return
+	}
+	if !MceClusterNotifiable(cluster) {
+		klog.V(2).Infof("mce cluster %s has no requested channel or user, can't notify", name)
+		delete(m.mceFailureNotifyAttempts, name)
+		return
+	}
+	if !hasInstallLog && provision != nil {
+		full := &hivev1.ClusterProvision{}
+		if err := m.dpcrHiveClient.Get(context.TODO(), crclient.ObjectKey{Namespace: provision.Namespace, Name: provision.Name}, full); err != nil {
+			klog.Errorf("Failed to get cluster provision %s/%s for failure notification: %v", provision.Namespace, provision.Name, err)
+			recordMceNotifyAttempt(&m.mceFailureNotifyAttempts, "failure", name)
+			return
+		}
+		provision = full
+	}
+	if m.notifyMce(cluster, deployment, provision, "", "", nil) {
+		delete(m.mceFailureNotifyAttempts, name)
+		return
+	}
+	recordMceNotifyAttempt(&m.mceFailureNotifyAttempts, "failure", name)
+}
+
+// recordMceNotifyAttempt counts an undelivered notification of the given kind
+// in attempts, allocating the map if needed. It reports true, and drops the
+// count, once maxMCENotificationAttempts is reached and retries should stop.
+func recordMceNotifyAttempt(attempts *map[string]int, kind, name string) bool {
+	count := (*attempts)[name] + 1
+	if count >= maxMCENotificationAttempts {
+		klog.Warningf("Giving up on %s notification for mce cluster %s after %d attempts", kind, name, count)
+		delete(*attempts, name)
+		return true
+	}
+	if *attempts == nil {
+		*attempts = map[string]int{}
+	}
+	(*attempts)[name] = count
+	klog.Warningf("Failed to send %s notification for mce cluster %s, retrying on the next sync (%d/%d)", kind, name, count, maxMCENotificationAttempts)
+	return false
 }
 
 func (m *jobManager) estimateCompletion(requestedAt time.Time) time.Duration {
@@ -2615,9 +2866,15 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 		if duration == 0 {
 			duration = defaultMceDuration(userConfig.MaxClusterAge)
 		}
+		// snapshot the imagesets under the lock instead of holding it across
+		// GetManagedClustersForUser, which acquires it again: a recursive RLock
+		// can deadlock when a writer queues between the two acquisitions. The
+		// set is only ever replaced wholesale, never modified in place, so the
+		// snapshot remains a consistent view.
 		m.mceClusters.lock.RLock()
-		defer m.mceClusters.lock.RUnlock()
-		managed, _, _, _, _ := m.GetManagedClustersForUser(user)
+		imagesets := m.mceClusters.imagesets
+		m.mceClusters.lock.RUnlock()
+		managed, _, _, _ := m.GetManagedClustersForUser(user)
 		if len(managed) >= userConfig.MaxClusters {
 			return fmt.Errorf("Maximum number of MCE clusters (%d) reached. Please delete an existing cluster before creating a new one. If you have recently deleted a cluster, please wait 1 minute to allow a resync.", userConfig.MaxClusters) //nolint:staticcheck
 		}
@@ -2627,7 +2884,7 @@ func (m *jobManager) CreateMceCluster(user, channel, platform string, from [][]s
 		if !MCEPlatforms.Has(platform) {
 			return fmt.Errorf("%s is not a supported platform for MCE.", platform) //nolint:staticcheck
 		}
-		if !m.mceClusters.imagesets.Has(imageset) {
+		if !imagesets.Has(imageset) {
 			// user is requesting a non-GA release or PR; create a job request to generate the requested images/release
 			req = &JobRequest{
 				User:         user,
@@ -2725,24 +2982,22 @@ func (m *jobManager) DeleteMceCluster(user, clusterName string) (string, error) 
 	return fmt.Sprintf("Cluster %s marked for deletion", clusterName), nil
 }
 
-func (m *jobManager) GetManagedClustersForUser(user string) (map[string]*clusterv1.ManagedCluster, map[string]*hivev1.ClusterDeployment, map[string]*hivev1.ClusterProvision, map[string]string, map[string]string) {
+func (m *jobManager) GetManagedClustersForUser(user string) (map[string]*clusterv1.ManagedCluster, map[string]*hivev1.ClusterDeployment, map[string]string, map[string]string) {
 	m.mceClusters.lock.RLock()
 	defer m.mceClusters.lock.RUnlock()
 	managed := make(map[string]*clusterv1.ManagedCluster)
 	deployments := make(map[string]*hivev1.ClusterDeployment)
-	provisions := make(map[string]*hivev1.ClusterProvision)
 	kubeconfigs := make(map[string]string)
 	passwords := make(map[string]string)
 	for _, mc := range m.mceClusters.clusters {
 		if mc.Annotations[utils.UserTag] == user {
 			managed[mc.GetName()] = mc
 			deployments[mc.GetName()] = m.mceClusters.deployments[mc.GetName()]
-			provisions[mc.GetName()] = m.mceClusters.provisions[mc.GetName()]
 			kubeconfigs[mc.GetName()] = m.mceClusters.clusterKubeconfigs[mc.GetName()]
 			passwords[mc.GetName()] = m.mceClusters.clusterPasswords[mc.GetName()]
 		}
 	}
-	return managed, deployments, provisions, kubeconfigs, passwords
+	return managed, deployments, kubeconfigs, passwords
 }
 
 func (m *jobManager) ListManagedClusters(user string) (string, string, []string) {
