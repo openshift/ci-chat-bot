@@ -26,9 +26,9 @@ ignored_vulnerabilities:
     module: github.com/tektoncd/pipeline
     reason: "No fix available - Pipelines do not validate child UIDs in Tekton Pipeline"
 
-  - id: GO-2026-4730
-    module: github.com/tektoncd/pipeline
-    reason: "No fix available - Tekton Pipelines controller panic via long resolver name in TaskRun/PipelineRun in github.com/tektoncd/pipeline (CVE-2026-33022)"
+  - id: GO-2026-6791
+    module: github.com/containerd/containerd
+    reason: "No fix available - containerd CRI checkpoint restore bypasses destination security context in github.com/containerd/containerd"
 
   - id: GO-2026-5064
     module: github.com/containerd/containerd
