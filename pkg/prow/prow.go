@@ -65,7 +65,6 @@ func JobForConfig(prowConfigLoader ProwConfigLoader, jobName string) (*prowapiv1
 			State:     state,
 		},
 	}
-	pj = pj.DeepCopy()
 	return pj, nil
 }
 
@@ -140,10 +139,17 @@ func OverrideJobEnvVar(spec *prowapiv1.ProwJobSpec, name, value string) {
 }
 
 func prowSpecForPeriodicConfig(config *config.Periodic) *prowapiv1.ProwJobSpec {
-	spec := pjutil.PeriodicSpec(*config)
-	isTrue := true
-	spec.DecorationConfig.SkipCloning = &isTrue
-	return &spec
+	// the spec shares pointers, slices, and maps with the live prow config, so
+	// copy it entirely before mutating to avoid writing through to it
+	periodicSpec := pjutil.PeriodicSpec(*config)
+	spec := periodicSpec.DeepCopy()
+	// skip_cloning only applies to decorated jobs; undecorated ones keep a nil
+	// decoration config so prow continues to treat them as undecorated
+	if spec.DecorationConfig != nil {
+		isTrue := true
+		spec.DecorationConfig.SkipCloning = &isTrue
+	}
+	return spec
 }
 
 func hasProwJob(config *config.Config, name string) (*config.Periodic, bool) {

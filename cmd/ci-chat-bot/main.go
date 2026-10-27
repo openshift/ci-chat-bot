@@ -41,6 +41,7 @@ import (
 	projectclientset "github.com/openshift/client-go/project/clientset/versioned"
 
 	hivescheme "github.com/openshift/hive/pkg/util/scheme"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	machineryruntime "k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -231,7 +232,15 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("unable to create prow client: %w", err)
 	}
-	prowjobInformerFactory := prowinformers.NewSharedInformerFactory(prowClient, controllerDefaultResyncDuration)
+	// the manager only ever lists launch-labeled ProwJobs in the "ci" namespace
+	// through this informer, so restrict its cache to those instead of caching
+	// every ProwJob in the cluster
+	prowjobInformerFactory := prowinformers.NewSharedInformerFactoryWithOptions(prowClient, controllerDefaultResyncDuration,
+		prowinformers.WithNamespace(utils.ProwJobNamespace),
+		prowinformers.WithTweakListOptions(func(options *metav1.ListOptions) {
+			options.LabelSelector = utils.LaunchLabel + "=true"
+		}),
+	)
 	prowjobInformer := prowjobInformerFactory.Prow().V1().ProwJobs()
 	hasSynced = append(hasSynced, prowjobInformer.Informer().HasSynced)
 
@@ -248,7 +257,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("unabel to create release client: %w", err)
 	}
-	rosaSecretClient := releaseClient.Secrets("ci")
+	rosaSecretClient := releaseClient.Secrets(utils.ProwJobNamespace)
 	// Config and Client to access hypershift configmaps
 	var hiveConfigMapClient corev1.ConfigMapInterface
 	if config, ok := kubeConfigs["hosted-mgmt"]; ok {

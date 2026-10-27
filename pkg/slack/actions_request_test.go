@@ -22,6 +22,7 @@ import (
 type mockSlackClient struct {
 	getUserInfoFunc func(userID string) (*slack.User, error)
 	uploadFileFunc  func(params slack.UploadFileParameters) (*slack.FileSummary, error)
+	postMessageFunc func(channelID string, options ...slack.MsgOption) (string, string, error)
 }
 
 func (m *mockSlackClient) GetUserInfo(userID string) (*slack.User, error) {
@@ -39,7 +40,9 @@ func (m *mockSlackClient) UploadFile(params slack.UploadFileParameters) (*slack.
 }
 
 func (m *mockSlackClient) PostMessage(channelID string, options ...slack.MsgOption) (string, string, error) {
-	// Not needed for Request/Revoke tests but required by interface
+	if m.postMessageFunc != nil {
+		return m.postMessageFunc(channelID, options...)
+	}
 	return "", "", fmt.Errorf("mock PostMessage not implemented")
 }
 
@@ -104,8 +107,11 @@ func (m *mockJobManager) CreateMceCluster(user, channel, platform string, from [
 	return "", nil
 }
 func (m *mockJobManager) DeleteMceCluster(user, clusterName string) (string, error) { return "", nil }
-func (m *mockJobManager) GetManagedClustersForUser(user string) (map[string]*clusterv1.ManagedCluster, map[string]*hivev1.ClusterDeployment, map[string]*hivev1.ClusterProvision, map[string]string, map[string]string) {
-	return nil, nil, nil, nil, nil
+func (m *mockJobManager) GetClusterProvisionForNotification(name string) *hivev1.ClusterProvision {
+	return nil
+}
+func (m *mockJobManager) GetManagedClustersForUser(user string) (map[string]*clusterv1.ManagedCluster, map[string]*hivev1.ClusterDeployment, map[string]string, map[string]string) {
+	return nil, nil, nil, nil
 }
 func (m *mockJobManager) ListManagedClusters(user string) (string, string, []string) {
 	return "", "", nil

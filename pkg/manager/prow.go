@@ -479,7 +479,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		return "", err
 	}
 
-	sourceConfig, srcNamespace, srcName, err := loadJobConfigSpec(clusterClient.CoreClient, sourceEnv, "ci")
+	sourceConfig, srcNamespace, srcName, err := loadJobConfigSpec(clusterClient.CoreClient, sourceEnv, utils.ProwJobNamespace)
 	if err != nil {
 		return "", fmt.Errorf("the launch job definition could not be loaded: %v", err)
 	}
@@ -651,11 +651,12 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		}
 	}
 	if hasRefs {
-		launchDeadline += 30 * time.Minute
-
-		// in order to build repos, we need to clone all the refs
-		boolFalse := false
-		pj.Spec.DecorationConfig.SkipCloning = &boolFalse
+		// in order to build repos, we need to clone all the refs; undecorated
+		// jobs have no decoration config and never use prow's cloning
+		if pj.Spec.DecorationConfig != nil {
+			boolFalse := false
+			pj.Spec.DecorationConfig.SkipCloning = &boolFalse
+		}
 
 		clusterClient, err := getClusterClient(m, job)
 		if err != nil {
@@ -1118,7 +1119,7 @@ func createBotCatalogRBAC(namespace string, client ctrlruntimeclient.Client) err
 			Name:      "cluster-bot-catalog-access",
 			Namespace: namespace,
 		},
-		Subjects: []rbacapi.Subject{{Kind: "ServiceAccount", Name: "ci-chat-bot", Namespace: "ci"}},
+		Subjects: []rbacapi.Subject{{Kind: "ServiceAccount", Name: "ci-chat-bot", Namespace: utils.ProwJobNamespace}},
 		RoleRef: rbacapi.RoleRef{
 			Kind: "ClusterRole",
 			Name: "admin",

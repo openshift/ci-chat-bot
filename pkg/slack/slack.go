@@ -3,6 +3,7 @@ package slack
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -72,11 +73,15 @@ func (b *Bot) RosaResponder(s *slack.Client) func(*clustermgmtv1.Cluster, string
 	}
 }
 
-func (b *Bot) MceResponder(s *slack.Client) func(*clusterv1.ManagedCluster, *hivev1.ClusterDeployment, *hivev1.ClusterProvision, string, string, error) {
-	return func(cluster *clusterv1.ManagedCluster, clusterDeployment *hivev1.ClusterDeployment, clusterProvision *hivev1.ClusterProvision, kubeconfig, password string, errMsg error) {
-		if len(cluster.Annotations[utils.UserTag]) == 0 || len(cluster.Annotations[utils.ChannelTag]) == 0 {
+// MceResponder returns the MCE notifier. The returned function reports whether
+// a notification was delivered, including whether Slack accepted it, so the
+// manager only marks clusters as notified once the user has actually been
+// told and retries otherwise.
+func (b *Bot) MceResponder(s parser.SlackClient) manager.MCECallbackFunc {
+	return func(cluster *clusterv1.ManagedCluster, clusterDeployment *hivev1.ClusterDeployment, clusterProvision *hivev1.ClusterProvision, kubeconfig, password string, errMsg error) bool {
+		if !manager.MceClusterNotifiable(cluster) {
 			klog.Infof("mce cluster %s has no requested channel or user, can't notify", cluster.Name)
-			return
+			return false
 		}
 		var failedProvisionCondition bool
 		if clusterDeployment != nil {
@@ -93,14 +98,15 @@ func (b *Bot) MceResponder(s *slack.Client) func(*clusterv1.ManagedCluster, *hiv
 			if clusterProvision != nil {
 				if clusterProvision.Spec.Stage != hivev1.ClusterProvisionStageComplete && clusterProvision.Spec.Stage != hivev1.ClusterProvisionStageFailed {
 					klog.Infof("no credentials or failure, still pending")
-					return
+					return false
 				}
 			} else {
 				klog.Infof("no credentials or failure, still pending")
-				return
+				return false
 			}
 		}
-		NotifyMce(s, cluster, clusterDeployment, clusterProvision, kubeconfig, password, true, errMsg)
+		_, _, delivered := NotifyMce(s, cluster, clusterDeployment, clusterProvision, kubeconfig, password, true, errMsg)
+		return delivered
 	}
 }
 
@@ -250,16 +256,34 @@ func GetUserName(client parser.SlackClient, userID string) string {
 	return ""
 }
 
-func VerifiedBody(request *http.Request, signingSecret string) ([]byte, bool) {
+// maxVerifiedBodySize bounds how many bytes VerifiedBody will read from a
+// request before giving up; real Slack event and interaction payloads are far
+// smaller than this.
+const maxVerifiedBodySize = 1 << 20
+
+// VerifiedBody reads the request body and verifies its Slack signature. On
+// success it returns the body and true; on failure it writes the error
+// response itself and returns false.
+func VerifiedBody(writer http.ResponseWriter, request *http.Request, signingSecret string) ([]byte, bool) {
 	verifier, err := slack.NewSecretsVerifier(request.Header, signingSecret)
 	if err != nil {
+		// missing or malformed signature headers; respond with 401 so that
+		// Slack drops the delivery instead of retrying it
 		klog.Errorf("Failed to create a secrets verifier. %v", err)
+		http.Error(writer, "invalid request signature", http.StatusUnauthorized)
 		return nil, false
 	}
 
+	request.Body = http.MaxBytesReader(writer, request.Body, maxVerifiedBodySize)
 	body, err := io.ReadAll(request.Body)
 	if err != nil {
+		if maxBytesErr, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			klog.Errorf("Rejected an event payload larger than %d bytes", maxBytesErr.Limit)
+			http.Error(writer, "request body too large", http.StatusRequestEntityTooLarge)
+			return nil, false
+		}
 		klog.Errorf("Failed to read an event payload. %v", err)
+		http.Error(writer, "failed to read request body", http.StatusInternalServerError)
 		return nil, false
 	}
 
@@ -268,11 +292,13 @@ func VerifiedBody(request *http.Request, signingSecret string) ([]byte, bool) {
 
 	if _, err := verifier.Write(body); err != nil {
 		klog.Errorf("Failed to hash an event payload. %v", err)
+		http.Error(writer, "failed to verify request", http.StatusInternalServerError)
 		return nil, false
 	}
 
 	if err = verifier.Ensure(); err != nil {
 		klog.Errorf("Failed to verify an event payload. %v", err)
+		http.Error(writer, "invalid request signature", http.StatusUnauthorized)
 		return nil, false
 	}
 
@@ -342,13 +368,11 @@ func BuildJobParams(params string) (map[string]string, error) {
 	return jobParams, nil
 }
 
-const (
-	markdownLink = `^<(.*)\|(.*)>$`
-)
+// markdownLink matches Slack's markdown link syntax <URL|text>.
+var markdownLink = regexp.MustCompile(`^<(.*)\|(.*)>$`)
 
 func parseParameterValue(value string) string {
-	re, _ := regexp.Compile(markdownLink)
-	matches := re.FindStringSubmatch(value)
+	matches := markdownLink.FindStringSubmatch(value)
 	if len(matches) == 3 {
 		return matches[2]
 	}
@@ -515,6 +539,10 @@ func NotifyJob(client parser.SlackClient, job *manager.Job, postMessage bool) (s
 }
 
 func SendKubeConfig(client parser.SlackClient, channel, contents, comment, identifier string) string {
+	if contents == "" {
+		klog.Errorf("Refusing to upload an empty kubeconfig to %s", channel)
+		return ""
+	}
 	params := slack.UploadFileParameters{
 		Content:        contents,
 		FileSize:       len(contents),
@@ -717,16 +745,32 @@ func ParseOptions(options string, inputs [][]string, jobType manager.JobType) (s
 	return platform, architecture, params, nil
 }
 
-func NotifyMce(client parser.SlackClient, cluster *clusterv1.ManagedCluster, clusterDeployment *hivev1.ClusterDeployment, clusterProvision *hivev1.ClusterProvision, kubeconfig, password string, postMessage bool, errMsg error) (string, string) {
+// postMessageToChannel posts the message to the channel when requested and
+// reports whether the delivery succeeded. A call that does not post because
+// postMessage is false is treated as successful: the caller presents the
+// returned message itself.
+func postMessageToChannel(client parser.SlackClient, channel, message string, postMessage bool) bool {
+	if !postMessage {
+		return true
+	}
+	if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
+		klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
+		return false
+	}
+	return true
+}
+
+// NotifyMce sends a notification about the state of an MCE cluster to the
+// channel that requested it. It returns the message, the kubeconfig (when the
+// cluster is ready and its credentials are available), and whether the
+// notification was delivered to Slack. When postMessage is false, nothing is
+// posted, the message is returned for the caller to present, and delivery is
+// reported as successful.
+func NotifyMce(client parser.SlackClient, cluster *clusterv1.ManagedCluster, clusterDeployment *hivev1.ClusterDeployment, clusterProvision *hivev1.ClusterProvision, kubeconfig, password string, postMessage bool, errMsg error) (string, string, bool) {
 	channel := cluster.Annotations[utils.ChannelTag]
 	if errMsg != nil {
 		msg := fmt.Sprintf("Creation of your cluster has failed with the following message: ```%s```\nExisting cluster resources will be deleted.", errMsg.Error())
-		if postMessage {
-			if _, _, err := client.PostMessage(channel, slack.MsgOptionText(msg, false)); err != nil {
-				klog.Warningf("Failed to post the message to the channel: %s.", channel)
-			}
-		}
-		return msg, ""
+		return msg, "", postMessageToChannel(client, channel, msg, postMessage)
 	}
 	var availability string
 	for _, condition := range cluster.Status.Conditions {
@@ -742,13 +786,10 @@ func NotifyMce(client parser.SlackClient, cluster *clusterv1.ManagedCluster, clu
 			}
 		}
 		message := fmt.Sprintf("your cluster (name: `%s`) has failed to provision. Reason for failure is: `%s`. Error message is:\n```%s```", cluster.GetName(), failedCondition.Reason, failedCondition.Message)
-		if clusterProvision.Spec.InstallLog == nil {
-			if postMessage {
-				if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
-					klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
-				}
-			}
-			return message, ""
+		// the install log can only be delivered as an upload to the channel,
+		// so a caller presenting the message itself gets the message alone
+		if clusterProvision.Spec.InstallLog == nil || !postMessage {
+			return message, "", postMessageToChannel(client, channel, message, postMessage)
 		}
 		params := slack.UploadFileParameters{
 			Content:        *clusterProvision.Spec.InstallLog,
@@ -757,12 +798,11 @@ func NotifyMce(client parser.SlackClient, cluster *clusterv1.ManagedCluster, clu
 			Filename:       fmt.Sprintf("%s-error.txt", cluster.Name),
 			InitialComment: message,
 		}
-		_, err := client.UploadFile(params)
-		if err != nil {
+		if _, err := client.UploadFile(params); err != nil {
 			klog.Errorf("error: unable to send attachment with message: %v", err)
-			return message, ""
+			return message, "", false
 		}
-		return message, ""
+		return message, "", true
 	}
 	// in some cases, an early provisioning fail may result in a ClusterProvision not being created
 	if clusterDeployment != nil {
@@ -770,18 +810,17 @@ func NotifyMce(client parser.SlackClient, cluster *clusterv1.ManagedCluster, clu
 			if provisionCondition.Type == hivev1.ProvisionFailedCondition {
 				if provisionCondition.Status == "True" {
 					message := fmt.Sprintf("your cluster (name: `%s`) has failed to provision. Reason for failure is: `%s`.  Error message is:\n```%s```", cluster.GetName(), provisionCondition.Reason, provisionCondition.Message)
-					if postMessage {
-						if _, _, err := client.PostMessage(channel, slack.MsgOptionText(message, false)); err != nil {
-							klog.Warningf("Failed to post the message: %s\nto the channel: %s.", message, channel)
-						}
-					}
-					return message, ""
+					return message, "", postMessageToChannel(client, channel, message, postMessage)
 				}
 				break
 			}
 		}
 	}
 	if availability == "True" {
+		if kubeconfig == "" || password == "" || clusterDeployment == nil {
+			message := fmt.Sprintf("your cluster (name: `%s`) is ready, but its credentials are not available yet; try `mce auth` again in a minute", cluster.GetName())
+			return message, "", postMessageToChannel(client, channel, message, postMessage)
+		}
 		message := fmt.Sprintf("your cluster (name: `%s`) is ready", cluster.GetName())
 		expiryTime := cluster.Annotations[utils.ExpiryTimeTag]
 		if parsedExpiryTime, err := time.Parse(time.RFC3339, string(expiryTime)); err != nil {
@@ -800,17 +839,15 @@ func NotifyMce(client parser.SlackClient, cluster *clusterv1.ManagedCluster, clu
 		message += "\n" + clusterDeployment.Status.WebConsoleURL
 		ocLoginCommand := fmt.Sprintf("oc login %s --username kubeadmin --password %s", clusterDeployment.Status.APIURL, password)
 		message += "\n\nLog in to the console with user `kubeadmin` and password `" + password + "`.\nTo use the `oc` command, log in by running `" + ocLoginCommand + "`."
+		delivered := true
 		if postMessage {
-			SendKubeConfig(client, channel, kubeconfig, message, parsedRequestTime.Format("2006-01-02-150405"))
+			// SendKubeConfig returns an empty file ID when the upload fails
+			delivered = SendKubeConfig(client, channel, kubeconfig, message, parsedRequestTime.Format("2006-01-02-150405")) != ""
 		}
-		return message, kubeconfig
+		return message, kubeconfig, delivered
 	}
-	if postMessage {
-		if _, _, err := client.PostMessage(channel, slack.MsgOptionText(fmt.Sprintf("Cluster %s is not yet available", cluster.GetName()), false)); err != nil {
-			klog.Warningf("Failed to post the message to the channel: %s.", channel)
-		}
-	}
-	return fmt.Sprintf("Cluster %s is not yet available", cluster.GetName()), ""
+	message := fmt.Sprintf("Cluster %s is not yet available", cluster.GetName())
+	return message, "", postMessageToChannel(client, channel, message, postMessage)
 }
 
 func NotifyRosa(client parser.SlackClient, cluster *clustermgmtv1.Cluster, password string) {

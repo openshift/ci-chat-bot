@@ -22,7 +22,7 @@ func Register(client *slack.Client, jobmanager manager.JobManager) *modals.FlowW
 func process(updater *slack.Client, jobManager manager.JobManager) interactions.Handler {
 	return interactions.HandlerFunc(identifier, func(callback *slack.InteractionCallback, logger *logrus.Entry) (output []byte, err error) {
 		common.SafeGo(func() {
-			managed, _, _, _, _ := jobManager.GetManagedClustersForUser(callback.User.ID)
+			managed, _, _, _ := jobManager.GetManagedClustersForUser(callback.User.ID)
 			if len(managed) == 0 {
 				msg := "You do not have any running MCE Clusters."
 				modals.OverwriteView(updater, modals.SubmissionView(title, msg), callback, logger)

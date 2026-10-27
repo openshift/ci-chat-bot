@@ -96,7 +96,7 @@ func View(jobManager manager.JobManager, user string) slack.HomeTabViewRequest {
 	// Divider
 	addBlockToView(view, slack.NewDividerBlock())
 	// for now, just assume a maximum of one managed cluster per user
-	managed, _, _, _, _ := jobManager.GetManagedClustersForUser(user)
+	managed, _, _, _ := jobManager.GetManagedClustersForUser(user)
 	if len(managed) == 0 {
 		// MCE Create
 		addBlockToView(view, slack.NewSectionBlock(
