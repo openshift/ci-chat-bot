@@ -632,7 +632,7 @@ func NewClientFromOptions(fields logrus.Fields, options ClientOptions) (TokenGen
 		Timeout:   options.MaxRequestTime,
 	}
 	graphQLHeaderTransport := newAddHeaderTransport(options.BaseRoundTripper)
-	graphQLTransport := newGraphQLRetryTransport(graphQLHeaderTransport)
+	graphQLTransport := &graphQLServerErrorTransport{upstream: graphQLHeaderTransport}
 	c := &client{
 		logger: logrus.WithFields(fields).WithField("client", "github"),
 		gqlc: &graphQLGitHubAppsAuthClientWrapper{Client: githubql.NewEnterpriseClient(
@@ -761,42 +761,57 @@ func (s *addHeaderTransport) RoundTrip(r *http.Request) (*http.Response, error) 
 }
 
 const (
-	// graphQLMaxRetries is the number of times a GraphQL request is retried
-	// after a transient 5xx response. GitHub unavailability is not rare, so
-	// this rides out roughly a minute of backoff (2+4+8+16+32s). Worst case,
-	// with every attempt being a ~10s gateway timeout, a request takes ~2m,
-	// which stays within MaxRequestTime (the http.Client timeout covers all
-	// retries). Callers that can do better than resending the same request
-	// can opt out for 502/504 with WithCallerHandledGatewayTimeouts.
-	graphQLMaxRetries = 5
-	// graphQLRetryInitialDelay is the delay before the first retry; it doubles
-	// on every subsequent retry.
-	graphQLRetryInitialDelay = 2 * time.Second
+	// graphQLMaxRetries is the number of times a GraphQL query is retried after
+	// a transient 5xx response, unless the client's MaxRetries is lower. It is
+	// kept low because a gateway timeout already costs ~10s per attempt.
+	// Callers that can do better than resending the same query can opt out for
+	// 502/504 with WithCallerHandledGatewayTimeouts.
+	graphQLMaxRetries = 2
+	// graphQLMaxErrorBodySize limits how much of an error response body is
+	// kept in a graphQLServerError.
+	graphQLMaxErrorBodySize = 8 * 1024
+	// graphQLMaxErrorDrainSize limits how much more of an error response body
+	// is read so the connection can be reused. Larger bodies are not worth
+	// spending the request timeout on; the connection is closed instead.
+	graphQLMaxErrorDrainSize = 64 * 1024
 )
 
-// graphQLRetryTransport implements http.RoundTripper
-var _ http.RoundTripper = &graphQLRetryTransport{}
-
-// graphQLRetryTransport retries GraphQL requests that fail with a transient
-// server error (502, 503 or 504). The REST client has its own retry logic in
-// requestRetryWithContext, but the GraphQL client talks to the transport
-// directly and would otherwise surface every transient failure to callers.
-type graphQLRetryTransport struct {
-	upstream     http.RoundTripper
-	maxRetries   int
-	initialDelay time.Duration
-	// sleep waits for d or until ctx is done, whichever comes first. It is
-	// overridable for tests.
-	sleep func(ctx context.Context, d time.Duration) error
+// graphQLServerError is returned by the GraphQL client for requests that fail
+// with a transient server error (502, 503 or 504).
+type graphQLServerError struct {
+	StatusCode int
+	Status     string
+	Body       []byte
 }
 
-func newGraphQLRetryTransport(upstream http.RoundTripper) *graphQLRetryTransport {
-	return &graphQLRetryTransport{
-		upstream:     upstream,
-		maxRetries:   graphQLMaxRetries,
-		initialDelay: graphQLRetryInitialDelay,
-		sleep:        sleepWithContext,
+// Error uses the same message as the GraphQL library's non-200 errors. Since
+// the error comes from the transport, net/http prefixes it with the request
+// method and URL.
+func (e graphQLServerError) Error() string {
+	return fmt.Sprintf("non-200 OK status code: %v body: %q", e.Status, e.Body)
+}
+
+// graphQLServerErrorTransport implements http.RoundTripper
+var _ http.RoundTripper = &graphQLServerErrorTransport{}
+
+// graphQLServerErrorTransport turns transient server error responses into a
+// graphQLServerError, so that QueryWithGitHubAppsSupport can tell them apart
+// from other failures. The GraphQL library itself only returns a formatted
+// message.
+type graphQLServerErrorTransport struct {
+	upstream http.RoundTripper
+}
+
+func (t *graphQLServerErrorTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := t.upstream.RoundTrip(r)
+	if err != nil || !isRetryableGraphQLStatus(resp.StatusCode) {
+		return resp, err
 	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, graphQLMaxErrorBodySize))
+	// Drain so the connection can be reused.
+	_, _ = io.CopyN(io.Discard, resp.Body, graphQLMaxErrorDrainSize)
+	resp.Body.Close()
+	return nil, graphQLServerError{StatusCode: resp.StatusCode, Status: resp.Status, Body: body}
 }
 
 func sleepWithContext(ctx context.Context, d time.Duration) error {
@@ -818,12 +833,16 @@ func isRetryableGraphQLStatus(code int) bool {
 	return false
 }
 
+func isGatewayTimeoutStatus(code int) bool {
+	return code == http.StatusBadGateway || code == http.StatusGatewayTimeout
+}
+
 type callerHandlesGatewayTimeoutsKey struct{}
 
 // WithCallerHandledGatewayTimeouts returns a context that disables the GraphQL
 // client's automatic retries of 502 Bad Gateway and 504 Gateway Timeout
-// responses for requests made with it. Use it when the caller has a better
-// recovery strategy than resending the identical request, e.g. requesting a
+// responses for queries made with it. Use it when the caller has a better
+// recovery strategy than resending the identical query, e.g. requesting a
 // smaller page: GitHub returns these when a query cannot be resolved within its
 // time limit, so an identical retry usually just times out again.
 // Other transient errors (503) are still retried.
@@ -838,54 +857,17 @@ func CallerHandlesGatewayTimeouts(ctx context.Context) bool {
 	return v
 }
 
-func (t *graphQLRetryTransport) shouldRetry(r *http.Request, code int) bool {
-	if !isRetryableGraphQLStatus(code) {
-		return false
-	}
-	if (code == http.StatusBadGateway || code == http.StatusGatewayTimeout) && CallerHandlesGatewayTimeouts(r.Context()) {
-		return false
-	}
-	return true
+// IsGatewayTimeout reports whether err is a GraphQL 502 Bad Gateway or 504
+// Gateway Timeout response.
+func IsGatewayTimeout(err error) bool {
+	var serverErr graphQLServerError
+	return errors.As(err, &serverErr) && isGatewayTimeoutStatus(serverErr.StatusCode)
 }
 
-func (t *graphQLRetryTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	// Without a way to rewind the body the request can only be sent once.
-	if r.Body != nil && r.Body != http.NoBody && r.GetBody == nil {
-		return t.upstream.RoundTrip(r)
-	}
-
-	backoff := t.initialDelay
-	for retries := 0; ; retries++ {
-		req := r
-		if retries > 0 && r.GetBody != nil {
-			body, err := r.GetBody()
-			if err != nil {
-				return nil, fmt.Errorf("failed to rewind GraphQL request body for retry: %w", err)
-			}
-			req = r.Clone(r.Context())
-			req.Body = body
-		}
-
-		resp, err := t.upstream.RoundTrip(req)
-		if err != nil || !t.shouldRetry(r, resp.StatusCode) || retries >= t.maxRetries {
-			return resp, err
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"client":      "github",
-			"status_code": resp.StatusCode,
-			"retry":       retries + 1,
-			"backoff":     backoff.String(),
-		}).Debug("Retrying GraphQL request after transient server error")
-		// Drain so the connection can be reused.
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-
-		if err := t.sleep(r.Context(), backoff); err != nil {
-			return nil, err
-		}
-		backoff *= 2
-	}
+// NewGraphQLServerError returns the error the GraphQL client returns for a
+// transient server error with the given status code, for tests.
+func NewGraphQLServerError(statusCode int) error {
+	return graphQLServerError{StatusCode: statusCode, Status: fmt.Sprintf("%d %s", statusCode, http.StatusText(statusCode))}
 }
 
 // NewClient creates a new fully operational GitHub client.
@@ -1260,8 +1242,8 @@ func (c *client) requestRetryWithContext(ctx context.Context, method, path, acce
 			} else if resp.StatusCode < 500 {
 				// Normal, happy case.
 				break
-			} else {
-				// Retry 500 after a break.
+			} else if retries+1 < c.maxRetries {
+				// Retry 5xx after a break only when another attempt remains.
 				c.logger.WithField("backoff", backoff.String()).Debug("Retrying 5XX")
 				c.time.Sleep(backoff)
 				backoff *= 2
@@ -2227,18 +2209,23 @@ func (c *client) readPaginatedResultsWithValuesWithContext(ctx context.Context, 
 		// * next: <ghe-url>/api/v3/repositories/22/pulls?per_page=100&page=2
 		// * prefix will be "/api/v3" and we strip it so we don't duplicate it
 		//   when prepending c.bases[hostIndex]
-		// Example for a redirect (e.g. repo rename):
-		// * initial call: api.github.com/repos/old-org/old-repo/pulls?per_page=100
-		// * resp.Request.URL (after redirect): api.github.com/repos/new-org/new-repo/pulls?per_page=100
-		// * next: api.github.com/repos/new-org/new-repo/pulls?per_page=100&page=2
-		// * prefix will be empty; we compare only Path (not full RequestURI) so
-		//   the differing response URL doesn't break the suffix match
-		pathOnly := strings.SplitN(pagedPath, "?", 2)[0]
-		prefix := strings.TrimSuffix(resp.Request.URL.Path, pathOnly)
-
+		// Example for a redirect (e.g. repo rename), with or without GHE:
+		// * initial call: <url>/repos/old-org/old-repo/pulls?per_page=100
+		// * resp.Request.URL (after redirect): <url>/repos/new-org/new-repo/pulls?per_page=100
+		// * next: <url>/repos/new-org/new-repo/pulls?per_page=100&page=2
+		// * prefix is determined from c.bases by matching the Link host, so
+		//   redirects that change the path don't affect prefix detection
 		u, err := url.Parse(link)
 		if err != nil {
 			return fmt.Errorf("failed to parse 'next' link: %w", err)
+		}
+		var prefix string
+		for _, base := range c.bases {
+			baseURL, err := url.Parse(base)
+			if err == nil && baseURL.Host == u.Host {
+				prefix = baseURL.Path
+				break
+			}
 		}
 		pagedPath = strings.TrimPrefix(u.RequestURI(), prefix)
 		if len(pagedPath) == 0 || pagedPath[0] != '/' {
@@ -3998,13 +3985,47 @@ func (c *client) GetFile(org, repo, filepath, commit string) ([]byte, error) {
 }
 
 // QueryWithGitHubAppsSupport runs a GraphQL query using shurcooL/githubql's client.
+// Transient server errors (502/503/504) are retried with backoff.
 func (c *client) QueryWithGitHubAppsSupport(ctx context.Context, q interface{}, vars map[string]interface{}, org string) error {
 	// Don't log query here because Query is typically called multiple times to get all pages.
 	// Instead log once per search and include total search cost.
-	return c.gqlc.QueryWithGitHubAppsSupport(ctx, q, vars, org)
+	// c.maxRetries counts attempts, like it does for REST requests.
+	maxRetries := min(graphQLMaxRetries, c.maxRetries-1)
+	backoff := c.initialDelay
+	for retries := 0; ; retries++ {
+		// Like REST requests, every attempt goes through the throttler and is
+		// bounded by its own request timeout.
+		err := c.gqlc.QueryWithGitHubAppsSupport(ctx, q, vars, org)
+		var serverErr graphQLServerError
+		if !errors.As(err, &serverErr) {
+			return err
+		}
+		if isGatewayTimeoutStatus(serverErr.StatusCode) && CallerHandlesGatewayTimeouts(ctx) {
+			return err
+		}
+		if retries >= maxRetries {
+			if retries == 0 {
+				return err
+			}
+			return fmt.Errorf("GraphQL query failed after %d attempts: %w", retries+1, err)
+		}
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < backoff {
+			return fmt.Errorf("GraphQL query failed after %d attempts: %w", retries+1, err)
+		}
+		c.logger.WithFields(logrus.Fields{
+			"status_code": serverErr.StatusCode,
+			"retry":       retries + 1,
+			"backoff":     backoff.String(),
+		}).Debug("Retrying GraphQL query after transient server error")
+		if sleepErr := sleepWithContext(ctx, backoff); sleepErr != nil {
+			return fmt.Errorf("GraphQL query failed after %d attempts: %w (last error: %w)", retries+1, sleepErr, err)
+		}
+		backoff *= 2
+	}
 }
 
 // MutateWithGitHubAppsSupport runs a GraphQL mutation using shurcooL/githubql's client.
+// Mutations are not retried, since a failed response does not mean the write was skipped.
 func (c *client) MutateWithGitHubAppsSupport(ctx context.Context, m interface{}, input githubql.Input, vars map[string]interface{}, org string) error {
 	return c.gqlc.MutateWithGitHubAppsSupport(ctx, m, input, vars, org)
 }

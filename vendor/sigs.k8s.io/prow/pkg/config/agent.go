@@ -24,10 +24,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/fsnotify.v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/prow/pkg/interrupts"
+)
+
+var configStaticJobDefinitions = prometheus.NewDesc(
+	"prow_config_static_job_definition",
+	"Number of static job definitions in the accepted configuration, by job type.",
+	[]string{"type"}, nil,
 )
 
 // Delta represents the before and after states of a Config change detected by the Agent.
@@ -35,15 +42,44 @@ type Delta struct {
 	Before, After Config
 }
 
-// DeltaChan is a channel to receive config delta events when config changes.
-type DeltaChan = chan<- Delta
+// DeltaChan is receive-only so subscribers cannot interfere with delivery.
+type DeltaChan = <-chan Delta
 
 // Agent watches a path and automatically loads the config stored
-// therein.
+// therein. Register an Agent as a prometheus.Collector to expose its static job
+// definition counts.
 type Agent struct {
-	mut           sync.RWMutex // do not export Lock, etc methods
-	c             *Config
-	subscriptions []DeltaChan
+	mut sync.RWMutex // do not export Lock, etc methods
+	c   *Config
+	// Single-slot buffers let Set coalesce updates for slow subscribers.
+	subscriptions  []chan Delta
+	jobDefinitions jobDefinitionCounts
+}
+
+type jobDefinitionCounts struct {
+	periodics   int
+	presubmits  int
+	postsubmits int
+}
+
+// Describe implements prometheus.Collector.
+func (ca *Agent) Describe(ch chan<- *prometheus.Desc) {
+	ch <- configStaticJobDefinitions
+}
+
+// Collect implements prometheus.Collector. Counts are cached when a config is
+// accepted; no metrics are emitted before the first config is accepted.
+func (ca *Agent) Collect(ch chan<- prometheus.Metric) {
+	ca.mut.RLock()
+	counts := ca.jobDefinitions
+	loaded := ca.c != nil
+	ca.mut.RUnlock()
+	if !loaded {
+		return
+	}
+	ch <- prometheus.MustNewConstMetric(configStaticJobDefinitions, prometheus.GaugeValue, float64(counts.periodics), "periodic")
+	ch <- prometheus.MustNewConstMetric(configStaticJobDefinitions, prometheus.GaugeValue, float64(counts.presubmits), "presubmit")
+	ch <- prometheus.MustNewConstMetric(configStaticJobDefinitions, prometheus.GaugeValue, float64(counts.postsubmits), "postsubmit")
 }
 
 // IsConfigMapMount determines whether the provided directory is a configmap mounted directory
@@ -200,9 +236,9 @@ func ListCMsAndDirs(path string) (cms sets.Set[string], dirs sets.Set[string], e
 	return cms, dirs, err
 }
 
-func watchConfigs(ca *Agent, prowConfig, jobConfig string, supplementalProwConfigDirs []string, supplementalProwConfigsFileNameSuffix string, additionals ...func(*Config) error) error {
+func watchConfigs(ca *Agent, prowConfig string, jobConfigs []string, supplementalProwConfigDirs []string, supplementalProwConfigsFileNameSuffix string, additionals ...func(*Config) error) error {
 	cmEventFunc := func() error {
-		c, err := Load(prowConfig, jobConfig, supplementalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...)
+		c, err := Load(prowConfig, jobConfigs, supplementalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...)
 		if err != nil {
 			return err
 		}
@@ -211,15 +247,19 @@ func watchConfigs(ca *Agent, prowConfig, jobConfig string, supplementalProwConfi
 	}
 	// We may need to add more directories to be watched
 	dirsEventFunc := func(w *fsnotify.Watcher) error {
-		c, err := Load(prowConfig, jobConfig, supplementalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...)
+		c, err := Load(prowConfig, jobConfigs, supplementalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...)
 		if err != nil {
 			return err
 		}
 		ca.Set(c)
 		// TODO(AlexNPavel): Is there a chance that a ConfigMap mounted directory may appear without making a new pod? If yes, handle that.
-		_, dirs, err := ListCMsAndDirs(jobConfig)
-		if err != nil {
-			return err
+		dirs := sets.New[string]()
+		for _, jobConfig := range jobConfigs {
+			_, jobConfigDirs, err := ListCMsAndDirs(jobConfig)
+			if err != nil {
+				return err
+			}
+			dirs.Insert(jobConfigDirs.UnsortedList()...)
 		}
 		for _, supplementalProwConfigDir := range supplementalProwConfigDirs {
 			_, additionalDirs, err := ListCMsAndDirs(supplementalProwConfigDir)
@@ -238,25 +278,26 @@ func watchConfigs(ca *Agent, prowConfig, jobConfig string, supplementalProwConfi
 	}
 	errFunc := func(err error, msg string) {
 		logrus.WithField("prowConfig", prowConfig).
-			WithField("jobConfig", jobConfig).
+			WithField("jobConfigs", jobConfigs).
 			WithError(err).Error(msg)
 	}
 	cms := sets.New[string]()
 	dirs := sets.New[string]()
-	// TODO(AlexNPavel): allow empty jobConfig till fully migrate config to subdirs
-	if jobConfig != "" {
+	// TODO(AlexNPavel): allow empty jobConfigs till fully migrate config to subdirs
+	for _, jobConfig := range jobConfigs {
 		stat, err := os.Stat(jobConfig)
 		if err != nil {
 			return err
 		}
 		// TODO(AlexNPavel): allow single file jobConfig till fully migrate config to subdirs
 		if stat.IsDir() {
-			var err error
 			// jobConfig points to directories of configs that may be nested
-			cms, dirs, err = ListCMsAndDirs(jobConfig)
+			jobConfigCMs, jobConfigDirs, err := ListCMsAndDirs(jobConfig)
 			if err != nil {
 				return err
 			}
+			cms.Insert(jobConfigCMs.UnsortedList()...)
+			dirs.Insert(jobConfigDirs.UnsortedList()...)
 		} else {
 			// If jobConfig is a single file, we handle it identically to how prowConfig is handled
 			if jobIsCMMounted, err := IsConfigMapMount(filepath.Dir(jobConfig)); err != nil {
@@ -301,17 +342,17 @@ func watchConfigs(ca *Agent, prowConfig, jobConfig string, supplementalProwConfi
 // first load fails, Start will return the error and abort. Future load failures
 // will log the failure message but continue attempting to load.
 // This function will replace Start in a future release.
-func (ca *Agent) StartWatch(prowConfig, jobConfig string, supplementalProwConfigDirs []string, supplementalProwConfigsFileNameSuffix string, additionals ...func(*Config) error) error {
-	c, err := Load(prowConfig, jobConfig, supplementalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...)
+func (ca *Agent) StartWatch(prowConfig string, jobConfigs []string, supplementalProwConfigDirs []string, supplementalProwConfigsFileNameSuffix string, additionals ...func(*Config) error) error {
+	c, err := Load(prowConfig, jobConfigs, supplementalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...)
 	if err != nil {
 		return err
 	}
 	ca.Set(c)
-	watchConfigs(ca, prowConfig, jobConfig, supplementalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...)
+	watchConfigs(ca, prowConfig, jobConfigs, supplementalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...)
 	return nil
 }
 
-func lastConfigModTime(prowConfig, jobConfig string) (time.Time, error) {
+func lastConfigModTime(prowConfig string, jobConfigs []string) (time.Time, error) {
 	// Check if the file changed to see if it needs to be re-read.
 	// os.Stat follows symbolic links, which is how ConfigMaps work.
 	prowStat, err := os.Stat(prowConfig)
@@ -320,8 +361,8 @@ func lastConfigModTime(prowConfig, jobConfig string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	recentModTime := prowStat.ModTime()
-	// TODO(krzyzacy): allow empty jobConfig till fully migrate config to subdirs
-	if jobConfig != "" {
+	// TODO(krzyzacy): allow empty jobConfigs till fully migrate config to subdirs
+	for _, jobConfig := range jobConfigs {
 		jobConfigStat, err := os.Stat(jobConfig)
 		if err != nil {
 			logrus.WithField("jobConfig", jobConfig).WithError(err).Error("Error loading job configs.")
@@ -338,12 +379,12 @@ func lastConfigModTime(prowConfig, jobConfig string) (time.Time, error) {
 // Start will begin polling the config file at the path. If the first load
 // fails, Start will return the error and abort. Future load failures will log
 // the failure message but continue attempting to load.
-func (ca *Agent) Start(prowConfig, jobConfig string, additionalProwConfigDirs []string, supplementalProwConfigsFileNameSuffix string, additionals ...func(*Config) error) error {
-	lastModTime, err := lastConfigModTime(prowConfig, jobConfig)
+func (ca *Agent) Start(prowConfig string, jobConfigs []string, additionalProwConfigDirs []string, supplementalProwConfigsFileNameSuffix string, additionals ...func(*Config) error) error {
+	lastModTime, err := lastConfigModTime(prowConfig, jobConfigs)
 	if err != nil {
 		lastModTime = time.Time{}
 	}
-	c, err := Load(prowConfig, jobConfig, additionalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...)
+	c, err := Load(prowConfig, jobConfigs, additionalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...)
 	if err != nil {
 		return err
 	}
@@ -355,7 +396,7 @@ func (ca *Agent) Start(prowConfig, jobConfig string, additionalProwConfigDirs []
 		skips := 0
 		for range time.Tick(1 * time.Second) {
 			if skips < 600 {
-				recentModTime, err := lastConfigModTime(prowConfig, jobConfig)
+				recentModTime, err := lastConfigModTime(prowConfig, jobConfigs)
 				if err != nil {
 					continue
 				}
@@ -365,9 +406,9 @@ func (ca *Agent) Start(prowConfig, jobConfig string, additionalProwConfigDirs []
 				}
 				lastModTime = recentModTime
 			}
-			if c, err := Load(prowConfig, jobConfig, additionalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...); err != nil {
+			if c, err := Load(prowConfig, jobConfigs, additionalProwConfigDirs, supplementalProwConfigsFileNameSuffix, additionals...); err != nil {
 				logrus.WithField("prowConfig", prowConfig).
-					WithField("jobConfig", jobConfig).
+					WithField("jobConfigs", jobConfigs).
 					WithError(err).Error("Error loading config.")
 			} else {
 				skips = 0
@@ -378,14 +419,14 @@ func (ca *Agent) Start(prowConfig, jobConfig string, additionalProwConfigDirs []
 	return nil
 }
 
-// Subscribe registers the channel for messages on config reload.
-// The caller can expect a copy of the previous and current config
-// to be sent down the subscribed channel when a new configuration
-// is loaded.
-func (ca *Agent) Subscribe(subscription DeltaChan) {
+// Subscribe returns config changes. Coalescing preserves the earliest unread
+// Before and latest After so slow subscribers can reconcile the full change.
+func (ca *Agent) Subscribe() DeltaChan {
 	ca.mut.Lock()
 	defer ca.mut.Unlock()
+	subscription := make(chan Delta, 1)
 	ca.subscriptions = append(ca.subscriptions, subscription)
+	return subscription
 }
 
 // Getter returns the current Config in a thread-safe manner.
@@ -409,29 +450,51 @@ func (ca *Agent) Set(c *Config) {
 	}
 	delta := Delta{oldConfig, *c}
 	ca.c = c
+	ca.jobDefinitions = countJobDefinitions(c)
 	for _, subscription := range ca.subscriptions {
-		go func(sub DeltaChan) { // wait a minute to send each event
-			end := time.NewTimer(time.Minute)
-			select {
-			case sub <- delta:
-			case <-end.C:
-			}
-			if !end.Stop() { // prevent new events
-				<-end.C // drain the pending event
-			}
-		}(subscription)
+		deliverDelta(subscription, delta)
 	}
 }
 
-// SetWithoutBroadcast sets the config, but does not broadcast the event to
-// those listening for config reload changes. This is useful if you want to
-// modify the Config in the Agent, from the point of view of the subscriber to
-// the new one that was detected from the DeltaChan; if you just used Set()
-// instead of this in such a situation, you would end up clogging the DeltaChan
-// because you would be acting as both the consumer and producer of the
-// DeltaChan.
+// deliverDelta preserves the earliest unread Before when coalescing updates.
+// Set holds ca.mut, so no other producer can refill the single-slot buffer;
+// the final send cannot block after the pending delta is drained.
+func deliverDelta(sub chan Delta, delta Delta) {
+	select {
+	case sub <- delta:
+		return
+	default:
+	}
+	select {
+	case pending := <-sub:
+		delta.Before = pending.Before
+	default:
+		// The subscriber may have drained the slot after the send attempt.
+	}
+	sub <- delta
+}
+
+// SetWithoutBroadcast updates config without notifying subscribers, avoiding
+// feedback loops when a subscriber applies a received config.
 func (ca *Agent) SetWithoutBroadcast(c *Config) {
 	ca.mut.Lock()
 	defer ca.mut.Unlock()
 	ca.c = c
+	ca.jobDefinitions = countJobDefinitions(c)
+}
+
+func countJobDefinitions(c *Config) jobDefinitionCounts {
+	return jobDefinitionCounts{
+		periodics:   len(c.Periodics),
+		presubmits:  jobCount(c.PresubmitsStatic),
+		postsubmits: jobCount(c.PostsubmitsStatic),
+	}
+}
+
+func jobCount[T any](jobs map[string][]T) int {
+	count := 0
+	for _, jobsForRepo := range jobs {
+		count += len(jobsForRepo)
+	}
+	return count
 }
