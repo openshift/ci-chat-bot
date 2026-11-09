@@ -863,7 +863,14 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 				}
 				prow.SetJobEnvVar(&pj.Spec, fmt.Sprintf("CONFIG_SPEC_%d", index), string(data))
 
-				data, err = json.MarshalIndent(JobSpec{Refs: &ref}, "", "  ")
+				// the child ci-operator build clones this ref into its src image; use the
+				// repository's canonical Go path so the clone location matches the path its
+				// build expects (ci-operator otherwise defaults to github.com/<org>/<repo>)
+				buildRef := ref
+				if canonicalPath := targetConfig.DeterminePathAlias(ref.Org, ref.Repo); canonicalPath != "" {
+					buildRef.PathAlias = canonicalPath
+				}
+				data, err = json.MarshalIndent(JobSpec{Refs: &buildRef}, "", "  ")
 				if err != nil {
 					return "", fmt.Errorf("unable to reformat child job for %#v: %v", ref, err)
 				}
