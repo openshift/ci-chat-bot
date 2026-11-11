@@ -2,13 +2,18 @@ package messages
 
 import (
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	orgdatacore "github.com/openshift-eng/cyborg-data/go"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	chatmetrics "github.com/openshift/ci-chat-bot/pkg/metrics"
 	"github.com/openshift/ci-chat-bot/pkg/slack/parser"
+	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 )
@@ -111,6 +116,70 @@ func (m *commandActivityJobManager) GetOrgDataService() manager.OrgDataService {
 	return m.orgDataService
 }
 
+type quoteTestJobManager struct {
+	manager.JobManager
+}
+
+func (m *quoteTestJobManager) GetMceUserConfig() *manager.MceConfig {
+	return nil
+}
+
+func (m *quoteTestJobManager) GetOrgDataService() manager.OrgDataService {
+	return nil
+}
+
+type recordedSlackMessage struct {
+	channel string
+	text    string
+}
+
+type slackMessageRecorder struct {
+	lock     sync.Mutex
+	messages []recordedSlackMessage
+}
+
+func (r *slackMessageRecorder) add(channel, text string) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	r.messages = append(r.messages, recordedSlackMessage{channel: channel, text: text})
+}
+
+func (r *slackMessageRecorder) snapshot() []recordedSlackMessage {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	return append([]recordedSlackMessage(nil), r.messages...)
+}
+
+type quoteTestHTTPClient struct {
+	recorder *slackMessageRecorder
+}
+
+func (c *quoteTestHTTPClient) Do(request *http.Request) (*http.Response, error) {
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return nil, err
+	}
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
+		return nil, err
+	}
+	c.recorder.add(values.Get("channel"), values.Get("text"))
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Status:     "200 OK",
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"ok":true,"channel":"D12345","ts":"1234567890.000001"}`)),
+		Request:    request,
+	}, nil
+}
+
+func newQuoteTestSlackClient(t *testing.T) (*slack.Client, *slackMessageRecorder) {
+	t.Helper()
+	recorder := &slackMessageRecorder{}
+	client := slack.New("test-token", slack.OptionAPIURL("https://slack.test/"), slack.OptionHTTPClient(&quoteTestHTTPClient{recorder: recorder}))
+	return client, recorder
+}
+
 func TestExecuteCommandRecordsActivity(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -191,6 +260,79 @@ func TestExecuteCommandUsesEmailFallbackForActivity(t *testing.T) {
 	}
 	if client.lookups != 1 {
 		t.Errorf("Slack user lookups = %d, want 1", client.lookups)
+	}
+}
+
+func TestHandleCommandQuoteStyles(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		response string
+	}{
+		{
+			name:     "straight double quotes",
+			text:     `request gcp-access "Need to debug CI infrastructure"`,
+			response: "resource=gcp-access justification=Need to debug CI infrastructure",
+		},
+		{
+			name:     "straight single quotes",
+			text:     `request gcp-access 'Need to debug CI infrastructure'`,
+			response: "resource=gcp-access justification=Need to debug CI infrastructure",
+		},
+		{
+			name:     "curly double quotes",
+			text:     "request gcp-access \u201cNeed to debug CI infrastructure\u201d",
+			response: "resource=gcp-access justification=Need to debug CI infrastructure",
+		},
+		{
+			name:     "curly single quotes",
+			text:     "request gcp-access \u2018Need to debug CI infrastructure\u2019",
+			response: "resource=gcp-access justification=Need to debug CI infrastructure",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client, slackRecorder := newQuoteTestSlackClient(t)
+			commands := []parser.BotCommand{
+				parser.NewBotCommand("request <resource?> <justification?>", &parser.CommandDefinition{
+					Handler: func(_ parser.SlackClient, _ manager.JobManager, _ *slackevents.MessageEvent, properties *parser.Properties) string {
+						return fmt.Sprintf("resource=%s justification=%s", properties.StringParam("resource", ""), properties.StringParam("justification", ""))
+					},
+				}, false),
+			}
+			handler := Handle(client, &quoteTestJobManager{}, commands)
+			event := &slackevents.EventsAPIEvent{
+				Type: slackevents.CallbackEvent,
+				InnerEvent: slackevents.EventsAPIInnerEvent{
+					Type: "message",
+					Data: &slackevents.MessageEvent{
+						Channel: "D12345",
+						User:    "U12345",
+						Text:    test.text,
+					},
+				},
+			}
+
+			handled, err := handler.Handle(event, logrus.NewEntry(logrus.New()))
+			if err != nil {
+				t.Fatalf("Handle() returned error: %v", err)
+			}
+			if !handled {
+				t.Fatal("Handle() did not handle the message event")
+			}
+
+			messages := slackRecorder.snapshot()
+			if len(messages) != 1 {
+				t.Fatalf("posted %d messages, want 1: %#v", len(messages), messages)
+			}
+			if messages[0].channel != "D12345" {
+				t.Errorf("posted to channel %q, want D12345", messages[0].channel)
+			}
+			if messages[0].text != test.response {
+				t.Errorf("response = %q, want %q", messages[0].text, test.response)
+			}
+		})
 	}
 }
 
