@@ -17,8 +17,8 @@ const (
 	// inputPattern matches either a quoted string (with quotes) or everything to the end
 	inputPattern = "(.+)"
 	// lazyInputPattern matches either a quoted string (with quotes) or a non-space sequence
-	// Supports both double quotes and single quotes, preserving the quotes in the capture
-	lazyInputPattern   = "(\"[^\"]*\"|'[^']*'|\\S+)"
+	// Supports straight and curly double or single quotes, preserving the quotes in the capture
+	lazyInputPattern   = "(\"[^\"]*\"|'[^']*'|“[^”]*”|‘[^’]*’|\\S+)"
 	preCommandPattern  = "(^)"
 	postCommandPattern = "$"
 )
@@ -31,6 +31,12 @@ const (
 
 var (
 	regexCharacters = []string{"\\", "(", ")", "{", "}", "[", "]", "?", ".", "+", "|", "^", "$"}
+	quotePairs      = [][2]string{
+		{`"`, `"`},
+		{`'`, `'`},
+		{`“`, `”`},
+		{`‘`, `’`},
+	}
 )
 
 func (c *botCommand) Execute(client SlackClient, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string {
@@ -224,11 +230,10 @@ func (p *Properties) StringParam(key string, defaultValue string) string {
 	if !ok {
 		return defaultValue
 	}
-	// Strip surrounding quotes if present (both double and single quotes)
-	if len(value) >= 2 {
-		if (value[0] == '"' && value[len(value)-1] == '"') ||
-			(value[0] == '\'' && value[len(value)-1] == '\'') {
-			return value[1 : len(value)-1]
+	// Strip surrounding straight or curly quotes if present
+	for _, pair := range quotePairs {
+		if len(value) >= len(pair[0])+len(pair[1]) && strings.HasPrefix(value, pair[0]) && strings.HasSuffix(value, pair[1]) {
+			return value[len(pair[0]) : len(value)-len(pair[1])]
 		}
 	}
 	return value

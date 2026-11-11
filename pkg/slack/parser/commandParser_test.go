@@ -245,6 +245,24 @@ func TestMatch(t *testing.T) {
 			},
 		},
 	}, {
+		command: "request gcp-access “Need to debug CI infrastructure issues”",
+		match:   10,
+		properties: &Properties{
+			PropertyMap: map[string]string{
+				"resource":      "gcp-access",
+				"justification": "“Need to debug CI infrastructure issues”",
+			},
+		},
+	}, {
+		command: "request gcp-access ‘Need to debug CI infrastructure issues’",
+		match:   10,
+		properties: &Properties{
+			PropertyMap: map[string]string{
+				"resource":      "gcp-access",
+				"justification": "‘Need to debug CI infrastructure issues’",
+			},
+		},
+	}, {
 		command: "revoke gcp-access",
 		match:   11,
 		properties: &Properties{
@@ -283,6 +301,29 @@ func TestMatch(t *testing.T) {
 				if value != tc.properties.PropertyMap[key] {
 					t.Errorf("Actual property (`%s` == `%s`) does not match expected property (`%s` == `%s`)", key, value, key, tc.properties.PropertyMap[key])
 				}
+			}
+		})
+	}
+}
+
+func TestStringParamStripsQuotes(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "straight double quotes", value: `"justification"`, want: "justification"},
+		{name: "straight single quotes", value: `'justification'`, want: "justification"},
+		{name: "curly double quotes", value: "“justification”", want: "justification"},
+		{name: "curly single quotes", value: "‘justification’", want: "justification"},
+		{name: "unquoted", value: "justification", want: "justification"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			properties := NewProperties(map[string]string{"justification": test.value})
+			if got := properties.StringParam("justification", ""); got != test.want {
+				t.Errorf("StringParam() = %q, want %q", got, test.want)
 			}
 		})
 	}
