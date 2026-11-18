@@ -24,31 +24,31 @@ var mockBotCommands = []parser.BotCommand{
 		Description: "Launch an OpenShift cluster",
 		Example:     "launch 4.19 aws",
 		Handler:     mockHandler,
-	}, false),
+	}),
 	parser.NewBotCommand("rosa create <version> <duration>", &parser.CommandDefinition{
 		Description: "Create a ROSA cluster",
 		Example:     "rosa create 4.19 3h",
 		Handler:     mockHandler,
-	}, false),
+	}),
 	parser.NewBotCommand("list", &parser.CommandDefinition{
 		Description: "List active clusters",
 		Handler:     mockHandler,
-	}, false),
+	}),
 	parser.NewBotCommand("test <name> <image_or_version_or_prs> <options>", &parser.CommandDefinition{
 		Description: "Run test suite",
 		Example:     "test e2e 4.19 aws",
 		Handler:     mockHandler,
-	}, false),
+	}),
 	parser.NewBotCommand("build <pullrequest>", &parser.CommandDefinition{
 		Description: "Build image from PR",
 		Example:     "build openshift/installer#123",
 		Handler:     mockHandler,
-	}, false),
+	}),
 	parser.NewBotCommand("mce create <version> <duration> <platform>", &parser.CommandDefinition{
 		Description: "Create MCE cluster",
 		Example:     "mce create 4.19 6h aws",
 		Handler:     mockHandler,
-	}, true), // private command
+	}),
 }
 
 func mockHandler(client parser.SlackClient, manager manager.JobManager, event *slackevents.MessageEvent, properties *parser.Properties) string {
@@ -208,7 +208,7 @@ func TestExecuteCommandRecordsActivity(t *testing.T) {
 					gotContext = context
 					return "mock response"
 				},
-			}, false)
+			})
 			event := &slackevents.MessageEvent{
 				User: "U12345",
 				Text: `request gcp-access "justification@example.com"`,
@@ -249,7 +249,7 @@ func TestExecuteCommandUsesEmailFallbackForActivity(t *testing.T) {
 	client := &commandActivitySlackClient{
 		user: &slack.User{Profile: slack.UserProfile{Email: "person@example.com"}},
 	}
-	command := parser.NewBotCommand("list", &parser.CommandDefinition{Handler: mockHandler}, false)
+	command := parser.NewBotCommand("list", &parser.CommandDefinition{Handler: mockHandler})
 	event := &slackevents.MessageEvent{User: "U12345", Text: "list"}
 
 	if got := executeCommand(client, jobManager, command, event, parser.NewProperties(nil), recorder); got != "mock response" {
@@ -299,7 +299,7 @@ func TestHandleCommandQuoteStyles(t *testing.T) {
 					Handler: func(_ parser.SlackClient, _ manager.JobManager, _ *slackevents.MessageEvent, properties *parser.Properties) string {
 						return fmt.Sprintf("resource=%s justification=%s", properties.StringParam("resource", ""), properties.StringParam("justification", ""))
 					},
-				}, false),
+				}),
 			}
 			handler := Handle(client, &quoteTestJobManager{}, commands)
 			event := &slackevents.EventsAPIEvent{
@@ -338,10 +338,9 @@ func TestHandleCommandQuoteStyles(t *testing.T) {
 
 func TestFindCommandSuggestion(t *testing.T) {
 	testCases := []struct {
-		name         string
-		input        string
-		allowPrivate bool
-		expected     string
+		name     string
+		input    string
+		expected string
 	}{
 		{
 			name:     "Exact category match",
@@ -374,16 +373,9 @@ func TestFindCommandSuggestion(t *testing.T) {
 			expected: "manage",
 		},
 		{
-			name:         "MCE category with permission",
-			input:        "mce",
-			allowPrivate: true,
-			expected:     "mce",
-		},
-		{
-			name:         "MCE category without permission",
-			input:        "mce",
-			allowPrivate: false,
-			expected:     "",
+			name:     "MCE category",
+			input:    "mce",
+			expected: "mce",
 		},
 		{
 			name:     "Individual command match",
@@ -399,7 +391,7 @@ func TestFindCommandSuggestion(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := findCommandSuggestion(tc.input, mockBotCommands, tc.allowPrivate)
+			result := findCommandSuggestion(tc.input, mockBotCommands)
 			if result != tc.expected {
 				t.Errorf("Expected '%s', got '%s'", tc.expected, result)
 			}
@@ -409,7 +401,7 @@ func TestFindCommandSuggestion(t *testing.T) {
 
 func TestHelpOverview(t *testing.T) {
 	// Test the help overview message generation directly
-	message := GenerateHelpOverviewMessage(false)
+	message := GenerateHelpOverviewMessage()
 
 	// Check that overview contains expected elements
 	expectedContent := []string{
@@ -418,7 +410,15 @@ func TestHelpOverview(t *testing.T) {
 		"help launch",
 		"help rosa",
 		"All Commands:",
+		"Cluster Launching:",
+		"ROSA Clusters:",
+		"Cluster Management:",
+		"Testing:",
+		"Building:",
+		"Information:",
+		"MCE Clusters:",
 		"Category Help:",
+		"help mce",
 		"Examples:",
 		"launch 4.19 aws",
 	}
@@ -427,21 +427,6 @@ func TestHelpOverview(t *testing.T) {
 		if !strings.Contains(message, expected) {
 			t.Errorf("Expected message to contain '%s', got: %s", expected, message)
 		}
-	}
-
-	// Should not contain MCE when not private
-	if strings.Contains(message, "help mce") {
-		t.Errorf("Should not contain MCE help for non-private user")
-	}
-}
-
-func TestHelpOverviewWithPrivate(t *testing.T) {
-	// Test the help overview message generation with private commands
-	message := GenerateHelpOverviewMessage(true)
-
-	// Should contain MCE when private
-	if !strings.Contains(message, "help mce") {
-		t.Errorf("Should contain MCE help for private user, got: %s", message)
 	}
 }
 
@@ -490,7 +475,7 @@ func TestHelpSpecificRosa(t *testing.T) {
 
 func TestHelpSpecificUnknownTopic(t *testing.T) {
 	// Test that findCommandSuggestion returns empty for truly unknown topics
-	suggestion := findCommandSuggestion("unknown", mockBotCommands, false)
+	suggestion := findCommandSuggestion("unknown", mockBotCommands)
 	if suggestion != "" {
 		t.Errorf("Expected no suggestion for 'unknown', got '%s'", suggestion)
 	}
@@ -498,7 +483,7 @@ func TestHelpSpecificUnknownTopic(t *testing.T) {
 
 func TestHelpSpecificWithSuggestion(t *testing.T) {
 	// Test that findCommandSuggestion works for partial matches
-	suggestion := findCommandSuggestion("laun", mockBotCommands, false)
+	suggestion := findCommandSuggestion("laun", mockBotCommands)
 	if suggestion != "launch" {
 		t.Errorf("Expected 'launch' suggestion for 'laun', got '%s'", suggestion)
 	}
