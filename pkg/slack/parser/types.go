@@ -61,7 +61,6 @@ type BotCommand interface {
 	Match(text string) (*Properties, bool)
 	Tokenize() []*Token
 	Execute(client SlackClient, manager manager.JobManager, event *slackevents.MessageEvent, properties *Properties) string
-	IsPrivate() bool
 }
 
 // ContextualBotCommand is implemented by commands that can receive optional
@@ -76,5 +75,4 @@ type botCommand struct {
 	usage      string
 	definition *CommandDefinition
 	command    *Command
-	private    bool
 }

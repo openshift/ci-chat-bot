@@ -72,13 +72,12 @@ func (c *botCommand) Tokenize() []*Token {
 }
 
 // NewBotCommand creates a new bot command object
-func NewBotCommand(usage string, definition *CommandDefinition, isPrivate bool) BotCommand {
+func NewBotCommand(usage string, definition *CommandDefinition) BotCommand {
 	command := NewCommand(usage)
 	return &botCommand{
 		usage:      usage,
 		definition: definition,
 		command:    command,
-		private:    isPrivate,
 	}
 }
 
@@ -90,11 +89,6 @@ func (c *botCommand) Usage() string {
 // Definition Description returns the command description
 func (c *botCommand) Definition() *CommandDefinition {
 	return c.definition
-}
-
-// IsPrivate returns whether the command is a private command
-func (c *botCommand) IsPrivate() bool {
-	return c.private
 }
 
 func NewCommand(format string) *Command {

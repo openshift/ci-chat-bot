@@ -32,13 +32,14 @@ const (
 	HelpCategoryMce    = "mce"
 )
 
-// HelpCategories defines the standard help categories (excluding MCE which is private)
+// HelpCategories defines the standard help categories
 var HelpCategories = []string{
 	HelpCategoryLaunch,
 	HelpCategoryRosa,
 	HelpCategoryTest,
 	HelpCategoryBuild,
 	HelpCategoryManage,
+	HelpCategoryMce,
 }
 
 func Handle(client *slack.Client, manager manager.JobManager, botCommands []parser.BotCommand, recorders ...chatmetrics.CommandRecorder) events.PartialHandler {
@@ -69,32 +70,17 @@ func Handle(client *slack.Client, manager manager.JobManager, botCommands []pars
 			if event.SubType == "message_changed" || event.SubType == "file_share" {
 				return true, nil
 			}
-			mceConfig := manager.GetMceUserConfig()
-			var allowed bool
-			if mceConfig != nil {
-				mceConfig.Mutex.RLock()
-				for user := range mceConfig.Users {
-					if user == event.User {
-						allowed = true
-						break
-					}
-				}
-				mceConfig.Mutex.RUnlock()
-			}
 			text := strings.TrimSpace(event.Text)
 			parts := strings.Fields(text)
 			if len(parts) > 0 && parts[0] == "help" {
 				if len(parts) == 1 {
-					HelpOverview(client, event, botCommands, allowed)
+					HelpOverview(client, event, botCommands)
 				} else {
-					HelpSpecific(client, event, parts[1], botCommands, allowed)
+					HelpSpecific(client, event, parts[1], botCommands)
 				}
 				return true, nil
 			}
 			for _, command := range botCommands {
-				if command.IsPrivate() && !allowed {
-					continue
-				}
 				properties, match := command.Match(event.Text)
 				if match {
 					response := executeCommand(client, manager, command, event, properties, recorder)
@@ -162,7 +148,7 @@ func postResponse(client *slack.Client, event *slackevents.MessageEvent, respons
 }
 
 // GenerateHelpOverviewMessage creates the help overview message content
-func GenerateHelpOverviewMessage(allowPrivate bool) string {
+func GenerateHelpOverviewMessage() string {
 	helpMessage := "*🤖 Cluster Bot - Quick Start*\n\n"
 
 	// Common commands
@@ -207,14 +193,12 @@ func GenerateHelpOverviewMessage(allowPrivate bool) string {
 	helpMessage += "• `version` - Report the bot version\n"
 	helpMessage += "• `lookup <image_or_version_or_prs> <architecture>` - Get version info\n"
 
-	if allowPrivate {
-		helpMessage += "\n*MCE Clusters (Private):*\n"
-		helpMessage += "• `mce create <image_or_version_or_prs> <duration> <platform>` - Create clusters using Hive and MCE\n"
-		helpMessage += "• `mce auth <name>` - Get kubeconfig and kubeadmin password for MCE cluster\n"
-		helpMessage += "• `mce delete <cluster_name>` - Delete MCE cluster\n"
-		helpMessage += "• `mce list <all>` - List active MCE clusters\n"
-		helpMessage += "• `mce lookup` - List available MCE versions\n"
-	}
+	helpMessage += "\n*MCE Clusters:*\n"
+	helpMessage += "• `mce create <image_or_version_or_prs> <duration> <platform>` - Create clusters using Hive and MCE\n"
+	helpMessage += "• `mce auth <name>` - Get kubeconfig and kubeadmin password for MCE cluster\n"
+	helpMessage += "• `mce delete <cluster_name>` - Delete MCE cluster\n"
+	helpMessage += "• `mce list <all>` - List active MCE clusters\n"
+	helpMessage += "• `mce lookup` - List available MCE versions\n"
 
 	helpMessage += "\n*Category Help:*\n"
 	helpMessage += "• `help launch` - Cluster launching\n"
@@ -222,10 +206,7 @@ func GenerateHelpOverviewMessage(allowPrivate bool) string {
 	helpMessage += "• `help test` - Testing & workflows\n"
 	helpMessage += "• `help build` - Build images\n"
 	helpMessage += "• `help manage` - Cluster management\n"
-
-	if allowPrivate {
-		helpMessage += "• `help mce` - MCE clusters (private)\n"
-	}
+	helpMessage += "• `help mce` - MCE clusters\n"
 
 	helpMessage += "\n*Examples:*\n"
 	helpMessage += "• `launch 4.19 aws` - Launch OpenShift 4.19 on AWS\n"
@@ -460,7 +441,7 @@ func GenerateManageHelpMessage() string {
 
 // GenerateMceHelpMessage creates the comprehensive MCE help message
 func GenerateMceHelpMessage() string {
-	helpMessage := "*🏢 MCE (Multi-Cluster Engine) - Private Commands*\n\n"
+	helpMessage := "*🏢 MCE (Multi-Cluster Engine) Commands*\n\n"
 
 	helpMessage += "*mce create*\n"
 	helpMessage += "```\nmce create <hub_version> <managed_count> <platform>\n```\n"
@@ -486,15 +467,15 @@ func GenerateMceHelpMessage() string {
 }
 
 // HelpOverview displays a categorized overview of available commands instead of overwhelming users with all commands at once
-func HelpOverview(client *slack.Client, event *slackevents.MessageEvent, botCommands []parser.BotCommand, allowPrivate bool) {
-	helpMessage := GenerateHelpOverviewMessage(allowPrivate)
+func HelpOverview(client *slack.Client, event *slackevents.MessageEvent, botCommands []parser.BotCommand) {
+	helpMessage := GenerateHelpOverviewMessage()
 	if err := postResponse(client, event, helpMessage); err != nil {
 		klog.Errorf("failed to post help overview: %v", err)
 	}
 }
 
 // HelpSpecific shows detailed help for a specific command category (e.g., "launch", "rosa") with usage examples
-func HelpSpecific(client *slack.Client, event *slackevents.MessageEvent, category string, botCommands []parser.BotCommand, allowPrivate bool) {
+func HelpSpecific(client *slack.Client, event *slackevents.MessageEvent, category string, botCommands []parser.BotCommand) {
 	category = strings.ToLower(category)
 
 	// Use dedicated help functions for comprehensive help
@@ -530,18 +511,11 @@ func HelpSpecific(client *slack.Client, event *slackevents.MessageEvent, categor
 		}
 		return
 	case HelpCategoryMce:
-		if allowPrivate {
-			helpMessage := GenerateMceHelpMessage()
-			if err := postResponse(client, event, helpMessage); err != nil {
-				klog.Errorf("failed to post mce help: %v", err)
-			}
-			return
-		} else {
-			if err := postResponse(client, event, "MCE commands are not available to you. Please contact an administrator."); err != nil {
-				klog.Errorf("failed to post mce access error: %v", err)
-			}
-			return
+		helpMessage := GenerateMceHelpMessage()
+		if err := postResponse(client, event, helpMessage); err != nil {
+			klog.Errorf("failed to post mce help: %v", err)
 		}
+		return
 	}
 
 	// Try to find a specific command for unknown categories
@@ -550,9 +524,6 @@ func HelpSpecific(client *slack.Client, event *slackevents.MessageEvent, categor
 
 	// Try to find a specific command
 	for _, cmd := range botCommands {
-		if cmd.IsPrivate() && !allowPrivate {
-			continue
-		}
 		tokens := cmd.Tokenize()
 		if len(tokens) > 0 && strings.ToLower(tokens[0].Word) == category {
 			relevantCommands = append(relevantCommands, cmd)
@@ -562,7 +533,7 @@ func HelpSpecific(client *slack.Client, event *slackevents.MessageEvent, categor
 	}
 
 	if len(relevantCommands) == 0 {
-		suggestion := findCommandSuggestion(category, botCommands, allowPrivate)
+		suggestion := findCommandSuggestion(category, botCommands)
 		helpMessage := fmt.Sprintf("❓ Unknown help topic: '%s'\n", category)
 		if suggestion != "" {
 			helpMessage += fmt.Sprintf("Did you mean: `help %s`?\n\n", suggestion)
@@ -573,9 +544,7 @@ func HelpSpecific(client *slack.Client, event *slackevents.MessageEvent, categor
 		helpMessage += "• `help test` - Testing commands\n"
 		helpMessage += "• `help build` - Build commands\n"
 		helpMessage += "• `help manage` - Management commands\n"
-		if allowPrivate {
-			helpMessage += "• `help mce` - MCE commands\n"
-		}
+		helpMessage += "• `help mce` - MCE commands\n"
 		if err := postResponse(client, event, helpMessage); err != nil {
 			klog.Errorf("failed to post unknown help topic message: %v", err)
 		}
@@ -585,10 +554,6 @@ func HelpSpecific(client *slack.Client, event *slackevents.MessageEvent, categor
 	helpMessage := fmt.Sprintf("*%s*\n\n", categoryTitle)
 
 	for _, command := range relevantCommands {
-		if command.IsPrivate() && !allowPrivate {
-			continue
-		}
-
 		tokens := command.Tokenize()
 
 		// Command name
@@ -629,16 +594,11 @@ func HelpSpecific(client *slack.Client, event *slackevents.MessageEvent, categor
 	}
 }
 
-func findCommandSuggestion(input string, botCommands []parser.BotCommand, allowPrivate bool) string {
+func findCommandSuggestion(input string, botCommands []parser.BotCommand) string {
 	input = strings.ToLower(input)
-	categories := make([]string, len(HelpCategories))
-	copy(categories, HelpCategories)
-	if allowPrivate {
-		categories = append(categories, HelpCategoryMce)
-	}
 
 	// Check categories first
-	for _, cat := range categories {
+	for _, cat := range HelpCategories {
 		if strings.Contains(cat, input) || strings.Contains(input, cat) {
 			return cat
 		}
@@ -646,9 +606,6 @@ func findCommandSuggestion(input string, botCommands []parser.BotCommand, allowP
 
 	// Check individual commands
 	for _, cmd := range botCommands {
-		if cmd.IsPrivate() && !allowPrivate {
-			continue
-		}
 		tokens := cmd.Tokenize()
 		if len(tokens) > 0 {
 			cmdName := strings.ToLower(tokens[0].Word)
