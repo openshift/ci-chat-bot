@@ -44,7 +44,7 @@ var supportedCommands = []BotCommand{
 		Handler:     emptyHandler,
 	}, false),
 	NewBotCommand("build <pullrequest>", &CommandDefinition{
-		Description: "Create a new release image from one or more pull requests. The successful build location will be sent to you when it completes and then preserved for 12 hours.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
+		Description: "Create a new release image from one or more pull requests. The successful build location will be sent to you when it completes and then preserved for 1 week.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
 		Example:     "build openshift/operator-framework-olm#68,operator-framework/operator-marketplace#396",
 		Handler:     emptyHandler,
 	}, false),
@@ -54,7 +54,7 @@ var supportedCommands = []BotCommand{
 		Handler:     emptyHandler,
 	}, false),
 	NewBotCommand("catalog build <pullrequest> <bundle_name>", &CommandDefinition{
-		Description: "Create an operator, bundle, and catalog from a pull request. The successful build location will be sent to you when it completes and then preserved for 12 hours.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
+		Description: "Create an operator, bundle, and catalog from a pull request. The successful build location will be sent to you when it completes and then preserved for 1 week.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
 		Example:     "catalog build openshift/aws-efs-csi-driver-operator#75 aws-efs-csi-driver-operator-bundle",
 		Handler:     emptyHandler,
 	}, false),
