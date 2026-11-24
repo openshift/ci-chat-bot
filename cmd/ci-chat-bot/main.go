@@ -171,6 +171,14 @@ func run() error {
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
 
+	// The process changes into XDG_RUNTIME_DIR below, so resolve the kubeconfig
+	// path relative to the invocation directory before that happens.
+	prowJobKubeconfigPath, err := utils.ResolveKubeconfigPath(opt.ProwJobKubeconfig)
+	if err != nil {
+		return err
+	}
+	opt.ProwJobKubeconfig = prowJobKubeconfigPath
+
 	if deprecatedJiraEndpoint != "" || deprecatedJiraUsername != "" || deprecatedJiraPasswordFile != "" {
 		klog.Warning("Jira flags (--jira-endpoint, --jira-username, --jira-password-file) are deprecated and will be removed in a future release. Jira integration has been removed.")
 	}

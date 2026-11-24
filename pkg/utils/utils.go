@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -115,13 +116,33 @@ func LoadKubeconfigFromFlagOrDefault(path string, def *rest.Config) (*rest.Confi
 	if path == "" {
 		return def, nil
 	}
-	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}, &clientcmd.ConfigOverrides{},
-	).ClientConfig()
+	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: path}
+	rawConfig, err := loadingRules.Load()
+	if err != nil {
+		return nil, fmt.Errorf("could not load kubeconfig %q: %w", path, err)
+	}
+	// Load the explicit file directly instead of using a deferred client config,
+	// which would silently fall back to the in-cluster configuration when the
+	// file is empty or unusable.
+	cfg, err := clientcmd.NewNonInteractiveClientConfig(*rawConfig, rawConfig.CurrentContext, &clientcmd.ConfigOverrides{}, nil).ClientConfig()
 	if err != nil {
 		return nil, fmt.Errorf("could not load kubeconfig %q: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// ResolveKubeconfigPath returns an absolute path for a kubeconfig so that
+// later changes to the process working directory do not change which file is
+// loaded. An empty path is returned unchanged to preserve fallback behavior.
+func ResolveKubeconfigPath(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("could not resolve kubeconfig path %q: %w", path, err)
+	}
+	return absPath, nil
 }
 
 func UpdateSecret(name string, client v1.SecretInterface, fn func(*corev1.Secret)) error {
