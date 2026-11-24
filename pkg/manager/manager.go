@@ -105,8 +105,8 @@ const (
 )
 
 var CurrentRelease = semver.Version{
-	Major: 4,
-	Minor: 23,
+	Major: 5,
+	Minor: 1,
 }
 
 var HypershiftSupportedVersions = HypershiftSupportedVersionsType{}
