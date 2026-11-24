@@ -75,6 +75,7 @@ type options struct {
 	InstrumentationOptions   flagutil.InstrumentationOptions
 	ForcePROwner             string
 	ReleaseClusterKubeconfig string
+	ProwJobKubeconfig        string
 	ConfigResolver           string
 	WorkflowConfigPath       string
 	Port                     int
@@ -98,6 +99,11 @@ func (o *options) Validate() error {
 	if o.ReleaseClusterKubeconfig != "" {
 		if _, err := os.Stat(o.ReleaseClusterKubeconfig); err != nil {
 			return fmt.Errorf("error accessing --release-cluster-kubeconfig: %w", err)
+		}
+	}
+	if o.ProwJobKubeconfig != "" {
+		if _, err := os.Stat(o.ProwJobKubeconfig); err != nil {
+			return fmt.Errorf("error accessing --prow-job-kubeconfig: %w", err)
 		}
 	}
 	for _, group := range []flagutil.OptionGroup{&o.GitHubOptions, &o.KubernetesOptions, &o.InstrumentationOptions} {
@@ -135,6 +141,7 @@ func run() error {
 	pflag.StringVar(&opt.ConfigResolver, "config-resolver", opt.ConfigResolver, "A URL pointing to a config resolver for retrieving ci-operator config. You may pass a location on disk with file://<abs_path_to_ci_operator_config>")
 	pflag.StringVar(&opt.ForcePROwner, "force-pr-owner", opt.ForcePROwner, "Make the supplied user the owner of all PRs for access control purposes.")
 	pflag.StringVar(&opt.ReleaseClusterKubeconfig, "release-cluster-kubeconfig", "", "Kubeconfig to use for cluster housing the release imagestreams. Defaults to normal kubeconfig if unset.")
+	pflag.StringVar(&opt.ProwJobKubeconfig, "prow-job-kubeconfig", "", "Kubeconfig to use for interacting with ProwJobs. Defaults to normal kubeconfig if unset.")
 	pflag.StringVar(&opt.WorkflowConfigPath, "workflow-config-path", "", "Path to config file used for workflow commands")
 	pflag.IntVar(&opt.Port, "port", 8080, "Port to listen on.")
 	pflag.DurationVar(&opt.GracePeriod, "grace-period", 5*time.Second, "On shutdown, try to handle remaining events for the specified duration.")
@@ -163,6 +170,14 @@ func run() error {
 	pflag.CommandLine.AddGoFlagSet(emptyFlags)
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
+
+	// The process changes into XDG_RUNTIME_DIR below, so resolve the kubeconfig
+	// path relative to the invocation directory before that happens.
+	prowJobKubeconfigPath, err := utils.ResolveKubeconfigPath(opt.ProwJobKubeconfig)
+	if err != nil {
+		return err
+	}
+	opt.ProwJobKubeconfig = prowJobKubeconfigPath
 
 	if deprecatedJiraEndpoint != "" || deprecatedJiraUsername != "" || deprecatedJiraPasswordFile != "" {
 		klog.Warning("Jira flags (--jira-endpoint, --jira-username, --jira-password-file) are deprecated and will be removed in a future release. Jira integration has been removed.")
@@ -224,9 +239,13 @@ func run() error {
 	}
 
 	var hasSynced []cache.InformerSynced
-	prowJobKubeconfig, _, _, err := utils.LoadKubeconfig()
+	kubeconfig, _, _, err := utils.LoadKubeconfig()
 	if err != nil {
 		return err
+	}
+	prowJobKubeconfig, err := utils.LoadKubeconfigFromFlagOrDefault(opt.ProwJobKubeconfig, kubeconfig)
+	if err != nil {
+		return fmt.Errorf("unable to load prow job kubeconfig from flag or default: %w", err)
 	}
 	prowClient, err := prowclientset.NewForConfig(prowJobKubeconfig)
 	if err != nil {
@@ -245,7 +264,7 @@ func run() error {
 	hasSynced = append(hasSynced, prowjobInformer.Informer().HasSynced)
 
 	// Config and Client to access release images
-	releaseConfig, err := utils.LoadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, prowJobKubeconfig)
+	releaseConfig, err := utils.LoadKubeconfigFromFlagOrDefault(opt.ReleaseClusterKubeconfig, kubeconfig)
 	if err != nil {
 		return fmt.Errorf("unable to load kubeConfig from flag or default: %w", err)
 	}
@@ -253,7 +272,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("unable to create image client: %w", err)
 	}
-	releaseClient, err := corev1.NewForConfig(prowJobKubeconfig)
+	releaseClient, err := corev1.NewForConfig(kubeconfig)
 	if err != nil {
 		return fmt.Errorf("unabel to create release client: %w", err)
 	}
