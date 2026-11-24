@@ -115,9 +115,13 @@ func LoadKubeconfigFromFlagOrDefault(path string, def *rest.Config) (*rest.Confi
 	if path == "" {
 		return def, nil
 	}
-	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}, &clientcmd.ConfigOverrides{},
 	).ClientConfig()
+	if err != nil {
+		return nil, fmt.Errorf("could not load kubeconfig %q: %w", path, err)
+	}
+	return cfg, nil
 }
 
 func UpdateSecret(name string, client v1.SecretInterface, fn func(*corev1.Secret)) error {
