@@ -209,9 +209,9 @@ func GenerateHelpOverviewMessage() string {
 	helpMessage += "• `help mce` - MCE clusters\n"
 
 	helpMessage += "\n*Examples:*\n"
-	helpMessage += "• `launch 4.19 aws` - Launch OpenShift 4.19 on AWS\n"
-	helpMessage += "• `launch 4.19 hypershift-hosted` - Launch OpenShift 4.19 on Hypershift\n"
-	helpMessage += "• `rosa create 4.19 3h` - Create ROSA cluster for 3 hours\n"
+	helpMessage += "• `launch 5.0 aws` - Launch OpenShift 5.0 on AWS\n"
+	helpMessage += "• `launch 5.0 hypershift-hosted` - Launch OpenShift 5.0 on Hypershift\n"
+	helpMessage += "• `rosa create 5.0 3h` - Create ROSA cluster for 3 hours\n"
 	helpMessage += "• `help launch` - See all launch options\n\n"
 
 	helpMessage += "*Additional Links*\n"
@@ -232,17 +232,17 @@ func GenerateLaunchHelpMessage() string {
 	helpMessage += "*Input Formats for <image_or_version_or_prs>:*\n"
 	helpMessage += "• `nightly` - Latest OCP nightly build\n"
 	helpMessage += "• `ci` - Latest CI build\n"
-	helpMessage += "• `4.19` - Major.minor for next stable from nightly\n"
-	helpMessage += "• `4.19.0-0.nightly` - Specific stream name\n"
+	helpMessage += "• `5.0` - Major.minor for next stable from nightly\n"
+	helpMessage += "• `5.0.0-0.nightly` - Specific stream name\n"
 	helpMessage += "• `openshift/installer#123` - Pull request(s)\n"
 	helpMessage += "• Direct image pull spec from releases page\n\n"
 
 	helpMessage += "*Quick Reference - Common Configurations:*\n"
-	helpMessage += "• Basic AWS: `launch 4.19 aws`\n"
-	helpMessage += "• Compact cluster: `launch 4.19 aws,compact`\n"
-	helpMessage += "• ARM on GCP: `launch 4.19 gcp,arm64`\n"
-	helpMessage += "• Secure cluster: `launch 4.19 aws,fips,private`\n"
-	helpMessage += "• Test environment: `launch 4.19 metal,compact,techpreview`\n\n"
+	helpMessage += "• Basic AWS: `launch 5.0 aws`\n"
+	helpMessage += "• Compact cluster: `launch 5.0 aws,compact`\n"
+	helpMessage += "• ARM on GCP: `launch 5.0 gcp,arm64`\n"
+	helpMessage += "• Secure cluster: `launch 5.0 aws,fips,private`\n"
+	helpMessage += "• Test environment: `launch 5.0 metal,compact,techpreview`\n\n"
 
 	helpMessage += "*Important Notes:*\n"
 	helpMessage += "• Must contain an OpenShift version\n"
@@ -273,25 +273,25 @@ func GenerateLaunchHelpMessage() string {
 	helpMessage += "*Advanced Options (combine as needed):*\n"
 	helpMessage += "• Installation: `upi`, `preserve-bootstrap`\n"
 	helpMessage += "• Runtime: `techpreview`, `devpreview`\n"
-	helpMessage += "• Infrastructure: `mirror`, `shared-vpc`, `no-spot`, `virtualization-support`\n"
+	helpMessage += "• Infrastructure: `mirror`, `shared-vpc`, `no-spot`, `virtualization-support`, `static` (vSphere static IPs)\n"
 	helpMessage += "• Special: `test`, `bundle`, `nfv`\n\n"
 
 	helpMessage += "*Option Guidelines:*\n"
 	helpMessage += "• Start with platform (aws, gcp, etc.)\n"
-	helpMessage += "• Add architecture if not default (arm64, multi)\n"
+	helpMessage += "• Add architecture if not default (`arm64`, `multi`)\n"
 	helpMessage += "• Add networking if needed (sdn, kuryr, ipv6)\n"
 	helpMessage += "• Add size/features last (compact, fips, techpreview, devpreview)\n"
 	helpMessage += "• Bot will validate combinations and inform about conflicts\n\n"
 
 	helpMessage += "*Examples (Simple to Complex):*\n"
-	helpMessage += "• `launch 4.19` - Default: latest 4.19 on `hypershift-hosted` `amd64`\n"
+	helpMessage += "• `launch 5.0` - Default: latest 5.0 on `hypershift-hosted` `amd64`\n"
 	helpMessage += "• `launch nightly aws` - Latest nightly build\n"
-	helpMessage += "• `launch 4.19 gcp,arm64` - Different platform + architecture\n"
+	helpMessage += "• `launch 5.0 gcp,arm64` - Different platform + architecture\n"
 	helpMessage += "• `launch ci azure,compact,ovn` - CI build + size + networking\n"
-	helpMessage += "• `launch 4.19 aws,arm64,fips,private` - Security-focused cluster\n"
-	helpMessage += "• `launch 4.19.0-0.nightly metal,single-node,techpreview` - Advanced config\n"
-	helpMessage += "• `launch 4.19,openshift/installer#123 vsphere,multi,techpreview` - PR testing\n"
-	helpMessage += "• `launch 4.19,openshift/installer#123,openshift/mco#456 aws,multi-zone` - Multi-PR\n"
+	helpMessage += "• `launch 5.0 aws,arm64,fips,private` - Security-focused cluster\n"
+	helpMessage += "• `launch 5.0.0-0.nightly metal,single-node,techpreview` - Advanced config\n"
+	helpMessage += "• `launch 5.0,openshift/installer#123 vsphere,multi,techpreview` - PR testing\n"
+	helpMessage += "• `launch 5.0,openshift/installer#123,openshift/mco#456 aws,multi-zone` - Multi-PR\n"
 
 	return helpMessage
 }
@@ -304,18 +304,26 @@ func GenerateRosaHelpMessage() string {
 	helpMessage += "```\nrosa create <version> <duration>\n```\n"
 	helpMessage += "Create a ROSA cluster on AWS with automatic teardown.\n\n"
 
+	helpMessage += "*rosa lookup*\n"
+	helpMessage += "```\nrosa lookup <version>\n```\n"
+	helpMessage += "Find OpenShift versions supported by ROSA that match the given prefix.\n\n"
+
 	helpMessage += "*rosa describe*\n"
 	helpMessage += "```\nrosa describe <cluster_name>\n```\n"
 	helpMessage += "Get detailed information about a ROSA cluster.\n\n"
 
+	helpMessage += "*Architecture:*\n"
+	helpMessage += "ROSA clusters are created as `amd64` Hypershift-hosted (HCP) clusters. Architecture and platform cannot be selected for ROSA clusters.\n\n"
+
 	helpMessage += "*Common Options:*\n"
-	helpMessage += "• Duration: `1h`, `3h`, `24h`, `48h`\n"
-	helpMessage += "• Versions: Latest stable releases\n"
+	helpMessage += "• Duration: optional, default `6h`, maximum `8h` (e.g. `1h`, `3h`, `8h`)\n"
+	helpMessage += "• Versions: GA releases only; use `rosa lookup` to list them\n"
 	helpMessage += "• Automatic cleanup after expiration\n\n"
 
 	helpMessage += "*Examples:*\n"
-	helpMessage += "• `rosa create 4.19 3h` - Create 4.19 cluster for 3 hours\n"
-	helpMessage += "• `rosa create 4.18 24h` - Create 4.18 cluster for 24 hours\n"
+	helpMessage += "• `rosa create 5.0 3h` - Create 5.0 cluster for 3 hours\n"
+	helpMessage += "• `rosa create 5.0` - Create 5.0 cluster for the default 6 hours\n"
+	helpMessage += "• `rosa lookup 5.0` - List supported 5.0 versions\n"
 	helpMessage += "• `rosa describe my-cluster` - Get cluster details\n"
 
 	return helpMessage
@@ -344,6 +352,10 @@ func GenerateTestHelpMessage() string {
 	helpMessage += "```\ntest upgrade <from> <to> <options>\n```\n"
 	helpMessage += "Run upgrade tests between two release images.\n\n"
 
+	helpMessage += "*Options:*\n"
+	helpMessage += "• Options accept the same platform, architecture, and variant values as `launch` (e.g. `aws,arm64,compact`)\n"
+	helpMessage += "• Architecture: `amd64` (default), `arm64`, `multi`\n\n"
+
 	helpMessage += "*Upgrade Test Options:*\n"
 	helpMessage += "• `e2e-upgrade` - Standard upgrade test (default)\n"
 	helpMessage += "• `e2e-upgrade-all` - All upgrade tests\n"
@@ -360,11 +372,11 @@ func GenerateTestHelpMessage() string {
 	helpMessage += "Run custom upgrade using the requested workflow.\n\n"
 
 	helpMessage += "*Examples:*\n"
-	helpMessage += "• `test e2e 4.19 aws` - Run e2e tests on AWS\n"
-	helpMessage += "• `test e2e-serial 4.19 gcp` - Run serial tests\n"
+	helpMessage += "• `test e2e 5.0 aws` - Run e2e tests on AWS\n"
+	helpMessage += "• `test e2e-serial 5.0 gcp` - Run serial tests\n"
 	helpMessage += "• `test upgrade 4.17 4.19 aws` - Test upgrade path\n"
 	helpMessage += "• `test upgrade 4.17 4.19 aws,test=e2e-upgrade-all` - All upgrade tests\n"
-	helpMessage += "• `workflow-test openshift-e2e-gcp 4.19` - Run GCP workflow\n"
+	helpMessage += "• `workflow-test openshift-e2e-gcp 5.0` - Run GCP workflow\n"
 	helpMessage += "• `workflow-upgrade openshift-upgrade-azure-ovn 4.17 4.19 azure` - Custom upgrade\n"
 
 	return helpMessage
@@ -383,10 +395,10 @@ func GenerateBuildHelpMessage() string {
 	helpMessage += "Build operator catalog images.\n\n"
 
 	helpMessage += "*Examples:*\n"
-	helpMessage += "• `build 4.19,openshift/installer#123` - Build installer images from PR\n"
-	helpMessage += "• `build 4.19,openshift/machine-config-operator#456` - Build MCO change\n"
-	helpMessage += "• `build 4.19,openshift/origin#49563,openshift/kubernetes#731,openshift/machine-api-operator#831` - Build with multiple PRs\n"
-	helpMessage += "• `catalog build 4.19,openshift/aws-efs-csi-driver-operator#84 aws-efs-csi-driver-operator-bundle` - Build operator catalog\n"
+	helpMessage += "• `build 5.0,openshift/installer#123` - Build installer images from PR\n"
+	helpMessage += "• `build 5.0,openshift/machine-config-operator#456` - Build MCO change\n"
+	helpMessage += "• `build 5.0,openshift/origin#49563,openshift/kubernetes#731,openshift/machine-api-operator#831` - Build with multiple PRs\n"
+	helpMessage += "• `catalog build 5.0,openshift/aws-efs-csi-driver-operator#84 aws-efs-csi-driver-operator-bundle` - Build operator catalog\n"
 
 	return helpMessage
 }
@@ -420,8 +432,8 @@ func GenerateManageHelpMessage() string {
 	helpMessage += "Remove your GCP workspace access before it expires. This allows you to immediately revoke access if you no longer need it, rather than waiting for the automatic 7-day expiration.\n\n"
 
 	helpMessage += "*lookup*\n"
-	helpMessage += "```\nlookup <version specifier>\n```\n"
-	helpMessage += "Find version corresponding to version specifier.\n\n"
+	helpMessage += "```\nlookup <version specifier> <architecture>\n```\n"
+	helpMessage += "Find version corresponding to version specifier. The architecture is optional and defaults to `amd64`; use `arm64` to look up ARM versions.\n\n"
 
 	helpMessage += "*version*\n"
 	helpMessage += "```\nversion\n```\n"
@@ -444,22 +456,35 @@ func GenerateMceHelpMessage() string {
 	helpMessage := "*🏢 MCE (Multi-Cluster Engine) Commands*\n\n"
 
 	helpMessage += "*mce create*\n"
-	helpMessage += "```\nmce create <hub_version> <managed_count> <platform>\n```\n"
-	helpMessage += "Create MCE hub with managed clusters.\n\n"
+	helpMessage += "```\nmce create <image_or_version_or_prs> <duration> <platform>\n```\n"
+	helpMessage += "Create a new cluster using Hive and MCE. Versions not listed by `mce lookup` (and PRs) are built into a custom image first.\n\n"
 
-	helpMessage += "*mce describe*\n"
-	helpMessage += "```\nmce describe <hub_name>\n```\n"
-	helpMessage += "Get detailed MCE hub information.\n\n"
+	helpMessage += "*mce auth*\n"
+	helpMessage += "```\nmce auth <name>\n```\n"
+	helpMessage += "Get the kubeconfig and kubeadmin password for an MCE cluster. The name is optional if you have only one cluster.\n\n"
 
-	helpMessage += "*MCE Features:*\n"
-	helpMessage += "• Multi-cluster management\n"
-	helpMessage += "• Cluster lifecycle automation\n"
-	helpMessage += "• Policy and governance\n"
-	helpMessage += "• Application deployment\n\n"
+	helpMessage += "*mce delete*\n"
+	helpMessage += "```\nmce delete <cluster_name>\n```\n"
+	helpMessage += "Delete an MCE cluster. The name is optional if you have only one cluster.\n\n"
+
+	helpMessage += "*mce list*\n"
+	helpMessage += "```\nmce list <all>\n```\n"
+	helpMessage += "List your active MCE clusters. Append `all` to list clusters for all users.\n\n"
+
+	helpMessage += "*mce lookup*\n"
+	helpMessage += "```\nmce lookup\n```\n"
+	helpMessage += "List available versions for MCE clusters.\n\n"
+
+	helpMessage += "*Options:*\n"
+	helpMessage += "• Platform: `aws` (default), `gcp`\n"
+	helpMessage += "• Duration: optional, defaults to your maximum allowed duration (`8h` unless configured otherwise)\n"
+	helpMessage += "• Architecture: clusters are created as `amd64` clusters; architecture cannot be selected\n\n"
 
 	helpMessage += "*Examples:*\n"
-	helpMessage += "• `mce create 2.6 3 aws` - Create hub with 3 managed clusters\n"
-	helpMessage += "• `mce describe my-hub` - Get hub cluster details\n"
+	helpMessage += "• `mce create 4.16.7 6h aws` - Create a 4.16.7 cluster on AWS for 6 hours\n"
+	helpMessage += "• `mce auth mycluster` - Get credentials for `mycluster`\n"
+	helpMessage += "• `mce list all` - List MCE clusters for all users\n"
+	helpMessage += "• `mce delete mycluster` - Delete `mycluster`\n"
 
 	helpMessage += "\n*Note: MCE commands require special authorization.*\n"
 

@@ -420,7 +420,7 @@ func TestHelpOverview(t *testing.T) {
 		"Category Help:",
 		"help mce",
 		"Examples:",
-		"launch 4.19 aws",
+		"launch 5.0 aws",
 	}
 
 	for _, expected := range expectedContent {
@@ -439,7 +439,7 @@ func TestHelpSpecificLaunch(t *testing.T) {
 		"🚀 Cluster Launching",
 		"launch",
 		"Launch an OpenShift cluster",
-		"launch 4.19 aws",
+		"launch 5.0 aws",
 	}
 
 	for _, expected := range expectedContent {
@@ -463,12 +463,23 @@ func TestHelpSpecificRosa(t *testing.T) {
 		"☁️ ROSA",
 		"rosa create",
 		"Create a ROSA cluster",
-		"rosa create 4.19 3h",
+		"rosa create 5.0 3h",
+		"rosa lookup",
+		"rosa describe",
+		"maximum `8h`",
+		"`amd64` Hypershift-hosted (HCP)",
 	}
 
 	for _, expected := range expectedContent {
 		if !strings.Contains(message, expected) {
 			t.Errorf("Expected message to contain '%s', got: %s", expected, message)
+		}
+	}
+
+	// durations above the 8h ROSA maximum must not be advertised
+	for _, unexpected := range []string{"24h", "48h"} {
+		if strings.Contains(message, unexpected) {
+			t.Errorf("Expected message not to contain '%s'", unexpected)
 		}
 	}
 }
@@ -550,9 +561,13 @@ func TestGenerateMceHelpMessage(t *testing.T) {
 
 	expectedContent := []string{
 		"🏢 MCE",
-		"mce create",
-		"mce describe",
-		"Multi-cluster management",
+		"mce create <image_or_version_or_prs> <duration> <platform>",
+		"mce auth",
+		"mce delete",
+		"mce list",
+		"mce lookup",
+		"`aws` (default), `gcp`",
+		"`amd64`",
 		"special authorization",
 	}
 
@@ -560,5 +575,10 @@ func TestGenerateMceHelpMessage(t *testing.T) {
 		if !strings.Contains(message, expected) {
 			t.Errorf("Expected message to contain '%s'", expected)
 		}
+	}
+
+	// mce describe is not a registered command
+	if strings.Contains(message, "mce describe") {
+		t.Error("Expected message not to contain 'mce describe'")
 	}
 }

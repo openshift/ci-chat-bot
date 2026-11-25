@@ -123,21 +123,21 @@ func NewBot(botToken, botSigningSecret string, graceperiod time.Duration, port i
 func (b *Bot) SupportedCommands() []parser.BotCommand {
 	return []parser.BotCommand{
 		parser.NewBotCommand("launch <image_or_version_or_prs> <options>", &parser.CommandDefinition{
-			Description: fmt.Sprintf("Launch an OpenShift cluster using a known image, version, or PR(s). The <image_or_version_or_prs> must contain an Openshift version. You may omit the <options> argument. Arguments can be specified as any number of comma-delimited values. Use `nightly` for the latest OCP build, `ci` for the the latest CI build, provide a version directly from any listed on https://amd64.ocp.releases.ci.openshift.org, a stream name (4.19.0-0.ci, 4.19.0-0.nightly, etc), a major/minor `X.Y` to load the \"next stable\" version, from nightly, for that version (`4.19`), `<org>/<repo>#<pr>` to launch from any combination of PRs, or an image for the first argument. Options is a comma-delimited list of variations including platform (%s), architecture (%s), and variant (%s).",
+			Description: fmt.Sprintf("Launch an OpenShift cluster using a known image, version, or PR(s). The <image_or_version_or_prs> must contain an Openshift version. You may omit the <options> argument. Arguments can be specified as any number of comma-delimited values. Use `nightly` for the latest OCP build, `ci` for the the latest CI build, provide a version directly from any listed on https://amd64.ocp.releases.ci.openshift.org, a stream name (5.0.0-0.ci, 5.0.0-0.nightly, etc), a major/minor `X.Y` to load the \"next stable\" version, from nightly, for that version (`5.0`), `<org>/<repo>#<pr>` to launch from any combination of PRs, or an image for the first argument. Options is a comma-delimited list of variations including platform (%s), architecture (%s), and variant (%s).",
 				strings.Join(CodeSlice(manager.SupportedPlatforms), ", "),
 				strings.Join(CodeSlice(manager.SupportedArchitectures), ", "),
 				strings.Join(CodeSlice(manager.SupportedParameters), ", ")),
-			Example: "launch 4.19,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
+			Example: "launch 5.0,openshift/installer#7160,openshift/machine-config-operator#3688 gcp,techpreview",
 			Handler: LaunchCluster,
 		}),
 		parser.NewBotCommand("rosa create <version> <duration>", &parser.CommandDefinition{
-			Description: "Launch an cluster in ROSA. Only GA Openshift versions are supported at the moment.",
-			Example:     "rosa create 4.19 3h",
+			Description: "Launch an cluster in ROSA. Only GA Openshift versions are supported at the moment. Clusters are created as amd64 Hypershift-hosted (HCP) clusters; architecture cannot be selected.",
+			Example:     "rosa create 5.0 3h",
 			Handler:     RosaCreate,
 		}),
 		parser.NewBotCommand("rosa lookup <version>", &parser.CommandDefinition{
 			Description: "Find openshift version(s) with provided prefix that is supported in ROSA.",
-			Example:     "rosa lookup 4.19",
+			Example:     "rosa lookup 5.0",
 			Handler:     RosaLookup,
 		}),
 		parser.NewBotCommand("rosa describe <cluster>", &parser.CommandDefinition{
@@ -168,22 +168,22 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		}),
 		parser.NewBotCommand("test <name> <image_or_version_or_prs> <options>", &parser.CommandDefinition{
 			Description: fmt.Sprintf("Run the requested test suite from an image or release or built PRs. Supported test suites are %s. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org. ", strings.Join(CodeSlice(manager.SupportedTests), ", ")),
-			Example:     "test e2e 4.19 vsphere",
+			Example:     "test e2e 5.0 vsphere",
 			Handler:     Test,
 		}),
 		parser.NewBotCommand("build <pullrequest>", &parser.CommandDefinition{
-			Description: "Create a new release image from one or more pull requests. The successful build location will be sent to you when it completes and then preserved for 12 hours.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
+			Description: "Create a new release image from one or more pull requests. The successful build location will be sent to you when it completes and then preserved for 1 week.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
 			Example:     "build openshift/operator-framework-olm#68,operator-framework/operator-marketplace#396",
 			Handler:     Build,
 		}),
 		parser.NewBotCommand("workflow-launch <name> <image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
 			Description: "Launch a cluster using the requested workflow from an image or release or built PRs. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org.",
-			Example:     "workflow-launch openshift-e2e-gcp-windows-node 4.19 gcp",
+			Example:     "workflow-launch openshift-e2e-gcp-windows-node 5.0 gcp",
 			Handler:     WorkflowLaunch,
 		}),
 		parser.NewBotCommand("workflow-test <name> <image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
 			Description: "Start the test using the requested workflow from an image or release or built PRs. The from argument may be a pull spec of a release image or tags from https://amd64.ocp.releases.ci.openshift.org.",
-			Example:     "workflow-test openshift-e2e-gcp 4.19",
+			Example:     "workflow-test openshift-e2e-gcp 5.0",
 			Handler:     WorkflowTest,
 		}),
 		parser.NewBotCommand("workflow-upgrade <name> <from_image_or_version_or_prs> <to_image_or_version_or_prs> <parameters>", &parser.CommandDefinition{
@@ -197,16 +197,16 @@ func (b *Bot) SupportedCommands() []parser.BotCommand {
 		}),
 		parser.NewBotCommand("lookup <image_or_version_or_prs> <architecture>", &parser.CommandDefinition{
 			Description: "Get info about a version.",
-			Example:     "lookup 4.19 arm64",
+			Example:     "lookup 5.0 arm64",
 			Handler:     Lookup,
 		}),
 		parser.NewBotCommand("catalog build <pullrequest> <bundle_name>", &parser.CommandDefinition{
-			Description: "Create an operator, bundle, and catalog from a pull request. The successful build location will be sent to you when it completes and then preserved for 12 hours.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
+			Description: "Create an operator, bundle, and catalog from a pull request. The successful build location will be sent to you when it completes and then preserved for 1 week.  To obtain a pull secret use `oc registry login --to /path/to/pull-secret` after using `oc login` to login to the relevant CI cluster.",
 			Example:     "catalog build openshift/aws-efs-csi-driver-operator#75 aws-efs-csi-driver-operator-bundle",
 			Handler:     CatalogBuild,
 		}),
 		parser.NewBotCommand("mce create <image_or_version_or_prs> <duration> <platform>", &parser.CommandDefinition{
-			Description: "Create a new cluster using Hive and MCE.",
+			Description: "Create a new cluster using Hive and MCE. Clusters are created as amd64 clusters; architecture cannot be selected.",
 			Example:     "mce create 4.16.7 6h aws",
 			Handler:     MceCreate,
 		}),
