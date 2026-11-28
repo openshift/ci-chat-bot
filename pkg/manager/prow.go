@@ -537,6 +537,7 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		}
 		if UseSpotInstances(job) {
 			matchedTarget.MultiStageTestConfiguration.Environment["SPOT_INSTANCES"] = "true"
+			matchedTarget.MultiStageTestConfiguration.Environment["SPOT_ON_DEMAND_FALLBACK"] = "true"
 		}
 		envParams := sets.New[string]()
 		platformParams := multistageParamsForPlatform(job.Platform)
